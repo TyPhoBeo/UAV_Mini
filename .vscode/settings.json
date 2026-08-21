@@ -1,0 +1,13 @@
+{
+    // Use the exact compiler flags PlatformIO records per file for the most
+    // reliable IntelliSense / Go-to-Definition across project + ESP-IDF.
+    // platformio.ini nằm NGAY GỐC repo — mở thẳng UAV-S3/ bằng PlatformIO IDE
+    // là build/upload/monitor được luôn, không cần thư mục con nào khác.
+    // Regenerate sau khi thêm/xóa file nguồn trong components/flight_core:
+    //   C:\Users\typho\.platformio\penv\Scripts\pio.exe run -t compiledb -e esp32s3_flight_core_verify
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/.pio/build/esp32s3_flight_core_verify/compile_commands.json",
+
+    // Make sure the semantic engine (which powers Go-to-Definition) is on.
+    "C_Cpp.intelliSenseEngine": "default",
+    "C_Cpp.intelliSenseEngineFallback": "enabled"
+}

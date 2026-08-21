@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($env:PLATFORMIO_DISABLE_PROGRESSBAR='true'; & \"$env:USERPROFILE\\\\.platformio\\\\penv\\\\Scripts\\\\pio.exe\" run -e upesy_wroom_maint 2>&1 | Select-String -Pattern \"error:|undefined reference|fatal error|HTTPD_WS|httpd_ws|No such|FAILED|SUCCESS\" | Select-Object -First 30)"
+    ]
+  }
+}

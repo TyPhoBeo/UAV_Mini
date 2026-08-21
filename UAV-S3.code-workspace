@@ -1,0 +1,24 @@
+// Workspace VS Code cho UAV-S3 — MỞ FILE NÀY (File > Open Workspace from File)
+// thay vì Open Folder từng thư mục con.
+//
+// Vì sao có file này: PlatformIO chạy task theo THƯ MỤC GỐC của workspace. Nếu
+// mở nhầm một thư mục con (vd test_build/, vốn là tàn dư của cách verify cũ và
+// KHÔNG có src/), extension sẽ báo:
+//     NotPlatformIOProjectError: Not a PlatformIO project.
+// hoặc:
+//     Error: Missing the `src` folder with project sources.
+// File này ghim đúng MỘT gốc là UAV-S3/ — nơi có platformio.ini thật cùng
+// src/, components/, main/ — nên không còn cách nào mở nhầm.
+{
+    "folders": [
+        {
+            "name": "UAV-S3",
+            "path": "."
+        }
+    ]
+    // KHÔNG lặp lại settings ở đây: .vscode/settings.json (cùng thư mục gốc)
+    // đã cấu hình C_Cpp.default.compileCommands trỏ vào compile_commands.json
+    // của env esp32s3_flight_core_verify. Ghi đè ở hai nơi thì lần sau sửa một
+    // chỗ mà chỗ kia vẫn giữ giá trị cũ — IntelliSense hỏng theo kiểu rất khó
+    // truy.
+}
