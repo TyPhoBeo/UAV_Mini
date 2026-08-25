@@ -71,8 +71,8 @@ extern "C" {
 #define ATT_GAIN_RATE_YAW_KP        2.5f
 #define ATT_GAIN_RATE_YAW_KI        5.0f
 #define ATT_GAIN_RATE_YAW_KD        0.0f
-#define ATT_GAIN_RATE_YAW_ILIMIT    160.0f
-#define ATT_GAIN_RATE_YAW_OUTLIM    180.0f
+#define ATT_GAIN_RATE_YAW_ILIMIT    150.0f
+#define ATT_GAIN_RATE_YAW_OUTLIM    250.0f
 
 // ---- Dấu mixer Quad-X — đảo nếu lắp ngược board/motor, KHÔNG sửa gain ----
 #define ATT_MIX_ROLL_SIGN           1.0f
@@ -93,7 +93,7 @@ extern "C" {
 // motor KHÔNG thể khử được -> tích lũy chỉ tạo windup, bung ra lúc ga lên).
 // Tách ra để nâng riêng ngưỡng Ki (vd 200 -> 400) khi tune mà KHÔNG đụng tới
 // ngưỡng chạy PID.
-#define ATT_I_ENABLE_THROTTLE_DUTY  600
+#define ATT_I_ENABLE_THROTTLE_DUTY  800
 
 // Trần collective (tỷ lệ của MOTOR_SAFE_MAX_DUTY) mà BÙ PIN được phép đẩy tới.
 // Phần còn lại (1 - giá trị này) là dải duty chừa cho mixer tạo mô-men roll/

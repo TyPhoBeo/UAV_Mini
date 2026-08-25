@@ -760,6 +760,77 @@ static bool prearm_check(int64_t now_us) {
     return ok;
 }
 
+// ============================================================================
+// try_acquire_tof_ground_ref() — chốt ground-ref ToF, CÓ RETRY
+// ============================================================================
+// TRƯỚC ĐÂY: một snapshot DUY NHẤT (sensor_hub_read() một lần). Bug đo được
+// trên phần cứng thật: chuỗi ARM -> TAKEOFF hoàn toàn ToF-only (baro tắt) trả
+// TKOREJ=NO_CORRECTION dù TOK=1 và raw TOF=0.26m (nằm giữa dải hợp lệ
+// [ALT_EST_TOF_MIN_RANGE_M, MAX], KHÔNG phải chuyện sát 0 "chip trả rác").
+//
+// NGUYÊN NHÂN: sensor_hub.c publish_tof() gọi mark_err() (hạ tof_h.valid về
+// false) MỖI KHI range_status != 0 — và chính comment trong sensor_hub.c nói
+// thẳng "range_status != 0 là chuyện BÌNH THƯỜNG với ToF (ngoài tầm, bề mặt
+// hấp thụ, ánh nắng)". Nghĩa là tof_h.valid CHẬP CHỜN THEO THIẾT KẾ giữa các
+// chu kỳ publish (~32ms, SENSOR_TOF_DIVISOR=8 @ SENSOR_HUB_HZ=250 — xem
+// sensor_hub.c), không phải lỗi. Một snapshot DUY NHẤT trúng đúng tick chập
+// chờn đó là mất ground-ref VĨNH VIỄN cho cả chuyến bay — không có gì tự sửa
+// lại vì chỗ gọi hàm này chỉ thử đúng một lần.
+//
+// SỬA: đọc LẶP LẠI, mỗi lần cách nhau đủ để rơi vào một chu kỳ publish khác
+// (10ms < 32ms chu kỳ), trong một cửa sổ có giới hạn cứng — không đợi tín
+// hiệu "đã có mẫu mới" (không có cơ chế đó), chỉ đơn giản tăng số lần thử độc
+// lập để một tick chập chờn không quyết định cả chuyến bay.
+//
+// Blocking ở đây AN TOÀN: hàm chỉ gọi từ CMD_ARM (FSM còn DISARMED, motor
+// chưa từng mở gate) và CMD_TAKEOFF (FSM_ARMED, chưa airborne) — đúng lý do
+// baro_driver_calibrate_ground() vốn đã được phép block ~940ms ở cùng nhánh
+// CMD_ARM này từ trước.
+//
+// PHÂN BIỆT 2 kiểu thất bại trong log — để lần sau không phải đoán mò: "chưa
+// từng đọc được mẫu hợp lệ nào" (driver/hub có vấn đề thật) khác hẳn "đọc
+// được nhưng range NGOÀI [MIN,MAX]" (sensor mount quá gần/xa sàn — vấn đề
+// PHẦN CỨNG, không retry nào cứu được, xem log range cụ thể để biết ngay).
+static bool try_acquire_tof_ground_ref(const char *ctx_tag, int max_attempts_ms) {
+    const int step_ms = 10;
+    const int max_attempts = max_attempts_ms / step_ms;
+
+    bool saw_any_valid_sample = false;
+    float last_rejected_range_m = 0.0f;
+
+    for (int i = 0; i < max_attempts; ++i) {
+        sensor_snapshot_t tsnap;
+        sensor_hub_read(&tsnap);
+        if (tsnap.tof_h.valid && tsnap.tof.valid) {
+            saw_any_valid_sample = true;
+            alt_estimator_set_tof_ground_ref(&s_alt_est, tsnap.tof.distance_m);
+            if (s_alt_est.tof_ground_ref_valid) {
+                ESP_LOGI(TAG, "%s: ToF ground ref = %.3fm (sensor cach san, %d/%d lan doc)",
+                          ctx_tag, (double)tsnap.tof.distance_m, i + 1, max_attempts);
+                return true;
+            }
+            last_rejected_range_m = tsnap.tof.distance_m;
+        }
+        if (i + 1 < max_attempts) {
+            vTaskDelay(pdMS_TO_TICKS(step_ms));
+        }
+    }
+
+    if (saw_any_valid_sample) {
+        ESP_LOGE(TAG, "%s: ToF DOC DUOC mau nhung range=%.3fm NGOAI DAI HOP LE "
+                      "[%.2f, %.2f]m sau %dms thu -- KIEM TRA VI TRI LAP SENSOR "
+                      "(qua gan hoac qua xa san), day KHONG phai loi tam thoi",
+                  ctx_tag, (double)last_rejected_range_m,
+                  (double)ALT_EST_TOF_MIN_RANGE_M, (double)ALT_EST_TOF_MAX_RANGE_M,
+                  max_attempts_ms);
+    } else {
+        ESP_LOGE(TAG, "%s: KHONG doc duoc mau ToF hop le nao sau %dms (%d lan thu) "
+                      "-- kiem tra day/dia chi I2C, xem 'tof_test'",
+                  ctx_tag, max_attempts_ms, max_attempts);
+    }
+    return false;
+}
+
 static void apply_command(const command_t *cmd, int64_t now_us) {
     switch (cmd->type) {
         case CMD_ARM: {
@@ -920,38 +991,32 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
                 // Lấy từ snapshot của hub (không đọc I2C ở đây): tại thời điểm
                 // ARM hub đã chạy hàng chục giây nên chắc chắn có mẫu.
                 if (s_tof_ok_driver) {
-                    sensor_snapshot_t tsnap;
-                    sensor_hub_read(&tsnap);
-                    if (tsnap.tof_h.valid && tsnap.tof.valid) {
-                        alt_estimator_set_tof_ground_ref(&s_alt_est, tsnap.tof.distance_m);
-                        ESP_LOGI(TAG, "ARM: ToF ground ref = %.3fm (sensor cach san)",
-                                  (double)tsnap.tof.distance_m);
-                    } else if (s_baro_ok_driver) {
-#if FC_FEATURE_TOF
-                        ESP_LOGW(TAG, "ARM: KHONG co mau ToF hop le -> ToF se KHONG correction "
-                                      "world-Z (bay bang IMU + baro). Kiem tra VL53L0X.");
-#else
-                        // ToF bi cat luc BIEN DICH -> "khong co mau" la KET QUA
-                        // MONG DOI, khong phai su co. Bao W kem "kiem tra
-                        // VL53L0X" o day tung lam nguoi dung tuong he thong BAT
-                        // BUOC phai co ToF va di sua mot cam bien khong ton tai.
-                        ESP_LOGI(TAG, "ARM: ToF TAT theo cau hinh (SENSOR_TOF_ENABLED=0) -> "
-                                      "bay bang IMU + baro. Day la cau hinh hop le.");
-#endif
-                    } else {
-                        // Baro TAT + ToF khong co mau = SAU KHI ARM XONG van
-                        // khong co nguon correction nao. Noi ro hau qua ngay
-                        // day: truoc kia chi log mot dong chung chung roi de
-                        // nguoi dung bam TAKEOFF va bi tu choi ma khong hieu.
-                        //
-                        // KHONG chan ARM: CMD_TAKEOFF se thu lay lai ground-ref
-                        // mot lan nua (xem case CMD_TAKEOFF), va ToF chap chon
-                        // thuong tinh lai trong vai tram ms.
-                        ESP_LOGW(TAG, "ARM: KHONG co mau ToF hop le VA baro dang TAT "
-                                      "-> HIEN GIO khong co nguon correction do cao nao. "
-                                      "TAKEOFF se thu lay lai ground-ref luc bam; neu ToF van "
-                                      "chua tinh thi lenh se bi TU CHOI (TKOREJ=NO_CORRECTION). "
-                                      "Bat SENSOR_BARO_ENABLED=1 de het phu thuoc ToF.");
+                    // RETRY thay vi mot snapshot duy nhat: tof_h.valid chap chon
+                    // theo THIET KE (mark_err moi khi range_status != 0, xem
+                    // sensor_hub.c publish_tof). Mot lan doc trung dung tick do
+                    // = mat ground-ref ca chuyen bay. Xem try_acquire_tof_ground_ref().
+                    //
+                    // 300ms: du cho ~9 chu ky publish ToF (~32ms/chu ky) nen mot
+                    // vai mau range_status != 0 lien tiep khong con quyet dinh
+                    // duoc ket qua. Van du ngan de ARM khong thay cham.
+                    if (!try_acquire_tof_ground_ref("ARM", 300)) {
+                        if (s_baro_ok_driver) {
+                            ESP_LOGW(TAG, "ARM: ToF KHONG chot duoc ground-ref -> ToF se KHONG "
+                                          "correction world-Z (bay bang IMU + baro).");
+                        } else {
+                            // Baro TAT + ToF khong chot duoc = SAU KHI ARM XONG van
+                            // khong co nguon correction nao. Noi ro hau qua ngay day:
+                            // truoc kia chi log mot dong chung chung roi de nguoi dung
+                            // bam TAKEOFF va bi tu choi ma khong hieu.
+                            //
+                            // KHONG chan ARM: CMD_TAKEOFF se thu lai (cung ham, cung
+                            // retry) va ToF chap chon thuong tinh lai trong vai tram ms.
+                            ESP_LOGW(TAG, "ARM: ToF KHONG chot duoc ground-ref VA baro dang TAT "
+                                          "-> HIEN GIO khong co nguon correction do cao nao. "
+                                          "TAKEOFF se thu lai luc bam; neu van khong duoc thi "
+                                          "lenh bi TU CHOI (TKOREJ=NO_CORRECTION). Xem dong "
+                                          "ERROR ngay tren de biet ly do CU THE.");
+                        }
                     }
                 }
 
@@ -1077,16 +1142,11 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
                 // nâng nào), nên đây là thời điểm lấy mốc sàn HỢP LỆ Y HỆT lúc
                 // ARM. Đọc từ snapshot của hub, KHÔNG chạm I2C, không block.
                 if (s_tof_ok_driver && !s_alt_est.tof_ground_ref_valid) {
-                    sensor_snapshot_t tsnap;
-                    sensor_hub_read(&tsnap);
-                    if (tsnap.tof_h.valid && tsnap.tof.valid) {
-                        alt_estimator_set_tof_ground_ref(&s_alt_est, tsnap.tof.distance_m);
-                        if (s_alt_est.tof_ground_ref_valid) {
-                            ESP_LOGI(TAG, "TAKEOFF: lay lai duoc ToF ground ref = %.3fm "
-                                          "(luc ARM chua co — ToF dang mat mau)",
-                                      (double)tsnap.tof.distance_m);
-                        }
-                    }
+                    // CUNG ham retry nhu CMD_ARM — mot noi dinh nghia, hai cho
+                    // dung. Cua so DAI HON (600ms) vi day la co hoi CUOI: that
+                    // bai o day la lenh bi tu choi han. O ARM thi con duong nay
+                    // de thu lai, nen ARM uu tien phan hoi nhanh hon.
+                    try_acquire_tof_ground_ref("TAKEOFF", 600);
                 }
 
                 const bool has_tof_src  = s_tof_ok_driver && s_alt_est.tof_ground_ref_valid;

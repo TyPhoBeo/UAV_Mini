@@ -22,12 +22,12 @@
 // VL53L0X hướng xuống — nguồn CORRECTION có điều kiện cho alt_estimator (nguồn
 // chính là tích phân Az/IMU). ĐÃ BỎ SENSOR_TOF2_ENABLED: con ToF thứ hai chưa
 // bao giờ được fuse vào control loop, xem tof_driver.h mục "ĐÃ ĐƠN GIẢN HOÁ".
-#define SENSOR_TOF_ENABLED       0
+#define SENSOR_TOF_ENABLED       1
 // BMP280 — sửa trôi dài hạn cho alt_estimator. TẮT được (ToF-only bay được),
 // NHƯNG khi ToF hết tầm (>~1.8m) hoặc nhìn bề mặt khác (bàn/ghế) thì KHÔNG còn
 // nguồn correction nào -> Commander tự LANDING sau
 // ALT_EST_NO_CORRECTION_DEGRADED_MS. Muốn bay cao/bay lâu qua bàn thì BẬT.
-#define SENSOR_BARO_ENABLED      1   // BMP280 (xem baro_driver.h + ghi chú trên)
+#define SENSOR_BARO_ENABLED      0   // BMP280 (xem baro_driver.h + ghi chú trên)
 #define SENSOR_FLOW_ENABLED      0   // PMW3901 optical flow — mới khai báo pin SPI, CHƯA có driver
 #define SENSOR_RGB_LED_ENABLED   0   // WS2812 — mới khai báo pin, CHƯA có driver
 #define SENSOR_BATTERY_ENABLED   1   // ADC1 pin sense (IO6)
