@@ -8,6 +8,7 @@
 //   HOLDING → FLYING          : có move command
 //   FLYING → HOLDING          : hết move / lệnh hold
 //   HOLDING/FLYING → LANDING  : lệnh land HOẶC soft failsafe
+//   LANDING → HOLDING         : hủy landing / go-around, giữ bumpless Vz-I
 //   HOLDING/FLYING → EMERGENCY: hard fault
 //   LANDING → DISARMED        : đã chạm đất
 //   EMERGENCY → LANDING       : fault còn kiểm soát → hạ có kiểm soát
@@ -115,6 +116,7 @@ fsm_state_t fsm_on_takeoff_handoff(fsm_state_t cur);        // TAKING_OFF -> HOL
 fsm_state_t fsm_on_takeoff_abort(fsm_state_t cur);          // TAKING_OFF -> EMERGENCY
 fsm_state_t fsm_on_move_command(fsm_state_t cur, bool moving); // HOLDING<->FLYING
 fsm_state_t fsm_on_land_request(fsm_state_t cur);           // HOLDING/FLYING -> LANDING
+fsm_state_t fsm_on_landing_abort_hold(fsm_state_t cur);      // LANDING -> HOLDING
 fsm_state_t fsm_on_soft_fault(fsm_state_t cur);             // HOLDING/FLYING -> LANDING
 fsm_state_t fsm_on_hard_fault(fsm_state_t cur);             // HOLDING/FLYING -> EMERGENCY
 fsm_state_t fsm_on_landing_touchdown(fsm_state_t cur);      // LANDING -> DISARMED

@@ -73,20 +73,113 @@
 // app_config.h.
 #define BOARD_BARO_I2C_ADDR  0x77
 
-// ================= VL53L0X ToF (MỘT con, hướng xuống) =================
-// ⚠ CHIP LÀ VL53L0X, KHÔNG PHẢI VL53L1X (mục này trước đây ghi nhầm L1X).
-// Hai họ khác hẳn nhau: register map khác, MODEL_ID khác (L0X=0xEE tại 0xC0),
-// tầm tối đa khác (~2m vs ~4m). Driver trong repo là VL53L0X (Pololu-style
-// init) — đừng dựa vào cái tên cũ khi tra datasheet.
-//
+// ================= ToF hướng xuống (MỘT con) =================
 // ĐÃ BỎ con ToF thứ hai (forward/dự phòng). Nó chưa bao giờ được fuse vào
 // control loop nhưng bắt driver phải mang những ràng buộc chỉ có nghĩa khi có 2
 // chip (addr1 không được giữ 0x29, cả 2 XSHUT phải điều khiển được, thứ tự
 // bring-up bắt buộc) — và chính những ràng buộc đó đã gây lỗi thật cho cấu hình
 // 1 chip. Xem tof_driver.h mục "ĐÃ ĐƠN GIẢN HOÁ TỪ 2 SENSOR VỀ 1".
 //
-// Địa chỉ: giữ 0x29 MẶC ĐỊNH. Chỉ 1 con nên không ai tranh địa chỉ — đổi sang
-// 0x2A chỉ thêm một bước có thể thất bại mà không được lợi gì.
+// ---------------------------------------------------------------------------
+// BOARD_TOF_CHIP — DÒNG CHIP ĐANG HÀN TRÊN BO
+// ---------------------------------------------------------------------------
+// Firmware hỗ trợ HAI dòng, mỗi dòng một driver riêng trong
+// components/flight_core/src/drivers/ (vl53l0x_driver.c / vl53l1x_driver.c).
+// Đổi MỘT dòng dưới đây rồi build lại là xong — không sửa gì khác.
+//
+//   TOF_CHIP_VL53L0X : thanh ghi 8-bit,  ID 0xC0   = 0xEE
+//   TOF_CHIP_VL53L1X : thanh ghi 16-bit, ID 0x010F = 0xEACC (gồm cả VL53L4CD)
+//
+// ⚠ CẮM NHẦM CHIP KHÔNG IM LẶNG: cả hai đều ACK ở 0x29, nhưng driver đọc ID
+// trước khi ghi bất cứ thứ gì. Sai dòng thì log in ra ĐÚNG dòng cần sửa
+// (identify_foreign_device() trong tof_driver.c). Không có trường hợp "chạy
+// nhưng số sai".
+//
+// ĐANG DÙNG: VL53L1X. Lý do đổi từ L0X — tầm TIN CẬY.
+//   L0X @timing budget 33ms chỉ tin cậy tới ~1.2m, và log chuyến bay trước cho
+//   thấy ToF mất mẫu (TOFAGE 28 -> 582ms) đúng khi CLR vượt 1.25m: hết tầm ->
+//   BRIDGE -> LOST -> Commander soft-fault -> LAND_BLIND. Trần bay
+//   ALT_EST_MAX_FLIGHT_Z_M hiện là 1.20m, tức bay ở trần là bay ở ĐÚNG mép
+//   tin cậy của L0X — không còn biên nào.
+//   L1X ở SHORT giữ ~1.3m kể cả dưới ánh sáng nền mạnh; LONG tới ~2.6m trong
+//   nhà. Đó là biên thật, không phải con số danh nghĩa.
+// Mã dòng chip. Định nghĩa Ở ĐÂY (không phải trong driver) để board_config.h
+// tự đủ: nó là mô tả PHẦN CỨNG, phải đọc được mà không cần kéo theo header nội
+// bộ nào của flight_core. tof_backend.h chỉ #ifndef bọc lại đúng hai số này.
+#ifndef TOF_CHIP_VL53L0X
+#define TOF_CHIP_VL53L0X      0
+#endif
+#ifndef TOF_CHIP_VL53L1X
+#define TOF_CHIP_VL53L1X      1
+#endif
+#define BOARD_TOF_CHIP        TOF_CHIP_VL53L1X
+
+// ---- Tham số RIÊNG của VL53L1X (backend L0X bỏ qua hoàn toàn) ----
+//
+// DISTANCE MODE:
+//   1 = SHORT : tới ~1.3m. MIỄN NHIỄM ánh sáng nền tốt nhất, cho phép timing
+//               budget ngắn nhất -> nhịp mẫu cao nhất.
+//   2 = LONG  : tới ~4m danh nghĩa (~2.6m thực tế trong nhà). Nhạy ánh sáng
+//               nền hơn — datasheet ST ghi ngoài nắng tụt về ~73cm.
+//
+// ĐANG DÙNG LONG (đổi từ SHORT theo yêu cầu người dùng, cùng đợt nâng trần bay
+// ALT_EST_MAX_FLIGHT_Z_M lên 3.0m). SHORT chỉ tin cậy ~1.3m nên không còn phủ
+// nổi trần mới — bay trên 1.3m với SHORT là mất mẫu ToF giữa chuyến, đúng chuỗi
+// đã làm rơi drone lần trước (hết tầm -> stale -> BRIDGE -> LOST -> soft-fault
+// -> LAND_BLIND).
+//
+// ⚠ ĐÁNH ĐỔI KHI DÙNG LONG — phải biết trước khi bay:
+//   1. NHẠY ÁNH SÁNG NỀN. Datasheet ST: ngoài nắng tầm tụt về ~73cm. Trong nhà
+//      xa cửa sổ thì ~2.6m; gần cửa sổ ban ngày sẽ kém hơn RÕ RỆT. Nếu thấy
+//      tof_reject_count tăng dần theo độ cao thì đây là nghi can đầu tiên, và
+//      nó KHÔNG phải lỗi phần mềm.
+//   2. ~2.6m thực tế VẪN NHỎ HƠN trần 3.0m. Xem cảnh báo ở
+//      ALT_EST_MAX_FLIGHT_Z_M — hai con số này hiện CHƯA khớp nhau.
+//   3. Nhiễu cao hơn SHORT ở cùng timing budget (VCSEL period dài hơn).
+//
+// Muốn quay lại SHORT: đổi về 1 VÀ hạ trần bay xuống <= 1.2m. Đổi mỗi một số ở
+// đây mà giữ trần 3.0m là quay lại đúng lỗi cũ.
+#define BOARD_TOF_L1X_DISTANCE_MODE       2
+
+// TIMING BUDGET (ms): thời gian chip dành cho MỘT lần đo.
+// Dài hơn = ít nhiễu hơn + xa hơn, nhưng nhịp mẫu chậm hơn. Nhịp mẫu đi THẲNG
+// vào chất lượng vz của alt_estimator (alpha-beta lấy vi phân từ range), nên
+// KHÔNG chỉnh tuỳ tiện.
+//
+// 33ms = cùng thời gian đo mà L0X đang dùng. Chọn có chủ đích: đổi chip mà giữ
+// nguyên bậc nhịp mẫu nghĩa là mọi hằng số đã tune theo nhịp (ALT_EST_*,
+// alpha-beta, TOF_STALE_TIMEOUT_MS) vẫn đúng — chỉ có TẦM đo thay đổi. Đổi hai
+// thứ cùng lúc thì không quy được lỗi cho cái nào.
+//
+// ⚠ Nhịp mẫu THẬT do INTER_MEASUREMENT quyết định (40ms -> ~25Hz), không phải
+// con số này. TB chỉ là thời gian chip dành cho một lần đo.
+//
+// Bảng của ST chỉ có 15/20/33/50/100/200/500ms (15 chỉ ở SHORT). Giá trị KHÁC
+// là LỖI, driver từ chối init — KHÔNG làm tròn im lặng, vì làm vậy sẽ vô hiệu
+// hoá đúng cái _Static_assert đang bảo vệ nhịp mẫu.
+#define BOARD_TOF_L1X_TIMING_BUDGET_MS    33
+
+// INTER-MEASUREMENT (ms): chu kỳ giữa hai lần BẮT ĐẦU đo.
+//
+// ⚠ PHẢI LỚN HƠN timing budget, KHÔNG được bằng. ST ULD ghi "IM >= TB", nhưng
+// đặt BẰNG NHAU không chừa chỗ cho overhead nội bộ giữa hai lần đo — chip trượt
+// nhịp và bỏ mẫu IM LẶNG (triệu chứng: "ToF lúc được lúc không", và người debug
+// sẽ đi tìm dây/nguồn). ~20% dư là mức mọi hiện thực ULD dùng.
+// Có _Static_assert bắt lúc build trong vl53l1x_driver.c.
+//
+// 40ms -> ~25Hz. Chậm hơn L0X (~30Hz) một chút, vẫn thừa xa ngưỡng
+// TOF_STALE_TIMEOUT_MS=200ms (assert thứ hai kiểm đúng điều này).
+// Muốn nhanh hơn: TB=20ms + IM=25ms -> ~40Hz.
+#define BOARD_TOF_L1X_INTER_MEASUREMENT_MS 40
+
+// I/O rail của I2C phía sensor. 1 = pull-up ở AVDD (~2.8V), 0 = 1.8V.
+// KHÔNG phải cờ vô hại: sai rail thì mức logic không đạt ngưỡng và biểu hiện là
+// NACK NGẪU NHIÊN — giống hệt lỗi dây, rất dễ đi sai hướng. Board này 2.8V.
+#define BOARD_TOF_L1X_IO_2V8              1
+
+// Địa chỉ: giữ 0x29 MẶC ĐỊNH cho cả hai dòng chip (ST dùng chung cho toàn dòng
+// VL53). Chỉ 1 con nên không ai tranh địa chỉ — đổi sang 0x2A chỉ thêm một
+// bước có thể thất bại mà không được lợi gì.
 #define BOARD_TOF_I2C_ADDR    0x29
 
 // ⚠ TỐC ĐỘ SCL RIÊNG CHO ToF — cố ý THẤP HƠN phần còn lại của bus.
@@ -182,8 +275,8 @@
 //
 // QUAN TRỌNG — CHƯA XÁC NHẬN vị trí vật lý: đây là CH1..CH4 theo NET trên
 // schematic, KHÔNG chắc CH1=góc nào của khung X hay chiều quay CW/CCW mỗi
-// góc. attitude_control.h giả định thứ tự M1=front-left, M2=front-right,
-// M3=back-right, M4=back-left (Quad-X). SAI mapping ở đây -> lật ngay khi arm.
+// góc. attitude_control.h giả định thứ tự M1=back-right, M2=front-right,
+// M3=front-left, M4=back-left (Quad-X). SAI mapping ở đây -> lật ngay khi arm.
 // QUY TRÌNH xác nhận (lệnh test_motor qua console, KHÔNG suy đoán) — xem
 // app_config.h mục "XÁC NHẬN VỊ TRÍ VẬT LÝ ĐỘNG CƠ".
 #define MOTOR_CH1_PIN   4    // IO4  CH1  — TODO: xác nhận vị trí vật lý + chiều quay

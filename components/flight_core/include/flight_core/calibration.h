@@ -15,12 +15,9 @@
 // layout struct (thêm/bớt field) để firmware mới KHÔNG đọc nhầm blob cũ sai
 // layout (coi như UNCALIBRATED, an toàn mặc định, thay vì đọc rác).
 //
-// NGUYÊN TẮC BOOT (xem flight_core.c::flight_core_start()):
-//   calibration_load() — nạp những gì đã có trong NVS (accel/mag KHÔNG có ->
-//   *_valid=false, drone vào trạng thái UNCALIBRATED, apply_command() từ chối
-//   CMD_ARM cho tới khi calib xong). KHÔNG có bước tự đo lại nào ở boot — CẢ
-//   3 loại calib (gyro/accel/mag) CHỈ chạy khi có lệnh serial tường minh
-//   (CMD_CALIB_GYRO/CMD_CALIB_ACCEL_FACE/CMD_CALIB_MAG_START+STOP).
+// NGUYÊN TẮC BOOT (xem flight_core.c::flight_core_start()): accel/mag được nạp
+// persistent như trước; gyro NVS chỉ là history/backup chẩn đoán. Gyro luôn đo
+// fresh + validation độc lập mỗi boot, và fresh fail thì ARM bị chặn.
 #pragma once
 
 #include <stdbool.h>
@@ -35,6 +32,18 @@ extern "C" {
 typedef struct {
     vec3f_t gyro_bias_dps;
     bool    gyro_valid;
+    float   gyro_cal_temp_c;
+    bool    gyro_cal_temp_valid_from_nvs;
+
+    // gyro_valid_from_nvs — NVS CO bias gyro hop le luc boot hay khong.
+    //
+    // KHAC gyro_valid: tu khi co startup gyro calibration (tuning.h muc 8b),
+    // gyro_valid nghia la "bias DUNG DE BAY hien tai hop le", va no CHI bat
+    // sau khi cua so VALIDATE dat. Con co nay chi ghi lai "luc boot NVS co gi"
+    // — dung de log/so sanh/chan doan, TUYET DOI KHONG dung de quyet dinh co
+    // cho ARM hay khong. Gop hai y nghia vao mot co chinh la cach de bias cu
+    // trong NVS lang le duoc dung de bay lai.
+    bool    gyro_valid_from_nvs;
 
     vec3f_t accel_bias_g;      // (max+min)/2 mỗi trục, từ quy trình 6-face
     vec3f_t accel_scale;       // 2/(max-min) mỗi trục, 1.0 = không sửa
@@ -73,7 +82,7 @@ esp_err_t calibration_nvs_init(void);
 // lỗi (trả ESP_OK) — đây là trạng thái bình thường lúc mới flash lần đầu.
 esp_err_t calibration_load(calibration_params_t *out);
 
-esp_err_t calibration_save_gyro(const vec3f_t *bias_dps);
+esp_err_t calibration_save_gyro(const vec3f_t *bias_dps, float temperature_c);
 esp_err_t calibration_save_accel(const vec3f_t *bias_g, const vec3f_t *scale);
 esp_err_t calibration_save_mag(const vec3f_t *hard_iron, const vec3f_t *soft_iron_scale);
 

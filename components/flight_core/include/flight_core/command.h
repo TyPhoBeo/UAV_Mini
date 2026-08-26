@@ -133,7 +133,7 @@ typedef enum {
     // ================= Calibration (calibration.h) =================
     // CHỈ chạy khi FSM đang DISARMED (flight_core.c tự chặn) — bench-only,
     // KHÔNG phải kênh điều khiển bay. Xem calibration.h + README.md.
-    CMD_CALIB_GYRO,          // đo bias tĩnh ~CALIB_GYRO_DURATION_MS, không chặn stabilize_task
+    CMD_CALIB_GYRO,          // reset FSM fresh gyro calib (settle/raw collect/independent validate)
     CMD_CALIB_GYRO_ABORT,    // hủy phiên gyro đang đo (nếu có), KHÔNG lưu
     CMD_CALIB_ACCEL_FACE,    // bắt 1 mặt trong quy trình 6-face (gọi lại 6 lần, đổi hướng giữa các lần)
     CMD_CALIB_ACCEL_RESET,   // hủy tiến trình 6-face đang dở, làm lại từ đầu
@@ -174,8 +174,12 @@ typedef enum {
     MOVE_RIGHT,
     MOVE_UP,
     MOVE_DOWN,
-    MOVE_CW,     // xoay yaw phải (dps dương — khớp quy ước firmware)
-    MOVE_CCW,
+    // Quy ước yaw toàn firmware: body-frame Z hướng LÊN, quy tắc bàn tay phải
+    // => yaw_rate_dps DƯƠNG = CCW = quay TRÁI. Khớp dấu gyro và khớp mixer
+    // (attitude_control.c: M2/M4 mang +Y, hai con này quay CW nên phản lực đẩy
+    // khung theo CCW). Xem apply_command() case CMD_MOVE.
+    MOVE_CW,     // xoay phải — gán yaw_rate ÂM
+    MOVE_CCW,    // xoay trái — gán yaw_rate DƯƠNG
 } move_dir_t;
 
 // PID loop/axis — mã hóa gọn cho CMD_SET_PID (khớp "ANGLE|RATE" × "ROLL|PITCH|YAW"

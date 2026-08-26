@@ -33,6 +33,11 @@ typedef struct {
     // alt_hold_vz_cascade() mỗi lần gọi — dùng cho telemetry (ALT_PID_SAT) và
     // để tầng trên biết PID đang đòi nhiều hơn phần cứng cho được.
     bool  vz_saturated;
+    float last_vz_error;
+    float last_p_term;
+    float last_i_term;
+    float last_d_term;       // PI hien tai: luon 0, giu ro tren telemetry
+    float last_output_duty;
 } alt_hold_state_t;
 
 // Giá trị mặc định: xem flight_core/tuning.h (mục 2 — ALT HOLD). Đổi số ở ĐÓ,
@@ -44,6 +49,8 @@ static inline void alt_hold_reset(alt_hold_state_t *st) {
     st->vz_integral = 0.0f;
     st->engaged = false;
     st->vz_saturated = false;
+    st->last_vz_error = st->last_p_term = st->last_i_term = 0.0f;
+    st->last_d_term = st->last_output_duty = 0.0f;
 }
 
 // Preload bumpless khi bắt đầu đóng vòng: vz_integral = clamp(throttle-hover, ±ilimit)

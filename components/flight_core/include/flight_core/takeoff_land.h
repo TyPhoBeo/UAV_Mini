@@ -103,6 +103,25 @@ typedef enum {
     // đáp lại, nên I bò tới trần rồi NẰM LÌ. Trạng thái "đòi hết sức mà không
     // có phản hồi" đó đúng nghĩa là "không nhấc nổi", bất kể altimeter nói gì.
     TKO_ABORT_STUCK,
+    // KHÔNG GOM ĐỦ BẰNG CHỨNG RỜI ĐẤT trong TAKEOFF_NO_LIFT_TIMEOUT_MS kể từ
+    // lúc vào CLIMB. Đây là nhánh `!liftoff_flag && elapsed >= NO_LIFT_TIMEOUT`
+    // trong takeoff_run().
+    //
+    // Trước đây nhánh này dùng CHUNG TKO_ABORT_TIMEOUT với hạn chót toàn chuỗi
+    // (deadline_us), và đó là một lỗi chẩn đoán THẬT — hai tình huống khác hẳn
+    // nhau bị in ra cùng một câu:
+    //   - deadline_us  = "chuỗi bị kẹt, pha không tiến" (tick không chạy, logic
+    //                    treo). Rất hiếm, và nếu xảy ra thì là bug firmware.
+    //   - NO_LIFT      = chuỗi chạy HOÀN TOÀN BÌNH THƯỜNG, chỉ là detector rời
+    //                    đất không đủ bằng chứng. Gần như LUÔN LUÔN là ToF
+    //                    không fuse (tof_z_m đứng im ở 0) hoặc drone không nhấc
+    //                    nổi thật.
+    // Người đọc log đi tìm "chuỗi bị kẹt" trong khi vấn đề nằm ở cảm biến độ
+    // cao. Một mã riêng làm hai thứ không thể bị nhầm nữa.
+    //
+    // ⚠ NỐI Ở CUỐI enum, KHÔNG chèn vào giữa: TKOAB= đi thẳng ra wire STATUS,
+    // chèn giữa sẽ đổi ý nghĩa mọi mã cũ trong log/GUI đã lưu.
+    TKO_ABORT_NO_LIFT_EVIDENCE,
 } takeoff_abort_reason_t;
 
 typedef struct {
@@ -124,6 +143,8 @@ typedef struct {
     // Vz, hold_integral_freeze (Ki attitude) bên flight_core.c, và
     // takeoff_airborne() -> pha estimator + policy EMERGENCY.
     bool     liftoff_flag;
+    bool     liftoff_active;
+    int64_t  liftoff_since_us;
 
     // ---- Cửa sổ duy trì cho abort + vào HOLD. Dùng cờ + mốc RIÊNG, KHÔNG
     // dùng 0 làm sentinel (now_us=0 là mốc hợp lệ).
@@ -207,7 +228,18 @@ static inline void takeoff_begin(takeoff_state_t *st, float target_alt_m, int64_
     const int64_t expect_ms = (int64_t)(TAKEOFF_PRIME_MS
                                          + slew_s * 1000.0f
                                          + TAKEOFF_HOLD_ENTER_MS);
-    st->deadline_us = now_us + (expect_ms * 2 + 3000) * 1000;
+    // NỚI BIÊN 2x+3s -> 3x+8s. Đo trên phần cứng thật: target 0.20m cho
+    // expect_ms = 700 + 667 + 400 = 1767ms, tức deadline cũ chỉ 6.5s — trong
+    // khi drone thật cần tới ~7.7s mới ổn định quanh đích (I của vòng Vz phải
+    // học xong phần dư hover_thật - hover_ff, và ground effect làm nó vọt lên
+    // rồi mới lắng). Chuyến bay HOÀN TOÀN BÌNH THƯỜNG bị hủy vì hết giờ.
+    //
+    // Biên rộng KHÔNG làm chậm chuyến bay bình thường: đường bàn giao bình
+    // thường thoát ngay khi hold_ready đủ TAKEOFF_HOLD_ENTER_MS, deadline chỉ
+    // là lưới cuối bắt "kẹt hẳn". Và nó KHÔNG phải cơ chế an toàn duy nhất —
+    // guard tilt, mất nguồn đo, STUCK, và toàn bộ Commander vẫn chạy song song
+    // với chu kỳ ngắn hơn nhiều.
+    st->deadline_us = now_us + (expect_ms * 3 + 8000) * 1000;
 }
 
 // ---- Hai truy vấn DUY NHẤT mà tầng ngoài được dùng để gate estimator ----
@@ -231,6 +263,7 @@ typedef struct {
 
     bool control_active;     // == takeoff_control_active()
     bool liftoff_flag;       // đã rời đất
+    bool liftoff_edge;       // true dung tick xac nhan bang ToF
 
     takeoff_phase_t phase;
 
@@ -287,7 +320,8 @@ typedef struct {
 void takeoff_run(takeoff_state_t *st, const takeoff_tune_t *tune,
                   alt_hold_state_t *hold_st, const alt_hold_tune_t *hold_tune,
                   bool alt_valid, float alt_m, float vz_ms,
-                  bool alt_source_ok, float tilt_deg,
+                  bool tof_fusable, float tof_z_m, float tof_vz_ms,
+                  float tilt_deg,
                   float dt, int64_t now_us, int safe_max_duty,
                   takeoff_result_t *out);
 
@@ -305,10 +339,14 @@ typedef enum {
 typedef struct {
     land_phase_t phase;
     int64_t settle_us;      // mốc bắt đầu "ga thấp + vz~0" (backup touchdown detect)
+    int64_t az_spike_us;    // mốc bắt đầu az_earth spike (nhánh touchdown thứ 3)
+    uint32_t terr_commit_seen;  // terr_commit_count lần cuối đã xử lý (reset pha)
+    bool    terr_seen_init;
     int64_t toflost_us;     // mốc bắt đầu mất Z-est
     int64_t cutoff_us;      // mốc bắt đầu ramp ga về 0 (TOUCHDOWN)
     float   cutoff_thr;     // ga tại thời điểm bắt đầu cutoff
     float   blind_thr;      // ga hiện tại trong pha BLIND
+    int     last_throttle;
 
     // ---- TOUCHDOWN detector đa điều kiện (xem landing_run()) ----
     int     contact_ticks;    // số tick LIÊN TỤC đủ điểm chạm đất
@@ -340,14 +378,36 @@ typedef struct {
 } landing_result_t;
 
 // landing_run() — một bước. Gọi mỗi vòng khi FSM ở LANDING.
+//
+// ============================================================================
+// LANDING CHẠY TRÊN AGL (độ cao trên BỀ MẶT ĐANG Ở DƯỚI). KHÔNG PHẢI DATUM.
+// ============================================================================
+// Đây là bất biến quan trọng nhất của cả khối landing, và nó KHÔNG được suy
+// lại khi refactor: đang bay trên một cái bàn cao 0.75m mà bấm land thì phải
+// hạ xuống MẶT BÀN. Cố hạ về cao độ SÀN (alt_m = 0) là đâm thẳng vào bàn.
+//   alt_m    : PHẢI là alt_estimator_height_above_landing_surface() (= AGL).
+//   tof_z_m  : PHẢI là alt_estimator_tof_agl_m() (AGL thô từ ToF).
+// Caller nào truyền datum vào đây là một lỗi giết drone, không phải lỗi style.
+//
 //   hold_st/hold_tune : CHUNG với HOLD/TAKEOFF (bumpless, warm-start vz_integral).
 //   was_hold_engaged  : alt_hold_state_t.engaged TRƯỚC khi vào landing_run() —
 //                       nếu true, giữ vz_integral ấm; nếu false (vào từ manual
 //                       chưa từng engage), preload từ manual_throttle_duty.
+//   terrain_pending   : estimator ĐANG nghi có bậc địa hình, chưa xác nhận.
+//                       Chặn vào DESCEND (C1) và giữ nguyên pha đang chạy —
+//                       vào land giữa lúc ở mép bàn sẽ flare sai điểm.
+//   terrain_commits   : alt_estimator_t.terr_commit_count. Số này ĐỔI giữa lúc
+//                       đang hạ = vừa có bậc địa hình (trôi ngang khỏi mép
+//                       bàn) -> RESET PHA về DESCEND, tính lại flare theo AGL
+//                       mới. TUYỆT ĐỐI không nhảy thẳng TOUCHDOWN/cắt ga (C2).
+//   az_earth_ms2      : az trục Z-lên ĐÃ TRỪ trọng lực (alt_estimator_t.
+//                       az_after_bias_ms2) — nhánh touchdown thứ 3.
 void landing_run(landing_state_t *st, const landing_tune_t *tune,
                   alt_hold_state_t *hold_st, const alt_hold_tune_t *hold_tune,
                   bool was_hold_engaged,
                   bool alt_valid, float alt_m, float vz_ms, int manual_throttle_duty,
+                  bool tof_fusable, float tof_z_m, float tof_vz_ms,
+                  bool terrain_pending, uint32_t terrain_commits, float az_earth_ms2,
                   float dt, int64_t now_us, int safe_max_duty,
                   landing_result_t *out);
 

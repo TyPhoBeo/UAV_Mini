@@ -53,8 +53,8 @@ typedef struct {
 
 // Gain mặc định — COPY Y HỆT giá trị đã tune trong UAV-Mini (tuning.hpp).
 // Đừng đổi các số này khi port — nếu cần tune lại, tune trên phần cứng S3 mới.
-#define MAHONY_DEFAULT_KP                  0.8f
-#define MAHONY_DEFAULT_KI                  0.15f
+#define MAHONY_DEFAULT_KP                  1.0f
+#define MAHONY_DEFAULT_KI                  0.25f
 #define MAHONY_DEFAULT_INTEGRAL_LIMIT_RADS 0.35f
 #define MAHONY_DEFAULT_ACC_MIN_G           0.75f
 #define MAHONY_DEFAULT_ACC_MAX_G           1.25f

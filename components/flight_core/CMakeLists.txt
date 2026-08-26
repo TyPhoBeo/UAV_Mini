@@ -16,7 +16,17 @@ idf_component_register(
         "src/flight_core.c"
         "src/drivers/imu_driver.c"
         "src/drivers/mag_driver.c"
+        # ToF: facade + MỘT backend cho mỗi dòng chip. CẢ HAI backend luôn
+        # nằm trong danh sách nguồn, nhưng mỗi file tự #if theo BOARD_TOF_CHIP
+        # nên chỉ một cái sinh ra code — cái còn lại biên dịch thành object
+        # rỗng. Làm vậy thay vì chọn file ở CMake vì CMake chỉ đọc cấu hình lúc
+        # configure, mà PlatformIO KHÔNG chạy lại configure khi chỉ sửa header
+        # -> đổi chip xong build lại vẫn ra firmware CŨ, im lặng (cùng cái bẫy
+        # đã ghi ở đầu include/flight_core/fc_features.h). Qua #if thì trình
+        # biên dịch tự sinh depfile và ninja buộc phải dịch lại.
         "src/drivers/tof_driver.c"
+        "src/drivers/vl53l0x_driver.c"
+        "src/drivers/vl53l1x_driver.c"
         "src/drivers/baro_driver.c"
         "src/drivers/motor_driver.c"
         "src/drivers/battery_driver.c"

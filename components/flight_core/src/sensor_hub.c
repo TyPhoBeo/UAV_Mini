@@ -49,14 +49,17 @@ static const char *TAG = "sensor_hub";
 _Static_assert(SENSOR_TASK_PRIORITY < configMAX_PRIORITIES - 1,
                "sensor_hub KHONG duoc ngang/tren IPC task (configMAX_PRIORITIES-1)");
 
-// Nhịp danh nghĩa của hub = nhịp IMU (đồng hồ là chân INT của MPU6050).
-#define SENSOR_HUB_HZ            250
+// Hub đọc MPU6050 ở 1kHz rồi gom IMU_SAMPLES_PER_CONTROL mẫu thành một mẫu
+// điều khiển. Các cảm biến chậm vẫn được xếp lịch theo nhịp publish 250Hz.
+#define SENSOR_HUB_HZ            IMU_SAMPLE_RATE_HZ
+#define SENSOR_CONTROL_HZ        (SENSOR_HUB_HZ / IMU_SAMPLES_PER_CONTROL)
+_Static_assert((SENSOR_HUB_HZ % IMU_SAMPLES_PER_CONTROL) == 0,
+               "IMU sample rate phai chia het cho kich thuoc batch");
 
-// MAG/BARO đọc XEN KẼ giữa các lần đọc IMU, mỗi cái theo bội số riêng của nhịp
-// IMU. Không đọc cả 3 trong cùng một vòng: gộp lại thì thời gian chiếm bus của
-// một vòng bị dồn cục, làm mẫu IMU của vòng sau bị trễ.
-//   MAG  : mỗi 5 vòng  -> ~50Hz  (ODR chip thấp hơn nhiều, đọc dày hơn vô ích)
-//   BARO : mỗi 5 vòng  -> ~50Hz  (khớp BMP280 P×8 + IIR×8)
+// MAG/BARO đọc xen kẽ theo bội số của control_round 250Hz (sau mỗi batch IMU),
+// không phải raw round 1kHz. Nhờ vậy đổi oversampling không đổi ODR cảm biến:
+//   MAG  : mỗi 5 control_round -> ~50Hz
+//   BARO : mỗi 5 control_round -> ~50Hz
 // Lệch pha (mag ở vòng chẵn, baro ở vòng lệch 2) để 2 cái không rơi cùng vòng.
 #define SENSOR_MAG_DIVISOR       5
 #define SENSOR_BARO_DIVISOR      5
@@ -92,7 +95,7 @@ _Static_assert(SENSOR_TASK_PRIORITY < configMAX_PRIORITIES - 1,
 #define IMU_INT_WAIT_TIMEOUT_MS   (2 * 1000 / SENSOR_HUB_HZ)
 #define IMU_INT_WAIT_TIMEOUT_TICKS \
     ((pdMS_TO_TICKS(IMU_INT_WAIT_TIMEOUT_MS) > 0) ? pdMS_TO_TICKS(IMU_INT_WAIT_TIMEOUT_MS) : 1)
-#define IMU_INT_MISS_STREAK_MAX   25   // ~100ms @250Hz
+#define IMU_INT_MISS_STREAK_MAX   (SENSOR_HUB_HZ / 10)   // ~100ms
 
 // ---- state (1 instance) ----
 static SemaphoreHandle_t   s_mtx = NULL;
@@ -230,7 +233,10 @@ static void sensor_task(void *arg) {
     (void)arg;
     const TickType_t period = pdMS_TO_TICKS(1000 / SENSOR_HUB_HZ);
     TickType_t last_wake = xTaskGetTickCount();
-    uint32_t round = 0;
+    uint32_t control_round = 0;
+    uint32_t batch_count = 0;
+    bool batch_ok = true;
+    imu_sample_t batch_sum = {0};
 
     while (1) {
         wait_next_sample(&last_wake, period);
@@ -240,6 +246,9 @@ static void sensor_task(void *arg) {
         // phần cứng, nhưng snapshot vẫn giữ nguyên mẫu cuối — timestamp không
         // được làm mới nên consumer sẽ tự thấy stale, đúng như thực tế.
         if (s_suspend_request) {
+            batch_count = 0;
+            batch_ok = true;
+            memset(&batch_sum, 0, sizeof(batch_sum));
             s_suspend_acked = true;
             while (s_suspend_request) {
                 vTaskDelay(pdMS_TO_TICKS(5));
@@ -249,10 +258,9 @@ static void sensor_task(void *arg) {
             continue;
         }
 
-        round++;
         const int64_t now_us = esp_timer_get_time();
 
-        // ---- IMU: mỗi vòng ----
+        // ---- IMU: đọc 1kHz, gom 4 mẫu thành một mẫu 250Hz ----
         if (s_imu_present) {
             imu_calib_t calib;
             xSemaphoreTake(s_calib_mtx, portMAX_DELAY);
@@ -261,8 +269,63 @@ static void sensor_task(void *arg) {
 
             imu_sample_t imu = {0};
             const esp_err_t err = imu_driver_read(&calib, &imu);
-            publish_imu(&imu, (err == ESP_OK) && imu.ok, now_us);
+            const bool ok = (err == ESP_OK) && imu.ok;
+            batch_ok = batch_ok && ok;
+            if (ok) {
+                batch_sum.gyro_dps.x += imu.gyro_dps.x;
+                batch_sum.gyro_dps.y += imu.gyro_dps.y;
+                batch_sum.gyro_dps.z += imu.gyro_dps.z;
+                batch_sum.accel_g.x += imu.accel_g.x;
+                batch_sum.accel_g.y += imu.accel_g.y;
+                batch_sum.accel_g.z += imu.accel_g.z;
+                // RAW cũng phải gom: telemetry GRAW*/ARAW* đọc từ mẫu đã
+                // publish. Bỏ qua đây thì GRAW luôn = 0 và việc so
+                // GRAW - GBIAS = GCORR (thứ dùng để CHỨNG MINH calib đúng)
+                // trở thành vô nghĩa.
+                batch_sum.gyro_raw_dps.x += imu.gyro_raw_dps.x;
+                batch_sum.gyro_raw_dps.y += imu.gyro_raw_dps.y;
+                batch_sum.gyro_raw_dps.z += imu.gyro_raw_dps.z;
+                batch_sum.gyro_corrected_sensor_dps.x += imu.gyro_corrected_sensor_dps.x;
+                batch_sum.gyro_corrected_sensor_dps.y += imu.gyro_corrected_sensor_dps.y;
+                batch_sum.gyro_corrected_sensor_dps.z += imu.gyro_corrected_sensor_dps.z;
+                batch_sum.accel_raw_g.x += imu.accel_raw_g.x;
+                batch_sum.accel_raw_g.y += imu.accel_raw_g.y;
+                batch_sum.accel_raw_g.z += imu.accel_raw_g.z;
+                batch_sum.temp_c += imu.temp_c;
+            }
+        } else {
+            batch_ok = false;
         }
+
+        batch_count++;
+        if (batch_count < IMU_SAMPLES_PER_CONTROL) continue;
+
+        control_round++;
+        imu_sample_t averaged = {0};
+        if (batch_ok) {
+            const float inv_n = 1.0f / (float)IMU_SAMPLES_PER_CONTROL;
+            averaged.gyro_dps.x = batch_sum.gyro_dps.x * inv_n;
+            averaged.gyro_dps.y = batch_sum.gyro_dps.y * inv_n;
+            averaged.gyro_dps.z = batch_sum.gyro_dps.z * inv_n;
+            averaged.accel_g.x = batch_sum.accel_g.x * inv_n;
+            averaged.accel_g.y = batch_sum.accel_g.y * inv_n;
+            averaged.accel_g.z = batch_sum.accel_g.z * inv_n;
+            averaged.gyro_raw_dps.x = batch_sum.gyro_raw_dps.x * inv_n;
+            averaged.gyro_raw_dps.y = batch_sum.gyro_raw_dps.y * inv_n;
+            averaged.gyro_raw_dps.z = batch_sum.gyro_raw_dps.z * inv_n;
+            averaged.gyro_corrected_sensor_dps.x = batch_sum.gyro_corrected_sensor_dps.x * inv_n;
+            averaged.gyro_corrected_sensor_dps.y = batch_sum.gyro_corrected_sensor_dps.y * inv_n;
+            averaged.gyro_corrected_sensor_dps.z = batch_sum.gyro_corrected_sensor_dps.z * inv_n;
+            averaged.accel_raw_g.x = batch_sum.accel_raw_g.x * inv_n;
+            averaged.accel_raw_g.y = batch_sum.accel_raw_g.y * inv_n;
+            averaged.accel_raw_g.z = batch_sum.accel_raw_g.z * inv_n;
+            averaged.temp_c = batch_sum.temp_c * inv_n;
+            averaged.ok = true;
+        }
+        publish_imu(&averaged, batch_ok, now_us);
+        batch_count = 0;
+        batch_ok = true;
+        memset(&batch_sum, 0, sizeof(batch_sum));
 
         // ---- Đánh thức vòng điều khiển NGAY sau khi có mẫu IMU mới ----
         // Trước khi đọc mag/baro có chủ đích: vòng điều khiển chỉ cần IMU để
@@ -288,7 +351,7 @@ static void sensor_task(void *arg) {
         // s_mag_present đã luôn = false khi cảm biến bị tắt, nên #if ở đây chỉ
         // gỡ đi phần code vốn KHÔNG BAO GIỜ chạy — hành vi không đổi một chút nào.
 #if FC_FEATURE_MAG
-        if (s_mag_present && (round % SENSOR_MAG_DIVISOR) == 0) {
+        if (s_mag_present && (control_round % SENSOR_MAG_DIVISOR) == 0) {
             mag_sample_t mag = {0};
             const esp_err_t err = mag_driver_read(&mag);
             // mag.ok=false khi DRDY chưa lên = CHƯA CÓ MẪU MỚI, KHÔNG phải lỗi
@@ -304,7 +367,7 @@ static void sensor_task(void *arg) {
 
         // ---- BARO: xen kẽ, lệch pha với mag ----
 #if FC_FEATURE_BARO
-        if (s_baro_present && (round % SENSOR_BARO_DIVISOR) == SENSOR_BARO_PHASE) {
+        if (s_baro_present && (control_round % SENSOR_BARO_DIVISOR) == SENSOR_BARO_PHASE) {
             baro_sample_t baro = {0};
             const esp_err_t err = baro_driver_read(&baro);
             if (err != ESP_OK) {
@@ -323,7 +386,7 @@ static void sensor_task(void *arg) {
         // nhưng health sẽ báo invalid -> flight_core publish 0.0f ra ngoài ->
         // commander/battery-compensation tự bỏ qua (quy ước sẵn có).
 #if FC_FEATURE_BATTERY
-        if (s_battery_present && (round % SENSOR_BATTERY_DIVISOR) == 0) {
+        if (s_battery_present && (control_round % SENSOR_BATTERY_DIVISOR) == 0) {
             battery_sample_t bat = {0};
             const esp_err_t err = battery_driver_read(&bat);
             publish_battery(&bat, (err == ESP_OK) && bat.valid, now_us);
@@ -336,7 +399,7 @@ static void sensor_task(void *arg) {
         // publish mẫu để nhìn được range_status, nhưng KHÔNG mark_ok nên seq
         // không tăng và estimator không correction trên nó.
 #if FC_FEATURE_TOF
-        if (s_tof_present && (round % SENSOR_TOF_DIVISOR) == SENSOR_TOF_PHASE) {
+        if (s_tof_present && (control_round % SENSOR_TOF_DIVISOR) == SENSOR_TOF_PHASE) {
             tof_reading_t tof = {0};
             const esp_err_t err = tof_driver_read(&tof);
             publish_tof(&tof, (err == ESP_OK) && tof.valid, now_us);
@@ -384,8 +447,10 @@ esp_err_t sensor_hub_start(TaskHandle_t notify_task, int imu_int_gpio,
         }
     }
 
-    ESP_LOGI(TAG, "sensor_hub start: imu=%d mag=%d baro=%d batt=%d tof=%d (core %d, prio %d)",
-              imu_present, mag_present, baro_present, battery_present, tof_present,
+    ESP_LOGI(TAG, "sensor_hub start: imu_present=%d imu=%dHz batch=%d -> control=%dHz; mag=%d baro=%d batt=%d tof=%d (core %d, prio %d)",
+              imu_present,
+              SENSOR_HUB_HZ, IMU_SAMPLES_PER_CONTROL, SENSOR_CONTROL_HZ,
+              mag_present, baro_present, battery_present, tof_present,
               SENSOR_TASK_CORE, SENSOR_TASK_PRIORITY);
     return ESP_OK;
 }

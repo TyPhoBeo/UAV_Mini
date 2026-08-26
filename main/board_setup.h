@@ -49,15 +49,15 @@ static inline void board_config_fill(flight_core_board_config_t *cfg) {
 
     // Vị trí vật lý ĐÃ XÁC NHẬN (sơ đồ người dùng đo trên khung thật, đầu drone
     // = cạnh M3-M2): CH3=front-left, CH2=front-right, CH1=back-right,
-    // CH4=back-left. Mixer Quad-X (attitude_control.h) giả định thứ tự
-    // motor_gpio[0..3] = M1=front-left/M2=front-right/M3=back-right/
-    // M4=back-left — vì vậy gán CHÉO theo vị trí vật lý, KHÔNG theo số thứ tự
-    // CH. Xem app_config.h mục "XÁC NHẬN VỊ TRÍ VẬT LÝ ĐỘNG CƠ" — chiều quay
+    // CH4=back-left. Mixer Quad-X (attitude_control.h) dùng ĐÚNG thứ tự đó:
+    // motor_gpio[0..3] = M1=back-right/M2=front-right/M3=front-left/
+    // M4=back-left — nên gán THẲNG theo số CH, không hoán chéo.
+    // Xem app_config.h mục "XÁC NHẬN VỊ TRÍ VẬT LÝ ĐỘNG CƠ" — chiều quay
     // CW/CCW mỗi góc VẪN CHƯA xác nhận, tự kiểm bằng test_motor trước khi bay.
-    cfg->motor_gpio[0] = MOTOR_CH3_PIN;   // mixer M1 (front-left) <- CH3
+    cfg->motor_gpio[0] = MOTOR_CH1_PIN;   // mixer M1 (back-right)  <- CH1
     cfg->motor_gpio[1] = MOTOR_CH2_PIN;   // mixer M2 (front-right) <- CH2
-    cfg->motor_gpio[2] = MOTOR_CH1_PIN;   // mixer M3 (back-right) <- CH1
-    cfg->motor_gpio[3] = MOTOR_CH4_PIN;   // mixer M4 (back-left) <- CH4
+    cfg->motor_gpio[2] = MOTOR_CH3_PIN;   // mixer M3 (front-left)  <- CH3
+    cfg->motor_gpio[3] = MOTOR_CH4_PIN;   // mixer M4 (back-left)   <- CH4
 
     cfg->battery_enabled = SENSOR_BATTERY_ENABLED;
     cfg->battery_adc1_channel = BOARD_BATTERY_ADC1_CHANNEL;

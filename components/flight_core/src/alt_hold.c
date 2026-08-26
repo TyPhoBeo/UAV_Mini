@@ -51,7 +51,13 @@ int alt_hold_vz_cascade(alt_hold_state_t *st, const alt_hold_tune_t *tune,
     }
 
     const float dthr = p_term + st->vz_integral;
-    return clampi((int)(tune->hover + dthr), min_throttle_duty, safe_max_duty);
+    const int output = clampi((int)(tune->hover + dthr), min_throttle_duty, safe_max_duty);
+    st->last_vz_error = vz_err;
+    st->last_p_term = p_term;
+    st->last_i_term = st->vz_integral;
+    st->last_d_term = 0.0f;
+    st->last_output_duty = (float)output;
+    return output;
 }
 
 void alt_hold_run(alt_hold_state_t *st, const alt_hold_tune_t *tune,

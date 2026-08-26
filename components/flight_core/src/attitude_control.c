@@ -117,21 +117,33 @@ void attitude_control_update(attitude_state_t *state, const attitude_gains_t *ga
     // dòng, build -Werror sẽ fail):
     /*
              FRONT
-          M1       M2
+          M3       M2
             x     x
              x   x
              x   x
             x     x
-          M4       M3
+          M4       M1
              BACK
+
+      M1 = back-right  (CCW)   M2 = front-right (CW)
+      M3 = front-left  (CCW)   M4 = back-left   (CW)
+      (chiều quay nhìn TỪ TRÊN xuống — đã xác nhận, xem app_config.h)
+
+      Dấu yaw suy ra TỪ chiều quay, không phải quy ước tuỳ ý: định luật 3
+      Newton — cánh quay CCW đẩy KHUNG theo chiều CW (= yaw ÂM theo quy ước
+      Z-up bàn tay phải), cánh quay CW đẩy khung theo CCW (= yaw DƯƠNG). Vậy:
+        M1, M3 quay CCW -> mang -Y
+        M2, M4 quay CW  -> mang +Y
+      Đây cũng đúng cặp chéo (M1,M3) và (M2,M4) như Quad-X đòi hỏi.
+      +yaw_correction => quay CCW (trái), khớp CMD_MOVE (xem command.h).
     */
     // Nếu test phản ứng ngược thì đảo roll_sign/pitch_sign/yaw_sign, KHÔNG sửa gain.
     float mf[4];
     const float thr_f = (float)in->throttle_duty;
-    mf[0] = thr_f + pitch_correction - roll_correction - yaw_correction;
-    mf[1] = thr_f + pitch_correction + roll_correction + yaw_correction;
-    mf[2] = thr_f - pitch_correction + roll_correction - yaw_correction;
-    mf[3] = thr_f - pitch_correction - roll_correction + yaw_correction;
+    mf[0] = thr_f - pitch_correction + roll_correction - yaw_correction;  // M1 back-right
+    mf[1] = thr_f + pitch_correction + roll_correction + yaw_correction;  // M2 front-right
+    mf[2] = thr_f + pitch_correction - roll_correction - yaw_correction;  // M3 front-left
+    mf[3] = thr_f - pitch_correction - roll_correction + yaw_correction;  // M4 back-left
 
     // Xử lý saturation ở MỨC MIXER (không clamp từng motor độc lập): throttle
     // cao -> motor cần TĂNG bị chặt trần trong khi motor cần GIẢM vẫn giảm
@@ -177,18 +189,18 @@ void attitude_control_update(attitude_state_t *state, const attitude_gains_t *ga
     // ================= PHẢN HỒI BÃO HOÀ (cho anti-windup tick sau) =================
     // NGHỊCH ĐẢO mixer từ duty CUỐI CÙNG (sau desaturation + clamp) để biết
     // correction THỰC SỰ giao được là bao nhiêu. Với Quad-X ở trên:
-    //   m1 = thr + P - R - Y      m2 = thr + P + R + Y
-    //   m3 = thr - P + R - Y      m4 = thr - P - R + Y
-    // => R = ((m2+m3) - (m1+m4)) / 4
-    //    P = ((m1+m2) - (m3+m4)) / 4
+    //   m1 = thr - P + R - Y      m2 = thr + P + R + Y
+    //   m3 = thr + P - R - Y      m4 = thr - P - R + Y
+    // => R = ((m1+m2) - (m3+m4)) / 4
+    //    P = ((m2+m3) - (m1+m4)) / 4
     //    Y = ((m2+m4) - (m1+m3)) / 4
     // Đây là phép giải chính xác, KHÔNG phải ước lượng.
     {
         const float a1 = (float)out->m1, a2 = (float)out->m2;
         const float a3 = (float)out->m3, a4 = (float)out->m4;
 
-        const float roll_done  = ((a2 + a3) - (a1 + a4)) * 0.25f;
-        const float pitch_done = ((a1 + a2) - (a3 + a4)) * 0.25f;
+        const float roll_done  = ((a1 + a2) - (a3 + a4)) * 0.25f;
+        const float pitch_done = ((a2 + a3) - (a1 + a4)) * 0.25f;
         const float yaw_done   = ((a2 + a4) - (a1 + a3)) * 0.25f;
 
         // Ngưỡng chết: chênh lệch dưới 1 LSB duty là làm tròn số nguyên, không

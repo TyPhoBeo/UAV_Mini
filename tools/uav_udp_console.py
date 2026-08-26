@@ -428,7 +428,19 @@ STATUS_RE = re.compile(
     # nhieu so voi hover THAT = model sai (doi motor/canh/pin ma chua do lai).
     # Nhom o CUOI regex -> khong dich chi so nao phia truoc.
     r"(?: HOVLK=(\d) HOVLV=([-\d.]+) HOVLD=([-\d.]+))?"
-    r"\s*$"
+    # ---- DUOI TU DO: BO QUA moi truong la o cuoi dong ----
+    #
+    # TRUOC DAY cho nay la r"\s*$" — bat buoc dong STATUS phai KET THUC ngay
+    # sau nhom cuoi cung ma regex biet. Hau qua: firmware them BAT KY khoi
+    # telemetry moi nao o duoi (TOFZ/FLOORLOCK/AZBZ/VZP/CLR/FRAME...) la CA
+    # DONG khong khop -> GUI bo qua toan bo -> mat luon nhung thu co san tu
+    # dau nhu M= (duty 4 dong co) va ALTm= (do cao). Trieu chung nhin thay la
+    # "GUI khong hien throttle/do cao nua", trong khi firmware van gui du.
+    #
+    # Regex nay la GIAO DIEN giua hai ban build co the lech phien ban nhau, nen
+    # no phai BAO DUNG (tolerant): doc nhung gi minh hieu, lo phan con lai.
+    # Them truong moi vao firmware KHONG duoc phep lam vo GUI cu.
+    r"(?:\s.*)?$"
 )
 
 # alt_est_tof_surface_t (alt_estimator.h) — thu tu PHAI khop enum firmware.
@@ -444,7 +456,7 @@ ARM_REJECT_NAMES = {
     "3":  "attitude CHUA hop le (Mahony chua init) -> de yen drone vai giay",
     "4":  "NGHIENG qua nguong -> dat drone bang phang",
     "5":  "IMU stale/khong khoe -> kiem tra bus I2C + day INT",
-    "6":  "gyro CHUA calib -> chay calib_gyro (drone dung yen ~1.5s)",
+    "6":  "fresh gyro calib CHUA PASS -> giu yen drone, chay calib_gyro va xem cal_status",
     "7":  "accel CHUA calib 6-face -> chay calib_accel_face x6",
     "8":  "KHONG doc duoc dien ap pin (ADC loi?)",
     "9":  "PIN DUOI SAN -> sac truoc khi bay",
@@ -463,6 +475,9 @@ ARM_REJECT_NAMES = {
            "day la bien VUNG HOP LE CUA MODEL hover, duoi nguong nay ga hover "
            "tinh ra vuot tran collective nen bi kep thap hon hover THAT -> "
            "drone se nam i khong nhac noi."),
+    "19": "MPU6050 read-back config KHONG hop le -> xem GYRO_CONFIG/ACCEL_CONFIG trong cal_status",
+    "20": "gyro corrected mean con lech -> chay lai calib_gyro khi drone dung yen",
+    "21": "chua co cua so gyro stationary 1s ngay truoc ARM -> giu yen drone roi ARM lai",
 }
 
 # takeoff_reject_t (telemetry.h) — thứ tự PHẢI khớp enum firmware. Cùng lý do
@@ -470,9 +485,8 @@ ARM_REJECT_NAMES = {
 TAKEOFF_REJECT_NAMES = {
     "0": "",
     "1": "FSM KHONG o ARMED -> bam ARM truoc (dang bay thi dung LAND/KILL)",
-    "2": ("KHONG co nguon correction nao: baro TAT (SENSOR_BARO_ENABLED=0) VA ToF "
-          "khong dung duoc -> Z se troi tu do khi roi dat. Sua ToF (chay 'i2c_scan' "
-          "roi 'tof_test'), hoac bat SENSOR_BARO_ENABLED=1 roi build lai."),
+    "2": ("Chua chot duoc mau FLOOR ToF hop le; hien firmware dung mau hop le dau tien. "
+          "Kiem tra TOFFUSE/FLOORREADY/FLOORN, i2c_scan va tof_test."),
     "3": "alt_estimator KHONG hop le (state khong huu han) -> ARM lai de reset",
 }
 
@@ -1017,7 +1031,11 @@ class FlightAltGroup:
             self.rows["tgt"].set_value(tgt)
 
     def set_live(self, alt_m, vz, tgt, mode, tof, av, terr):
-        names = {0: "OFF", 1: "LOG", 2: "HOLD", 3: "TAKEOFF"}
+        # Khop telemetry_format_alt_mode() (src/telemetry_format.c). Ban truoc
+        # thieu ca 4=LANDING lan 5=FLYING -> panel nay hien so tran ("mode 4")
+        # thay vi ten khi dang ha canh.
+        names = {0: "OFF", 1: "LOG", 2: "HOLD", 3: "TAKEOFF",
+                 4: "LANDING", 5: "FLYING"}
         self.live_var.set(
             f"ALT: {alt_m:.2f} m | vz {vz:+.2f} | tgt {tgt:.2f} | "
             f"mode {names.get(mode, mode)} | tof {tof:.2f} | av {av} | terr {terr}")
@@ -3414,7 +3432,9 @@ class PidTunerApp:
 
             # Cụm altitude bản BAY (nếu có) -> label telemetry + panel "ALT bay".
             if altm is not None:
-                names = {"0": "OFF", "1": "LOG", "2": "HOLD", "3": "TAKEOFF", "4": "LANDING"}
+                # Khop telemetry_format_alt_mode() — 5=FLYING, xem mnames duoi.
+                names = {"0": "OFF", "1": "LOG", "2": "HOLD",
+                         "3": "TAKEOFF", "4": "LANDING", "5": "FLYING"}
                 text += (f" | ALT={altm}m vz={vz} tgt={atgt} "
                          f"mode={names.get(amode, amode)} tof={tof} av={av}")
                 try:
@@ -3567,29 +3587,63 @@ class PidTunerApp:
             if altm is not None:
                 self._last_alt_target = atgt
             if hasattr(self, "manual_status_var"):
-                mnames = {"0": "OFF", "1": "LOG", "2": "HOLD", "3": "TAKEOFF", "4": "LANDING"}
+                # Khop telemetry_format_alt_mode() (src/telemetry_format.c).
+                # 5=FLYING tach rieng khoi 2=HOLD: truoc day firmware tra CUNG
+                # gia tri 2 cho ca HOLDING lan FLYING nen GUI luon hien "HOLD"
+                # ke ca khi dang bay tien/lui/trai/phai.
+                mnames = {"0": "OFF", "1": "LOG", "2": "HOLD",
+                          "3": "TAKEOFF", "4": "LANDING", "5": "FLYING"}
                 armed_yes = (armed == "1")
                 # THR= chính là throttle base: khi mode HOLD/TAKEOFF/LANDING (2/3/4)
                 # nó là output PID giữ độ cao (hover+dthr); còn lại là throttle tay.
                 # CHI de hien thi nhan "(PID)" canh THR=. KHONG con dieu khien
                 # hanh vi phim W/S nua (xem khoi comment tren _ws_press).
-                thr_pid = amode in ("2", "3", "4")
+                # PID giu do cao dang lai throttle o HOLD/TAKEOFF/LANDING/FLYING.
+                # FLYING (5) PHAI co trong danh sach: no van chay alt_hold y het
+                # HOLDING, chi khac la dang co lenh nghieng. Bo sot 5 thi nhan
+                # "(PID)" bien mat ngay khi bat dau bay tien - trong nhu vua
+                # chuyen sang throttle tay, trong khi khong he.
+                thr_pid = amode in ("2", "3", "4", "5")
                 thr_txt = f"{thr}{' (PID)' if thr_pid else ''}" if thr is not None else "?"
+                mode_txt = mnames.get(amode, amode) if amode is not None else "?"
+                # alt: hien ca do cao HIEN TAI va TARGET. Chi mot so thi khong
+                # biet drone dang bam target hay dang troi - dung cai lech giua
+                # hai so nay de thay ngay (log truoc: alt=1.32 nhung tgt=0.97).
+                if altm is not None:
+                    alt_txt = f"{altm}m"
+                    if atgt is not None:
+                        alt_txt += f" /tgt {atgt}m"
+                    if vz is not None:
+                        alt_txt += f"  vz={vz}"
+                else:
+                    alt_txt = "?"
                 self.manual_status_var.set(
                     f"ARM={'YES' if armed_yes else 'no'}   "
-                    f"mode={mnames.get(amode, amode) if amode is not None else '?'}   "
-                    f"alt={altm if altm is not None else '?'}m   "
+                    f"mode={mode_txt}   "
+                    f"alt={alt_txt}   "
                     f"THR={thr_txt}")
                 self._update_manual_cmd_label()
                 # Takeoff chỉ enable khi đã ARM; Land luôn enable.
                 if hasattr(self, "manual_takeoff_btn"):
                     self.manual_takeoff_btn.configure(
                         state=("normal" if armed_yes else "disabled"))
-                # Throttle 4 motor (M= trong dòng STATUS).
-                if hasattr(self, "manual_motor_var") and mmo:
-                    m1, m2, m3, m4 = mmo.groups()
-                    self.manual_motor_var.set(
-                        f"M1={m1}   M2={m2}   M3={m3}   M4={m4}")
+                # ---- Throttle 4 dong co (M= trong dong STATUS) ----
+                # LUON cap nhat, ke ca khi dong STATUS khong co cum "M=":
+                # de nguyen gia tri cu thi nhan hien so CU CUA LAN TRUOC ma
+                # khong co dau hieu gi - nguoi doc tuong motor van dang o duty
+                # do. Khong co du lieu thi phai NOI la khong co.
+                if hasattr(self, "manual_motor_var"):
+                    if mmo:
+                        m1, m2, m3, m4 = mmo.groups()
+                        # Them THR de so sanh: 4 motor xoay quanh THR, lech nhau
+                        # chinh la correction cua PID. Nhin duoc do lech ngay
+                        # tren mot dong la biet mixer co dang lam viec khong.
+                        base = f"   (THR={thr})" if thr is not None else ""
+                        self.manual_motor_var.set(
+                            f"M1={m1:>5}  M2={m2:>5}  M3={m3:>5}  M4={m4:>5}{base}")
+                    else:
+                        self.manual_motor_var.set(
+                            "M1=--  M2=--  M3=--  M4=--   (dong STATUS khong co cum M=)")
             return
 
     def _log(self, text: str):

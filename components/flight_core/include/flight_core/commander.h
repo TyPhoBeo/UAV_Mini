@@ -13,6 +13,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "flight_core/alt_estimator.h"
 #include "flight_core/flight_state_machine.h"
 #include "flight_core/tuning.h"
 #include "flight_core/types.h"
@@ -91,7 +92,9 @@ static inline void commander_credit_stall(commander_state_t *st, int64_t stalled
 // Geofence: kẹp altitude target người dùng đặt vào [alt_min, alt_max]. Gọi
 // TRƯỚC khi ghi vào setpoint, mọi đường vào (takeoff target, move, set_altitude).
 static inline float commander_clamp_altitude(const commander_config_t *cfg, float requested_alt_m) {
-    return clampf(requested_alt_m, cfg->alt_min_m, cfg->alt_max_m);
+    const float tof_safe_max = ALT_EST_MAX_FLIGHT_Z_M;
+    const float upper = (cfg->alt_max_m < tof_safe_max) ? cfg->alt_max_m : tof_safe_max;
+    return clampf(requested_alt_m, cfg->alt_min_m, upper);
 }
 
 typedef struct {

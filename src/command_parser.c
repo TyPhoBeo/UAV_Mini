@@ -227,8 +227,8 @@ static bool handle_trim(const char *upper, char *out, size_t out_size) {
 // LƯU Ý @ALT MODE: UAV-S3 KHÔNG có "alt_mode" độc lập như UAV-Mini — alt_hold
 // LUÔN chạy khi FSM đang HOLDING/FLYING (do state machine quyết định, không
 // phải cờ riêng). MODE 3 (TAKEOFF)/4 (LANDING) ánh xạ sang đúng lệnh FSM
-// tương ứng; MODE 0/1/2 chỉ trả OK (không có tác dụng thật — KHÔNG thể "tắt"
-// alt_hold giữa chừng đang bay mà không hạ, xem an toàn FSM). Xem
+// tương ứng; MODE 2 ánh xạ HOLD (và hủy LANDING), MODE 0/1 chỉ ACK vì không
+// thể tắt alt_hold giữa chừng đang bay mà không hạ. Xem
 // telemetry_format.c::alt_mode_from_state() cho chiều ngược lại (GET).
 static bool handle_alt(const char *upper, char *out, size_t out_size) {
     if (strncmp(upper, "ALT", 3) != 0) return false;
@@ -282,7 +282,13 @@ static bool handle_alt(const char *upper, char *out, size_t out_size) {
         int mode = 0;
         if (sscanf(upper, "ALT MODE %d", &mode) == 1) {
             command_t cmd = {0};
-            if (mode == 3) {
+            if (mode == 2) {
+                cmd.type = CMD_HOVER;
+                if (!flight_core_push_command(&cmd)) {
+                    snprintf(out, out_size, "ALT MODE=2 ERR command queue day, lenh BI BO\n");
+                    return true;
+                }
+            } else if (mode == 3) {
                 cmd.type = CMD_TAKEOFF;
                 // Cùng lý do như 'ALT TAKEOFF'/'t': alt_mm giờ CÓ tác dụng nên
                 // không được để 0. Lấy alt_target_m hiện tại làm đích.
@@ -300,7 +306,7 @@ static bool handle_alt(const char *upper, char *out, size_t out_size) {
                     return true;
                 }
             }
-            // mode 0/1/2: khong co lenh tuong duong, chi ACK (xem comment dau ham).
+            // mode 0/1: không có cạnh FSM an toàn tương đương, chỉ ACK.
             snprintf(out, out_size, "ALT MODE=%d (0=OFF 1=LOG 2=HOLD 3=TAKEOFF->CMD_TAKEOFF 4=LANDING->CMD_LAND)\n", mode);
             return true;
         }
@@ -709,15 +715,28 @@ static bool handle_cal(const char *upper, char *out, size_t out_size) {
                  "CAL uncalibrated=%d valid_gyro=%d valid_accel=%d valid_mag=%d mag_ok=%d "
                  "gyro_active=%d accel_capturing=%d accel_faces=%d/%d "
                  "mag_active=%d mag_samples=%u baro_cal=%d baro_healthy=%d "
-                 "gyro_std=(%.3f,%.3f,%.3f) accel_residual=%.3f imu_temp=%.1f\n",
+                 "gcal_state=%d gcal_fail=%d gcal_bad=%d "
+                 "accel_residual=%.3f imu_temp=%.1f gcal_temp=%.1f\n",
                  (int)sn.uncalibrated, (int)sn.calib_gyro_valid, (int)sn.calib_accel_valid,
                  (int)sn.calib_mag_valid, (int)sn.mag_ok_driver,
                  (int)sn.calib_gyro_active, (int)sn.calib_accel_capturing,
                  sn.calib_accel_faces_done, CALIB_ACCEL_FACES_NEEDED,
                  (int)sn.calib_mag_active, (unsigned)sn.calib_mag_sample_count,
                  (int)sn.baro_calibrated, (int)sn.baro_healthy,
-                 sn.gyro_calib_std_x_dps, sn.gyro_calib_std_y_dps, sn.gyro_calib_std_z_dps,
-                 sn.accel_calib_residual_g, sn.imu_temp_c);
+                 sn.gyro_cal_state, sn.gyro_cal_fail, sn.gyro_cal_bad_samples,
+                 sn.accel_calib_residual_g, sn.imu_temp_c, sn.gyro_cal_temp_c);
+        if (n > 0 && (size_t)n < out_size) {
+            const int added = snprintf(out + n, out_size - (size_t)n,
+                     "CAL GRAW=(%.3f,%.3f,%.3f) GBIAS=(%.3f,%.3f,%.3f) "
+                     "GCORR=(%.3f,%.3f,%.3f) GSTDRAW=(%.3f,%.3f,%.3f) "
+                     "GSTDCORR=(%.3f,%.3f,%.3f)\n",
+                     sn.gyro_raw_dps.x, sn.gyro_raw_dps.y, sn.gyro_raw_dps.z,
+                     sn.gyro_bias_dps.x, sn.gyro_bias_dps.y, sn.gyro_bias_dps.z,
+                     sn.gyro_corr_dps.x, sn.gyro_corr_dps.y, sn.gyro_corr_dps.z,
+                     sn.gyro_raw_std_dps.x, sn.gyro_raw_std_dps.y, sn.gyro_raw_std_dps.z,
+                     sn.gyro_corr_std_dps.x, sn.gyro_corr_std_dps.y, sn.gyro_corr_std_dps.z);
+            if (added > 0) n += added;
+        }
         // Dòng 2 CHỈ khi đang chạy phiên mag — range 3 trục là thứ cần nhìn
         // trong lúc xoay (nên GẦN BẰNG NHAU + tăng đều), loi_i2c/chua_sansang
         // cho biết mau=0 là do người xoay ít hay do chip không phát mẫu.
@@ -892,7 +911,8 @@ static void handle_single_char(int c, char *out, size_t out_size) {
             telemetry_snapshot_t sn;
             flight_core_read_telemetry(&sn);
             const fsm_state_t predicted = fsm_on_takeoff_request(sn.state);
-            const bool ok = (predicted != sn.state);
+            const bool go_around = (sn.state == FSM_LANDING);
+            const bool ok = (predicted != sn.state) || go_around;
             command_t cmd = {0};
             cmd.type = CMD_TAKEOFF;
             // Phím 't' không có tham số -> lấy alt_target_m HIỆN TẠI làm đích
@@ -906,7 +926,10 @@ static void handle_single_char(int c, char *out, size_t out_size) {
             // KHÔNG dùng một snprintf với format chọn bằng ternary: hai format
             // có danh sách tham số KHÁC NHAU (%.2f vs %s), varargs cố định sẽ
             // đọc sai kiểu ở một trong hai nhánh.
-            if (ok) {
+            if (go_around) {
+                snprintf(out, out_size, "GO-AROUND sent -> HOLDING/CLIMB tgt=%.2fm\n",
+                         (double)sn.alt_target_m);
+            } else if (ok) {
                 // "sent", KHÔNG phải "started" — xem lý do đầy đủ ở nhánh
                 // "ALT TAKEOFF" phía trên (điều kiện thật nằm trong flight_core).
                 snprintf(out, out_size, "TAKEOFF sent tgt=%.2fm (ket qua o TKOREJ= trong STATUS)\n",
@@ -915,6 +938,20 @@ static void handle_single_char(int c, char *out, size_t out_size) {
                 snprintf(out, out_size, "TAKEOFF REJECTED: can state=ARMED (hien tai=%s)\n",
                          fsm_state_name(sn.state));
             }
+            break;
+        }
+        case 'z': case 'Z': {
+            telemetry_snapshot_t sn;
+            flight_core_read_telemetry(&sn);
+            command_t cmd = {0};
+            cmd.type = CMD_HOVER;
+            if (!flight_core_push_command(&cmd)) {
+                snprintf(out, out_size, "HOLD ERR command queue day, lenh BI BO\n");
+                break;
+            }
+            snprintf(out, out_size, sn.state == FSM_LANDING
+                ? "LANDING ABORT sent -> HOLDING\n"
+                : "HOLD sent\n");
             break;
         }
         case 'l': case 'L': {

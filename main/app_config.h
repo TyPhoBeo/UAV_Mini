@@ -26,7 +26,8 @@
 // BMP280 — sửa trôi dài hạn cho alt_estimator. TẮT được (ToF-only bay được),
 // NHƯNG khi ToF hết tầm (>~1.8m) hoặc nhìn bề mặt khác (bàn/ghế) thì KHÔNG còn
 // nguồn correction nào -> Commander tự LANDING sau
-// ALT_EST_NO_CORRECTION_DEGRADED_MS. Muốn bay cao/bay lâu qua bàn thì BẬT.
+// Flow estimator rút gọn hiện chỉ fusion VL53L0X; cờ baro được giữ để mở rộng
+// sau nhưng chưa làm nguồn correction cho Z/Vz.
 #define SENSOR_BARO_ENABLED      0   // BMP280 (xem baro_driver.h + ghi chú trên)
 #define SENSOR_FLOW_ENABLED      0   // PMW3901 optical flow — mới khai báo pin SPI, CHƯA có driver
 #define SENSOR_RGB_LED_ENABLED   0   // WS2812 — mới khai báo pin, CHƯA có driver
@@ -44,6 +45,17 @@
 // TẮT VỀ 0 nếu bay thử thấy ga ban đầu sai hẳn: model chỉ fit từ 2 điểm đo
 // bench-ramp của MỘT con drone, đổi motor/cánh/khung là phải đo lại.
 #define HOVER_LATCH_ENABLED      1
+
+// ---- Terrain offset (bay qua bàn/ghế mà KHÔNG mất tham chiếu ToF) ----
+// 1 = alt_estimator theo dõi BẬC TERRAIN dưới bụng drone: phát hiện bằng
+//     RESIDUAL (thay đổi range KHÔNG giải thích được bằng vz), xác nhận N mẫu
+//     rồi COMMIT một offset giữ alt_datum LIÊN TỤC xuyên qua cú nhảy -> PID
+//     không thấy gì bất thường, ToF không bị gate mất vĩnh viễn.
+//     Mở thêm frame AGL (giữ khoảng cách so với BỀ MẶT) + guard khoảng hở tối
+//     thiểu, và cho landing chạy trên AGL thay vì datum.
+// 0 = HÀNH VI CŨ Y NGUYÊN: terrain_off_m luôn 0, alt = độ cao trên sàn đã
+//     khoá, bay qua bàn -> innovation vượt gate -> ToF OTHER -> mất correction.
+#define TERRAIN_OFFSET_ENABLED   1
 
 #if SENSOR_IMU_ENABLED == 0
 #error "SENSOR_IMU_ENABLED phai = 1 -- khong IMU thi attitude khong bao gio valid, khong the arm, tat co dinh khong ich gi ma con che dau loi neu vo tinh tat nham"
@@ -72,11 +84,11 @@
 // ================= XÁC NHẬN VỊ TRÍ VẬT LÝ ĐỘNG CƠ (Quad-X) =================
 // board_config.h chỉ có PIN theo NET (CH1..CH4) trên schematic — KHÔNG biết
 // CH nào nằm góc nào của khung X hay chiều quay CW/CCW. attitude_control.h
-// giả định thứ tự mixer M1=front-left, M2=front-right, M3=back-right,
+// giả định thứ tự mixer M1=back-right, M2=front-right, M3=front-left,
 // M4=back-left. SAI mapping ở đây = lật ngay khi arm, KHÔNG cứu được bằng tune.
 //
-// VỊ TRÍ (góc nào của khung X) ĐÃ XÁC NHẬN xong (xem bảng dưới) — VẪN CÒN
-// THIẾU CHIỀU QUAY (CW/CCW) từng góc, PHẢI làm trước khi lắp cánh quạt/bay:
+// VỊ TRÍ và CHIỀU QUAY đều ĐÃ XÁC NHẬN (xem bảng dưới). Quy trình đo lại (khi
+// thay motor/ESC hoặc nghi ngờ lắp sai) giữ nguyên ở đây:
 //   1. Tháo cánh quạt cả 4 động cơ (BẮT BUỘC, an toàn tuyệt đối, nếu chưa tháo).
 //   2. Nạp firmware (src/main.c, console USB) — xem README mục "Bay qua
 //      console USB". Đảm bảo state = DISARMED (mặc định lúc boot).
@@ -85,8 +97,10 @@
 //      flight_core.c::apply_command() case CMD_TEST_MOTOR). Lặp lại cho
 //      test_motor 2/3/4, quan sát CHIỀU QUAY (CW nhìn từ trên xuống hay CCW).
 //   4. So với chiều mixer Quad-X kỳ vọng: 2 động cơ CHÉO NHAU (front-left +
-//      back-right) quay CÙNG chiều, 2 động cơ CHÉO CÒN LẠI (front-right +
-//      back-left) quay chiều NGƯỢC LẠI — đây là yêu cầu VẬT LÝ bắt buộc để
+//      back-right = M3 + M1) quay CÙNG chiều, 2 động cơ CHÉO CÒN LẠI
+//      (front-right + back-left = M2 + M4) quay chiều NGƯỢC LẠI.
+//      Khớp đúng dấu yaw trong mixer (attitude_control.c): M1/M3 mang -Y,
+//      M2/M4 mang +Y. Đây là yêu cầu VẬT LÝ bắt buộc để
 //      mixer tạo được mô-men yaw (không liên quan tới đảo dấu ATT_MIX_YAW_SIGN,
 //      cái đó CHỈ đổi lệnh xoay bên nào, không tạo ra chiều quay nếu lắp sai
 //      từ đầu). Nếu 1 cặp chéo bị lắp NGƯỢC (cùng chiều với cặp kia), PHẢI đảo
@@ -96,14 +110,23 @@
 //      phản ứng ngược lệnh), đảo ATT_MIX_YAW_SIGN trong tuning.h — KHÔNG đảo
 //      dây động cơ trong trường hợp này.
 //
-// VỊ TRÍ đã xác nhận (sơ đồ người dùng đo trên khung thật) — motor_gpio[] ở
-// fc_bridge.c/src/main.c đã gán CHÉO đúng theo vị trí này. CHƯA xác nhận
-// CHIỀU QUAY (CW/CCW) từng góc — dùng `test_motor <1-4> <pct>` (đã THÁO CÁNH
-// QUẠT) quan sát chiều quay thật, so với chiều mixer Quad-X kỳ vọng (diagonal
-// front-left/back-right quay CÙNG chiều, front-right/back-left quay chiều
-// NGƯỢC lại). Sai chiều quay -> KHÔNG sửa vị trí, đảo dấu mixer
-// (ATT_MIX_ROLL_SIGN/PITCH_SIGN/YAW_SIGN, tuning.h) hoặc đảo 2 dây động cơ đó.
+// VỊ TRÍ đã xác nhận (sơ đồ người dùng đo trên khung thật) — thứ tự mixer khớp
+// THẲNG với số CH nên motor_gpio[] gán trực tiếp CH1..CH4.
+//
+// CHIỀU QUAY đã xác nhận: M1/M3 = CCW, M2/M4 = CW (nhìn TỪ TRÊN xuống). Đã
+// kiểm chứng khớp mixer:
+//   - Cặp chéo hợp lệ: M1+M3 (back-right + front-left) cùng CCW, M2+M4
+//     (front-right + back-left) cùng CW, hai cặp ngược nhau -> ĐÚNG Quad-X.
+//   - Dấu yaw khớp phản lực (định luật 3 Newton — cánh quay CCW đẩy KHUNG
+//     theo CW = yaw âm): M1/M3 quay CCW mang -Y, M2/M4 quay CW mang +Y.
+//     Cả 4 motor cộng dồn cùng hướng, không con nào triệt tiêu con nào.
+//   - Khớp quy ước lệnh: +yaw_rate = CCW = quay trái (xem command.h move_dir_t
+//     và apply_command() case CMD_MOVE) -> ATT_MIX_YAW_SIGN giữ = 1.0f.
+// Nếu sau này thay motor/ESC làm đổi chiều quay -> KHÔNG sửa vị trí, đảo 2
+// trong 3 dây pha của motor đó; chỉ khi CẢ HỆ phản ứng ngược mới đảo dấu mixer
+// (ATT_MIX_ROLL_SIGN/PITCH_SIGN/YAW_SIGN, tuning.h).
 #define MOTOR_POSITIONS_CONFIRMED   1
+#define MOTOR_SPIN_DIRS_CONFIRMED   1
 
 // CHỈ để đọc/log cho người (khớp motor_gpio[] đã gán trong fc_bridge.c/
 // src/main.c), KHÔNG ảnh hưởng runtime.
@@ -112,16 +135,18 @@
 #define MOTOR_CH3_PHYSICAL_POS   "front-left"
 #define MOTOR_CH4_PHYSICAL_POS   "back-left"
 
+// Chiều quay nhìn TỪ TRÊN xuống — chỉ để đọc/log, KHÔNG ảnh hưởng runtime
+// (mixer đã mã hoá cứng dấu yaw theo đúng bảng này, xem attitude_control.c).
+#define MOTOR_CH1_SPIN_DIR       "CCW"
+#define MOTOR_CH2_SPIN_DIR       "CW"
+#define MOTOR_CH3_SPIN_DIR       "CCW"
+#define MOTOR_CH4_SPIN_DIR       "CW"
+
 // ================= CALIBRATION (xem calibration.h + README.md) =================
-// ARM giờ BỊ TỪ CHỐI nếu chưa có accel (+ mag nếu SENSOR_MAG_ENABLED=1) hợp lệ
-// trong NVS — xem flight_core.c apply_command() CMD_ARM. Lần flash đầu tiên
-// (NVS trống) PHẢI chạy calib 1 lần: console `calib_accel_face` x6 (+
-// `calib_mag_start`/`calib_mag_stop` nếu có mag) HOẶC fc.calibrate_accel_face()/
-// fc.calibrate_mag_start()/stop() (MicroPython) — xem README mục "Calibration".
-//
-// KHÔNG có calib nào chạy tự động: boot CHỈ nạp calib đã lưu NVS (gyro/accel/
-// mag), KHÔNG tự đo lại bất kỳ cảm biến nào. Cả 3 loại calib (gyro/accel/mag)
-// CHỈ chạy khi có lệnh serial tường minh (`calib_gyro`/`calib_accel_face`/
-// `calib_mag_start`+`calib_mag_stop`, hoặc `fc.calibrate_*()` phía MicroPython)
-// — muốn re-zero gyro chống trôi nhiệt độ giữa các lần bay, tự gọi `calib_gyro`
-// (mất ~1.5s, đứng yên) trước khi arm mỗi lần cần, KHÔNG có cờ tự động nào.
+// ARM bi tu choi neu accel persistent chua hop le, fresh gyro calibration moi
+// boot chua PASS, hoac pre-arm corrected-gyro stationary window khong dat.
+// Accel (+ mag neu dung) van la calibration persistent trong NVS; lan flash dau
+// can chay `calib_accel_face` x6. Gyro co semantics rieng: boot luon settle ->
+// collect RAW 4s -> validate doc lap 1.5s. Bias gyro trong NVS chi la history,
+// khong duoc dung thay fresh result va khong cuu ARM khi fresh calibration fail.
+// `calib_gyro` khi DISARMED chay lai dung cung FSM startup.

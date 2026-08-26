@@ -46,6 +46,11 @@ fsm_state_t fsm_on_land_request(fsm_state_t cur) {
     return cur;
 }
 
+fsm_state_t fsm_on_landing_abort_hold(fsm_state_t cur) {
+    if (cur == FSM_LANDING) return FSM_HOLDING;
+    return cur;
+}
+
 fsm_state_t fsm_on_soft_fault(fsm_state_t cur) {
     // Commander giờ chạy ở MỌI state đã armed (xem commander.h), nên hàm này
     // phải trả lời được cho từng state chứ không chỉ HOLDING/FLYING:

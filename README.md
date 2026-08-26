@@ -611,12 +611,12 @@ panel "Calibration"): `@CAL STATUS`, `@CAL GYRO START|ABORT`,
 `python/fc_api.py` có sẵn wrapper BLOCKING poll `fc.calib_status()`:
 `calibrate_gyro()`, `calibrate_accel_6face(prompt=...)`, `calibrate_mag(duration_s=...)`.
 
-**Motion/stability detection** (gyro + từng mặt accel): calib gyro tính std-dev
-gyro trong lúc đo + theo dõi `|accel_norm-1.0|` — phát hiện drone bị cầm/lắc
-thì HỦY (không commit bias sai). Calib accel theo dõi `|gyro|` trong lúc giữ
-từng mặt — mặt nào bị "nghi động" thì hủy RIÊNG mặt đó (không mất tiến trình
-5 mặt còn lại). Ngưỡng: `CALIB_GYRO_MAX_STD_DPS`, `CALIB_MOTION_ACCEL_TOL_G`,
-`CALIB_ACCEL_MOTION_GYRO_DPS` (tuning.h) — CHƯA đo trên hardware thật.
+**Motion/stability detection** (gyro + từng mặt accel): gyro calibration chạy
+tự động mỗi boot và lệnh `calib_gyro` dùng cùng FSM: settle 1.5s,
+chờ stationary, collect `gyro_raw_dps` liên tục 4s bằng Welford, sau đó
+validate trên một cửa sổ mới 1.5s. Chuyển động hủy toàn bộ cửa sổ;
+không commit bias dang dở. Các ngưỡng gyro nằm trong nhóm `GYRO_CAL_*`
+của `tuning.h`; accel 6-face vẫn dùng `CALIB_ACCEL_MOTION_GYRO_DPS`.
 
 **Verify sau accel 6-face**: áp lại công thức hiệu chỉnh (bias/scale) lên
 chính 6 mặt vừa đo, `residual = ||a_hiệu_chỉnh| - 1.0g|` — vượt

@@ -68,11 +68,11 @@ extern "C" {
 #define ATT_GAIN_RATE_PITCH_ILIMIT  120.0f
 #define ATT_GAIN_RATE_PITCH_OUTLIM  300.0f
 
-#define ATT_GAIN_RATE_YAW_KP        2.5f
-#define ATT_GAIN_RATE_YAW_KI        5.0f
-#define ATT_GAIN_RATE_YAW_KD        0.0f
-#define ATT_GAIN_RATE_YAW_ILIMIT    150.0f
-#define ATT_GAIN_RATE_YAW_OUTLIM    250.0f
+#define ATT_GAIN_RATE_YAW_KP        5.0f
+#define ATT_GAIN_RATE_YAW_KI        10.0f
+#define ATT_GAIN_RATE_YAW_KD        0.05f
+#define ATT_GAIN_RATE_YAW_ILIMIT    200.0f
+#define ATT_GAIN_RATE_YAW_OUTLIM    300.0f
 
 // ---- Dấu mixer Quad-X — đảo nếu lắp ngược board/motor, KHÔNG sửa gain ----
 #define ATT_MIX_ROLL_SIGN           1.0f
@@ -80,7 +80,7 @@ extern "C" {
 #define ATT_MIX_YAW_SIGN            1.0f
 
 // Ga tối thiểu để PID attitude chạy (dưới ngưỡng: 4 motor quay đều, không PID).
-#define ATT_MIN_THROTTLE_DUTY       400
+#define ATT_MIN_THROTTLE_DUTY       200
 
 // Ga tối thiểu để I-term (Ki) ĐƯỢC CỘNG DỒN. Dưới ngưỡng này integrator bị
 // FREEZE (giữ nguyên, KHÔNG reset — khác ATT_MIN_THROTTLE_DUTY ở trên vốn
@@ -93,7 +93,7 @@ extern "C" {
 // motor KHÔNG thể khử được -> tích lũy chỉ tạo windup, bung ra lúc ga lên).
 // Tách ra để nâng riêng ngưỡng Ki (vd 200 -> 400) khi tune mà KHÔNG đụng tới
 // ngưỡng chạy PID.
-#define ATT_I_ENABLE_THROTTLE_DUTY  800
+#define ATT_I_ENABLE_THROTTLE_DUTY  500
 
 // Trần collective (tỷ lệ của MOTOR_SAFE_MAX_DUTY) mà BÙ PIN được phép đẩy tới.
 // Phần còn lại (1 - giá trị này) là dải duty chừa cho mixer tạo mô-men roll/
@@ -116,7 +116,7 @@ extern "C" {
 // 2) ALT HOLD (alt_hold.h) — cascade giữ độ cao: alt -> vz_target -> vz-PI
 // ============================================================================
 
-#define ALT_HOLD_ALT_KP             0.5f     // alt_err -> vz_target [1/s] (KHÔNG phải thang duty)
+#define ALT_HOLD_ALT_KP             1.0f     // alt_err -> vz_target [1/s]
 // VZ_KP/KI/ILIMIT map vz_err(m/s) -> DUTY -> đã nhân đôi theo thang 2000.
 //
 // ---- VÌ SAO KHÔNG CÓ Kd Ở VÒNG NÀY (câu trả lời cho "đề xuất PID cho Vz") ----
@@ -232,14 +232,14 @@ extern "C" {
 // số này (hover_model_prime_duty()) để tính ga PRIME từ hover đã latch theo
 // pin. Đừng gõ lại 0.70 ở chỗ khác: lúc chưa latch và sau khi latch phải theo
 // CÙNG một tỷ lệ, nếu không ga PRIME sẽ đổi giữa hai lần bay mà không ai biết.
-#define TAKEOFF_PRIME_HOVER_FRAC    0.70f
+#define TAKEOFF_PRIME_HOVER_FRAC    1.2f
 
 // Giá trị KHỞI TẠO của prime_duty (takeoff_default_tune()). Chỉ có tác dụng
 // khi latch theo pin KHÔNG chạy (HOVER_LATCH_ENABLED=0, hoặc trước lần ARM đầu
 // tiên) — ARM thành công sẽ GHI ĐÈ s_tko_tune.prime_duty bằng giá trị suy ra
 // từ hover thật đo theo pin. Xem hover_model.h.
 #define TAKEOFF_PRIME_DUTY          ((int)(ALT_HOLD_HOVER_NOMINAL * TAKEOFF_PRIME_HOVER_FRAC))
-#define TAKEOFF_PRIME_MS            900       // spec: PRIME_TIME_S = 0.3
+#define TAKEOFF_PRIME_MS            800
 
 // hover_ff (feedforward thô) KHÔNG định nghĩa riêng ở đây — nó LÀ
 // ALT_HOLD_HOVER_NOMINAL (mục 2). Một đại lượng vật lý -> một hằng số. Định
@@ -265,7 +265,7 @@ extern "C" {
 //
 // Số này dùng cho HAI việc (đọc mục 3b ngay trên): trần tốc độ trượt target VÀ
 // trần |vz_target|. Phải giữ là CÙNG một số.
-#define TAKEOFF_MAX_CLIMB_MS        0.1f
+#define TAKEOFF_MAX_CLIMB_MS        0.30f
 
 // ---- 3c) LIFTOFF — THEO THỜI GIAN, KHÔNG THEO ĐỘ CAO ĐO ĐƯỢC ----
 //
@@ -303,7 +303,48 @@ extern "C" {
 // windup. Đặt quá DÀI -> Ki bị khoá trong lúc đã bay thật -> drone trôi.
 // 600ms là điểm khởi đầu, PHẢI đo lại trên phần cứng: quay video, đếm từ lúc
 // TKOP chuyển 1->2 (PRIME->CLIMB) tới lúc chân rời sàn.
-#define TAKEOFF_LIFTOFF_MS          600
+// Cửa sổ DUY TRÌ của lift_evidence. HẠ 1000 -> 200ms: giờ điều kiện chỉ còn
+// độ cao + ga (không còn vế Vz nhiễu), nên không cần cửa sổ dài để lọc nhiễu
+// nữa — 1000ms chỉ còn là độ trễ thuần trước khi mở Ki attitude.
+#define TAKEOFF_LIFTOFF_MS          200
+// Độ cao ToF tối thiểu để tính là "đã rời đất". HẠ 0.04 -> 0.01 (yêu cầu người
+// dùng, cùng đợt với ALT_EST_TOF_MIN_RANGE_M): 4cm là mức mà drone phải nhấc
+// khá cao mới đạt, trong khi ta cần bằng chứng NGAY khi vừa rời sàn.
+//
+// ⚠ ĐI KÈM RÀNG BUỘC: vế này chỉ có nghĩa khi ALT_EST_TOF_MIN_RANGE_M <= giá
+// trị này — gate hình học của estimator loại mẫu dưới MIN_RANGE trước cả khi
+// tof_z_m được tính, nên đặt LIFTOFF_Z thấp hơn MIN_RANGE là tạo một vế KHÔNG
+// BAO GIỜ đúng. Cả hai giờ đều là 0.01.
+#define TAKEOFF_LIFTOFF_Z_M         0.01f
+// ⚠ KHÔNG CÒN ĐƯỢC DÙNG trong lift_evidence — xem khối giải thích ở
+// takeoff_land.c. Vz đạo hàm từ ToF 30Hz ở tốc độ leo chậm chạm 0 liên tục
+// ngay giữa lúc bay bình thường, và vì lift_evidence phải đúng LIÊN TỤC nên
+// một mẫu rớt là reset cả cửa sổ -> liftoff không bao giờ xác nhận được.
+// Giữ macro để không vỡ build/tham chiếu cũ; ĐỪNG đưa lại vào điều kiện AND.
+#define TAKEOFF_LIFTOFF_VZ_MS       0.05f
+#define TAKEOFF_LIFTOFF_THR_FRAC    0.75f
+#define TAKEOFF_NO_LIFT_TIMEOUT_MS  5000
+// Độ cao ToF tối thiểu phải đạt sau TAKEOFF_NO_LIFT_TIMEOUT_MS trong CLIMB.
+// Thấp hơn mức này -> TKO_ABORT_NO_LIFT_EVIDENCE (không nhấc nổi).
+//
+// ⚠ ĐÂY LÀ ĐIỀU KIỆN HỦY BAY, KHÔNG PHẢI ĐIỀU KIỆN "đã rời đất". Nó CỐ Ý THÔ
+// (một vế, chỉ độ cao) và CỐ Ý cao hơn nhiều so với TAKEOFF_LIFTOFF_Z_M (0.01):
+//   - 0.01 = "có dấu hiệu rời sàn" -> đủ để nới trần I, mở Ki attitude.
+//   - 0.20 = "đã đi lên THẬT SỰ"   -> dưới mức này sau 5s là không nhấc nổi.
+// Đặt bằng nhau là bỏ mất ý nghĩa của cả hai: 0.01 quá dễ đạt để kết luận
+// chuyến bay ổn, còn 0.20 quá khắt khe để mở Ki.
+//
+// CHỌN SỐ: phải cao hơn hẳn nhiễu ToF sát đất (±2-3cm) và cao hơn mức drone có
+// thể "nhích lên rồi đứng" khi quá tải. 0.20 cách nhiễu ~7 lần.
+#define TAKEOFF_NO_LIFT_ALT_M       0.20f
+// Ngưỡng thực tế = min(TAKEOFF_NO_LIFT_ALT_M, target × FRAC). BẮT BUỘC phải có
+// vế thứ hai: target thấp hơn 0.20m (fc.takeoff(150)) sẽ bay ĐÚNG tới đích rồi
+// vẫn bị hủy vì chưa chạm ngưỡng cứng — hủy một chuyến bay hoàn hảo với lý do
+// ghi là "không nhấc nổi", đúng loại lỗi khiến người dùng đi kiểm cánh quạt và
+// pin trong khi phần cứng không có vấn đề gì.
+// 0.5 = "đi được nửa đường tới đích sau 5s" — chậm thì chấp nhận, đứng im thì không.
+#define TAKEOFF_NO_LIFT_TARGET_FRAC 0.5f
+#define TAKEOFF_DEFAULT_TARGET_M    0.5f
 
 // ---- 3d) VÀO HOLDING — CŨNG THEO THỜI GIAN ----
 // Điều kiện DUY NHẤT: target_z đã trượt tới đích, VÀ giữ như vậy đủ
@@ -320,7 +361,26 @@ extern "C" {
 // Tổng thời gian chuỗi = PRIME_MS + (final_target / MAX_CLIMB_MS) + HOLD_ENTER_MS.
 // Với target 1.0m, MAX_CLIMB 0.1 m/s: 500ms + 10.0s + 800ms = 11.3s.
 // ⚠ PHẢI nhỏ hơn TAKEOFF_TOTAL_TIMEOUT_MS, nếu không mọi chuyến đều abort.
-#define TAKEOFF_HOLD_ENTER_MS       800
+// Cửa sổ DUY TRÌ của hold_ready. HẠ 1000 -> 400ms: cả 4 vế phải đúng LIÊN TỤC
+// bấy nhiêu, và mỗi mẫu rớt là reset về 0. Cửa sổ càng dài thì xác suất "không
+// bao giờ đóng được" càng cao khi có nhiễu — đúng cơ chế đã giết lift_evidence.
+#define TAKEOFF_HOLD_ENTER_MS       400
+// Dung sai độ cao để bàn giao. NỚI 0.03 -> 0.08.
+//
+// ⚠ ĐO ĐƯỢC TRÊN PHẦN CỨNG THẬT (log t=7.7s): target 0.20m, drone ổn định ở
+// Z=0.29m — lệch 9cm, gấp 3 lần dung sai cũ. Với 0.03 thì vế này KHÔNG BAO GIỜ
+// đúng, hold_ready mãi false, chuỗi chạy tới hết deadline rồi abort TIMEOUT dù
+// drone đã bay lên và giữ độ cao hoàn toàn ổn định.
+//
+// 9cm sai lệch đó là chuyện RIÊNG của vòng điều khiển (hover_ff lệch, I chưa
+// hội tụ, ground effect) và HOLD sẽ tự kéo về sau khi bàn giao — nó KHÔNG phải
+// lý do để hủy chuyến bay. Dung sai bàn giao chỉ cần đủ chặt để biết drone
+// "đang ở gần đích và không còn lao đi", không phải để ép độ chính xác cuối.
+#define TAKEOFF_HOLD_Z_TOL_M        0.08f
+// Dung sai Vz. NỚI 0.08 -> 0.20: Vz ước lượng dao động ±0.25 m/s ngay cả khi
+// drone treo ổn định (ToF 30Hz + propwash), nên 0.08 là dưới mức nhiễu nền —
+// cùng loại lỗi với vế tof_vz đã phải bỏ khỏi lift_evidence.
+#define TAKEOFF_HOLD_VZ_TOL_MS      0.20f
 
 // ---- 3e) ABORT — mọi nhánh đều dẫn về EMERGENCY ----
 // EMERGENCY tự phân giải thành LANDING (còn kiểm soát + đang trên không) hoặc
@@ -373,7 +433,7 @@ extern "C" {
 // (3) Mất nguồn đo độ cao (ToF) liên tục bao lâu thì abort. Trong cửa sổ này
 //     GIỮ NGUYÊN throttle cuối (không chạy cascade trên est_z rác), quá hạn thì
 //     EMERGENCY.
-#define TAKEOFF_TOF_LOST_MS              300       // spec: 300ms
+#define TAKEOFF_TOF_LOST_MS              1000       // spec: 300ms
 // (4) Nghiêng quá ngưỡng lớn = sắp lật. Có cửa sổ duy trì ngắn để một mẫu
 //     Mahony lỗi không tự abort một chuyến bay đang bình thường.
 #define TAKEOFF_ABORT_TILT_DEG           45.0f
@@ -407,7 +467,7 @@ extern "C" {
 #define LAND_DESCENT_VZ             0.25f    // m/s, tốc độ hạ pha DESCEND
 #define LAND_FLARE_ALT_M            0.15f    // m, ngưỡng vào FLARE
 #define LAND_FLARE_VZ                0.10f   // m/s, tốc độ hạ lúc gần chạm
-#define LAND_TOUCHDOWN_ALT_M        0.05f    // m, chạm đất -> cutoff
+#define LAND_TOUCHDOWN_ALT_M        0.035f   // m, ToF height tren floor
 
 // ---- TOUCHDOWN DETECTOR ĐA ĐIỀU KIỆN (xem landing_run()) ----
 // Board KHÔNG có ToF, Z đến từ baro với nhiễu ±0.3-1m sát đất — lớn gấp nhiều
@@ -415,16 +475,44 @@ extern "C" {
 // rơi giữa không trung khi baro tụt một nhịp. Nên chấm điểm 4 bằng chứng +
 // yêu cầu duy trì, và có pha CONTACT_CANDIDATE (VẪN giữ điều khiển) ở giữa.
 #define LAND_CONTACT_THR_MARGIN     40       // duty trên LAND_MIN_THROTTLE vẫn coi là "sát sàn"
-#define LAND_CONTACT_VZ_MS          0.06f    // m/s, |vz| dưới mức này dù đang lệnh hạ
+#define LAND_CONTACT_VZ_MS          0.08f
 #define LAND_CONTACT_ALT_MARGIN_M   0.10f    // m, cộng vào touchdown_alt_m cho bằng chứng "Z thấp"
 #define LAND_CONTACT_Z_PROGRESS_M   0.03f    // m, Z giảm ÍT HƠN mức này = "đã bị chặn"
 #define LAND_CONTACT_SCORE_MIN      3         // /4 điểm mới vào CONTACT_CANDIDATE
-#define LAND_CONTACT_TICKS          75        // ~300ms @250Hz giữ liên tục mới CẮT MÁY
+#define LAND_CONTACT_TICKS          38        // ~150ms @250Hz
 #define LAND_SETTLE_MS              300      // ga thấp + vz~0 giữ liên tục -> touchdown backup
 #define LAND_MIN_THROTTLE           400      // thang duty 2000, xem đầu file
-#define LAND_TOF_TIMEOUT_MS         500      // mất ToF quá lâu -> chuyển BLIND
+#define LAND_TOF_TIMEOUT_MS         300
 #define LAND_BLIND_DESCENT_RATE     200.0f   // duty/giây, pha BLIND (thang duty 2000)
 #define LAND_CUTOFF_MS              100      // ramp ga về 0 lúc TOUCHDOWN
+
+// ---- TOUCHDOWN: BA NHÁNH ĐỘC LẬP, OR với nhau (spec C3) ----
+// Nhánh 1 (CHÍNH)  : alt AGL < touchdown_alt_m + vz lặng + ga đang giảm, giữ
+//                    LAND_CONTACT_TICKS -> đi qua CONTACT_CANDIDATE.
+// Nhánh 2 (BACKUP) : ga <= LAND_MIN_THROTTLE VÀ |vz| < LAND_SETTLE_VZ_MS giữ
+//                    liên tục LAND_SETTLE_MS. KHÔNG dùng độ cao — L0X ở cự ly
+//                    rất gần (<3-5cm) đọc kém tin cậy nên nhánh 1 có thể không
+//                    bao giờ đủ điều kiện dù drone đã nằm trên nền.
+// Nhánh 3 (VA CHẠM): az_earth vượt ngưỡng spike liên tục LAND_TOUCHDOWN_AZ_HOLD_MS.
+//
+// ⚠ DẤU CỦA LAND_TOUCHDOWN_AZ_MS2 — ĐỌC TRƯỚC KHI TUNE:
+// az_earth ở đây là az_after_bias_ms2 (trục Z hướng LÊN, ĐÃ TRỪ trọng lực), nên
+// đứng yên/hover = 0. Một cú CHẠM NỀN thật sẽ cho spike DƯƠNG (nền đẩy lên).
+// Giá trị ÂM -6.0 mà spec yêu cầu tương ứng với gia tốc HƯỚNG XUỐNG 6 m/s² —
+// tức là drone đang RƠI, không phải đang chạm. Số này giữ ĐÚNG THEO SPEC và
+// nhánh 3 vì vậy hiện chỉ bắt được "mất lực nâng đột ngột sát đất". Muốn nó
+// bắt VA CHẠM thì đổi sang so sánh chiều dương (+6.0). Đã báo lại, chờ chốt.
+#define LAND_SETTLE_VZ_MS           0.05f    // m/s, nhánh 2 (spec: |vz| < 0.05)
+#define LAND_TOUCHDOWN_AZ_MS2       (-6.0f)  // m/s², nhánh 3 — xem cảnh báo dấu ở trên
+#define LAND_TOUCHDOWN_AZ_HOLD_MS   60       // ms, spike phải DUY TRÌ bấy nhiêu
+
+// ---- Mất ToF khi đang HOLD -> degrade accel-hold rồi mới land (spec D4) ----
+// Trong cửa sổ này alt_hold KHÔNG bị coi là engage_lost: cascade chạy tiếp với
+// vz_target = 0 trên vz tích phân từ accel, I-term FREEZE (không sạc bằng số
+// liệu chết). Hết cửa sổ -> nhả engage_lost -> Commander soft fault -> LANDING
+// (nhánh BLIND của landing_run tiếp quản). KHÔNG để HOLD chạy tiếp vô hạn với
+// số liệu chết, cũng KHÔNG cắt phăng ngay mẫu đầu tiên bị mất.
+#define ALT_HOLD_TOF_DEGRADE_MS     600
 
 // ============================================================================
 // 5) COMMANDER (commander.h) — geofence + ngưỡng fault (SOFT -> LANDING,
@@ -432,7 +520,7 @@ extern "C" {
 // ============================================================================
 
 #define COMMANDER_DEFAULT_ALT_MIN_M          0.0f
-#define COMMANDER_DEFAULT_ALT_MAX_M          3.0f    // TODO: chỉnh theo geofence thực tế
+#define COMMANDER_DEFAULT_ALT_MAX_M          ALT_EST_MAX_FLIGHT_Z_M
 // 1S LiPo (full 4.2V, nominal 3.7V, KHÔNG BAO GIỜ để dưới 3.0V — hại cell
 // vĩnh viễn). Floor 3.3V chừa margin cho sụt áp dưới tải trước khi chạm đáy
 // tuyệt đối — hạ/land khi chạm ngưỡng này, đừng đợi tới 3.0V. XÁC NHẬN LẠI
@@ -475,7 +563,7 @@ extern "C" {
 // Hai số dưới đây là giá trị đã dò trên khung thật (trước đây nằm chôn trong
 // flight_core.c dưới dạng số ma thuật, không ai sửa được từ tuning.h).
 #define TRIM_ROLL_DEG_DEFAULT    (-0.68f)
-#define TRIM_PITCH_DEG_DEFAULT   (0.8f)
+#define TRIM_PITCH_DEG_DEFAULT   (-0.8f)
 
 // Canh lúc BIÊN DỊCH: mặc định phải nằm trong dải mà runtime chấp nhận. Đường
 // CMD_SET_TRIM có clampf(), còn khởi tạo tĩnh thì KHÔNG — thiếu dòng này thì
@@ -539,7 +627,6 @@ _Static_assert(TRIM_PITCH_DEG_DEFAULT >= -TRIM_MAX_DEG &&
 // 8) CALIBRATION (calibration.h/.c + flight_core.c CMD_CALIB_*) — gyro/accel/
 //    mag, chỉ chạy khi DISARMED, persist qua NVS. Xem calibration.h.
 // ============================================================================
-#define CALIB_GYRO_DURATION_MS       1500     // đứng yên trong khoảng này để đo bias tĩnh
 #define CALIB_ACCEL_FACE_SAMPLES     125      // ~0.5s @ 250Hz mỗi mặt (6 mặt)
 #define CALIB_ACCEL_FACES_NEEDED     6
 #define CALIB_ACCEL_MIN_RANGE_G      1.0f     // mỗi trục PHẢI thấy đổi >= ngưỡng này giữa các mặt
@@ -565,11 +652,8 @@ _Static_assert(TRIM_PITCH_DEG_DEFAULT >= -TRIM_MAX_DEG &&
 // Dưới sàn này (tỷ lệ mẫu hợp lệ / tổng tick cửa sổ) -> HỦY, không lưu.
 #define CALIB_MIN_VALID_FRACTION     0.5f
 
-// ---- Motion/stability detection lúc calib gyro + từng mặt accel (xem PX4
-// "vehicle phải bất động khi calib gyro") — CHƯA đo trên phần cứng thật, điểm
-// khởi đầu hợp lý cho MPU6050 nghỉ trên bàn. ----
-#define CALIB_GYRO_MAX_STD_DPS          0.5f    // std-dev gyro trong cửa sổ vượt -> nghi rung/cầm tay
-#define CALIB_MOTION_ACCEL_TOL_G        0.15f   // |accel_norm-1.0| vượt 1 mẫu -> tick đó tính "nghi động"
+// Accel six-face vẫn dùng tỷ lệ mẫu nghi động riêng. Gyro dùng toàn bộ nhóm
+// GYRO_CAL_* bên dưới và không còn đường calibration thứ hai.
 #define CALIB_MOTION_MAX_BAD_FRACTION   0.05f   // >5% tick "nghi động" trong cửa sổ -> HỦY (CALIB_MOVING)
 #define CALIB_ACCEL_MOTION_GYRO_DPS     5.0f    // |gyro| vượt 1 mẫu lúc bắt 1 mặt accel -> tick đó "nghi động"
 
@@ -578,6 +662,101 @@ _Static_assert(TRIM_PITCH_DEG_DEFAULT >= -TRIM_MAX_DEG &&
 // nào |accel_hiệu_chỉnh| lệch 1.0g quá ngưỡng này -> HỦY toàn bộ, không lưu.
 // CHƯA đo trên phần cứng thật, điểm khởi đầu. ----
 #define CALIB_ACCEL_MAX_RESIDUAL_G      0.15f
+
+// ============================================================================
+// 8b) GYRO CALIBRATION FSM — dùng chung cho startup và CAL GYRO.
+//
+// VI SAO tu dong moi boot: gyro zero-rate bias cua MPU6050 troi theo NHIET DO
+// va theo tung lan cap nguon. Mot gia tri luu tu buoi truoc, o nhiet do khac,
+// KHONG con dung — va trieu chung duy nhat la yaw troi cham, thu rat de do
+// nham cho PID hoac cho mixer. Do lai moi lan boot loai bo han ca lop loi do.
+//
+// NVS chỉ lưu history/backup để chẩn đoán. Mỗi boot vẫn bắt buộc đo fresh;
+// fresh calibration fail thì gyro_valid=false và ARM bị chặn, tuyệt đối không
+// silently bay bằng bias NVS cũ.
+// ============================================================================
+
+// Chờ cảm biến ỔN ĐỊNH sau khi cấp nguồn/config xong rồi mới lấy mẫu. MPU6050
+// vừa qua DEVICE_RESET + đổi clock source sang PLL X-gyro: những mẫu đầu tiên
+// còn mang transient của chính quá trình đó, gom vào trung bình sẽ đẩy bias
+// lệch một lượng nhỏ nhưng CỐ ĐỊNH — đúng loại sai số không ai truy ra được.
+#define GYRO_CAL_SETTLE_MS                    1500
+
+// ĐÃ BỎ GYRO_CAL_WAIT_STATIONARY_MS / GYRO_CAL_STATIONARY_CONFIRM_MS.
+// Cổng "đợi chuỗi mẫu stationary LIÊN TỤC" trước khi được phép thu đã bị gỡ:
+// nó test |gyro_raw| mà gyro_raw ĐÃ MANG SẴN BIAS, nên bo có bias lớn thì
+// KHÔNG BAO GIỜ qua nổi cổng — tức là càng cần calib thì càng không calib được.
+// Chi tiết đầy đủ ở enum gyro_cal_state_t trong flight_core.c.
+// Giờ: settle xong là COLLECT thẳng, phán xét bằng thống kê CẢ cửa sổ.
+
+// Sensor hub đã gom 4 mẫu MPU6050 1kHz thành 250Hz; 3s ≈ 750 mẫu điều khiển,
+// Welford không cần giữ toàn bộ mẫu trong RAM.
+#define GYRO_CAL_DURATION_MS                   3000
+
+// Cửa sổ VALIDATE (mẫu ĐỘC LẬP, thu SAU khi bias đã áp). Ngắn hơn cửa sổ chính
+// vì chỉ cần xác nhận trung bình ~0, không cần độ chính xác để ước lượng.
+#define GYRO_CAL_VALIDATION_MS                 1500
+
+// ĐÃ BỎ GYRO_CAL_MAX_ATTEMPTS — không còn retry tự động. Nguyên nhân trượt
+// (drone bị cầm, rung cơ khí) không tự thay đổi trong vài giây, nên 3 lần thử
+// chỉ kéo dài 15s rồi báo cùng một lỗi. Trượt -> nói rõ lý do -> người dùng đặt
+// lại drone rồi gõ `calib_gyro`.
+#define GYRO_CAL_MIN_VALID_FRACTION             0.80f
+
+// Tỉ lệ mẫu "nghi động" TỐI ĐA cho phép trong một cửa sổ. Thay cho việc cắt
+// ngang ngay khi gặp MỘT mẫu xấu — cách cũ biến mọi nhiễu lẻ tẻ (một cú gõ bàn,
+// một spike ADC) thành một lần calib hỏng.
+// 2% của 750 mẫu = 15 mẫu; đủ rộng cho nhiễu lẻ, đủ hẹp để một bàn tay chạm vào
+// drone giữa chừng vẫn bị bắt.
+#define GYRO_CAL_MAX_BAD_FRACTION               0.02f
+
+// ---- Ngưỡng phát hiện ĐỨNG YÊN (dùng CẢ gyro LẪN accel, mục 5) ----
+// Chặt hơn bộ CALIB_* thủ công ở trên vì boot calib có quyền thử lại nhiều lần
+// và không có người đang đứng chờ.
+
+// |accel_norm - 1g| tức thời vượt ngưỡng -> mẫu đó "nghi động".
+#define GYRO_CAL_ACCEL_NORM_TOL_G               0.05f
+
+// |gyro| tức thời (độ lớn vector) vượt ngưỡng -> mẫu đó "nghi động". Bias thật
+// có thể tới vài dps nên ngưỡng phải CAO HƠN bias kỳ vọng, nếu không một board
+// có bias lớn sẽ không bao giờ calib được.
+#define GYRO_CAL_RAW_NORM_MAX_DPS                5.0f
+
+// std-dev từng trục trong cửa sổ. Đây là thước đo "có rung/có người cầm không"
+// — độc lập với độ lớn bias (bias là DC, std là AC).
+#define GYRO_CAL_RAW_STD_MAX_DPS                 0.25f
+
+// accel std-dev từng trục — bắt rung cơ khí mà gyro có thể bỏ sót.
+#define GYRO_CAL_ACCEL_STD_MAX_G                 0.02f
+
+// Sanity bound rộng: bias vài dps của MPU6050 là bình thường; chỉ loại giá trị
+// rõ ràng phi vật lý/hỏng phần cứng.
+#define GYRO_CAL_BIAS_MAX_ABS_DPS                20.0f
+
+// ---- Ngưỡng VALIDATE sau calib (mục 7) ----
+// |mean corrected| từng trục phải dưới ngưỡng này. Đây chính là con số quyết
+// định "calib có thật sự khử được bias không" — nếu GRAW=[0.08,-2.78,-1.94] và
+// GBIAS khớp, thì GCORR phải ≈ 0 và mean phải lọt dưới đây.
+#define GYRO_CAL_VALIDATION_MAX_MEAN_DPS          0.15f
+
+// std corrected trong cửa sổ validate — vượt = có chuyển động lúc validate,
+// kết quả validate không tin được (khác hẳn "bias sai").
+#define GYRO_CAL_VALIDATION_MAX_STD_DPS           0.25f
+
+// ---- Pre-arm gyro health (mục 18) ----
+// Kiểm tra LIÊN TỤC khi DISARMED: trung bình trượt của gyro corrected. Vượt
+// ngưỡng trong một cửa sổ đủ dài -> chặn ARM. Lỏng hơn ngưỡng validate vì
+// drone lúc chờ arm có thể bị chạm nhẹ; đây là lưới an toàn cuối, không phải
+// phép đo chính xác.
+#define PREARM_GYRO_MAX_MEAN_DPS        0.30f
+// Cửa sổ trung bình trượt — đủ dài để một mẫu nhiễu đơn lẻ không gây từ chối
+// (mục 18: "Do not fail based on one noisy sample").
+#define PREARM_GYRO_WINDOW_MS           100
+
+// ---- Cảnh báo lệch nhiệt độ so với lúc calib (mục 9) ----
+// KHÔNG chặn ARM, KHÔNG tự sửa bias — chỉ cảnh báo. Bias gyro MPU6050 trôi cỡ
+// vài chục mdps/°C; 15°C lệch là đủ để yaw trôi thấy rõ trở lại.
+#define CALIB_TEMP_WARN_DELTA_C         15.0f
 
 // ============================================================================
 // 9) BARO ALTITUDE SCALE (baro_driver.c) — ToF đã bỏ hẳn (KHÔNG gắn trên
@@ -651,8 +830,30 @@ _Static_assert(TRIM_PITCH_DEG_DEFAULT >= -TRIM_MAX_DEG &&
 //    Mặc định CŨ (94Hz, CFG=2) gần như không lọc gì so với rung motor thật
 //    (thường vài trăm Hz) — đổi sang 44Hz (CFG=3) làm điểm khởi đầu, delay
 //    4.9ms chấp nhận được ở loop 250Hz (dt=4ms, tương đương ~1.2 tick trễ).
-//    CHƯA đo trên phần cứng thật — xem README test G (rung), hạ xuống 21Hz
-//    (CFG=4) nếu Az_world_filtered vẫn nhặt rung tần số motor rõ.
+//
+//    ---- ĐANG Ở CFG=3 (gyro 42Hz / accel 44Hz) ----
+//    ĐÃ THỬ CFG=4 (21Hz) rồi TRẢ VỀ 3 theo yêu cầu người dùng.
+//
+//    ⚠ DLPF LÀ BỘ LỌC DÙNG CHUNG — con số này KHÔNG chỉ chạm accel:
+//      CFG=3 -> accel 44Hz / gyro 42Hz / delay ~4.9ms   <-- đang dùng
+//      CFG=4 -> accel 21Hz / gyro 20Hz / delay ~8.5ms
+//    Chênh lệch là +3.6ms trễ trên CẢ tín hiệu gyro mà rate PID dùng: ~1.2 tick
+//    so với ~2.1 tick ở loop 250Hz. Trễ pha ăn vào BIÊN PHA vòng rate và D-term
+//    chịu nặng nhất, vì nó vi phân một tín hiệu đã trễ hơn.
+//
+//    ĐÁNH ĐỔI ĐANG CHỌN: giữ biên pha cho vòng rate, chấp nhận lọc rung yếu
+//    hơn. Estimator là accel-primary nên rung lọt vào accel là drift Vz TRỰC
+//    TIẾP — nếu sau này thấy Vz trôi vì rung thì CFG=4 là nước đi tiếp theo,
+//    NHƯNG phải kiểm lại dao động roll/pitch lúc hover ngay sau khi đổi.
+//
+//    CFG 1-6 dùng CHUNG base rate 1kHz nên đổi trong khoảng này KHÔNG cần đụng
+//    SMPLRT_DIV (xem ghi chú ở trên) — đây là lý do đổi được bằng đúng một số.
+//
+//    ⚠ ĐỪNG NHẦM VỚI IMU_SAMPLES_PER_CONTROL (imu_driver.h). Hai hằng số đều
+//    liên quan tới "lọc/nhịp IMU" và đều hay nhận giá trị 3-4, nhưng KHÁC HẲN
+//    nhau: cái này là bộ lọc PHẦN CỨNG trong chip; cái kia là số mẫu mà
+//    sensor_hub gộp lại cho MỘT vòng điều khiển, và nó bị ràng buộc cứng bởi
+//    IMU_SAMPLE_RATE_HZ == CONTROL_TASK_HZ * IMU_SAMPLES_PER_CONTROL.
 // ============================================================================
 #define IMU_ACCEL_DLPF_CFG   3
 

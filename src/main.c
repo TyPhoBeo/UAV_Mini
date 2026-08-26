@@ -95,8 +95,8 @@ static void net_task(void *arg) {
     esp_err_t err = net_link_init(WIFI_HOSTNAME);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "net_link_init() THAT BAI: %s -- dieu khien qua WiFi/UDP se KHONG hoat "
-                      "dong (console USB van dung binh thuong). Kiem tra WIFI_STA_SSID/PASS "
-                      "trong app_config.h da dien dung chua.", esp_err_to_name(err));
+"dong (console USB van dung binh thuong). Kiem tra WIFI_STA_SSID/PASS "
+"trong app_config.h da dien dung chua.", esp_err_to_name(err));
         vTaskDelete(NULL);
         return;
     }
@@ -123,7 +123,7 @@ static void net_task(void *arg) {
     // BSEQ, LDT, LMX) len nhieu chu so sau thoi gian chay dai. Do dai THUC
     // (~1010-1100 byte) van duoi gioi han payload UDP 1472 byte cua MTU 1500
     // nen khong sinh phan manh IP. Phia GUI da doc 4096 (RECV_BUF_SIZE).
-    #define STATUS_LINE_BUF 1536
+    #define STATUS_LINE_BUF 2048
 
     // ---- static, KHONG phai bien cuc bo tren stack ----
     // net_task la SINGLETON (tao dung mot lan trong app_main) nen static an
@@ -233,7 +233,7 @@ static int cmd_status(int argc, char **argv) {
     //    nghi LECH TRUC mag vs IMU (mag_driver.c chua remap truc) hoac calib sai
     // norm nen GAN NHU KHONG DOI khi xoay drone -- norm nhay manh = con hard-iron.
     printf("mag_fusion: used=%d rejected=%d ref_valid=%d norm=%.0f err=%.3f (gate %.2f) "
-           "used_count=%u rejected_count=%u\n",
+"used_count=%u rejected_count=%u\n",
            (int)t.mag_used, (int)t.mag_rejected, (int)t.mag_reference_valid,
            t.mag_norm, t.mag_error_norm, (double)MAHONY_DEFAULT_MAG_ERROR_GATE,
            (unsigned)t.mag_used_count, (unsigned)t.mag_rejected_count);
@@ -249,7 +249,7 @@ static int cmd_status(int argc, char **argv) {
     // seq phai TANG deu (~50/s) neu BMP280 con song; dt~0.020s = dung nhip
     // baro that (KHONG phai 0.004s cua vong dieu khien).
     printf("baro: raw=%.2fm filtered=%.2fm innov=%.2fm seq=%u dt=%.3fs accept=%u reject=%u "
-           "reject_lientuc=%u reacquire=%d fusion_init=%d | ground calibrated=%d healthy=%d std=%.2fPa\n",
+"reject_lientuc=%u reacquire=%d fusion_init=%d | ground calibrated=%d healthy=%d std=%.2fPa\n",
            t.baro_alt_m, t.baro_filtered_alt_m, t.baro_innovation_m,
            (unsigned)t.baro_seq, (double)t.baro_dt_s,
            (unsigned)t.baro_accept_count, (unsigned)t.baro_reject_count,
@@ -268,7 +268,7 @@ static int cmd_status(int argc, char **argv) {
            (int)t.tof_ok_driver, t.tof_range_m, (int)t.tof_valid, (int)t.tof_age_ms,
            (double)t.tof_vertical_m, (double)t.tof_innovation_m);
     printf("tof_surface: state=%d(%s) corr=%d surface_z=%.2fm floor_z=%.2fm ground_ref=%.3fm "
-           "accept=%u reject=%u | landing_z=%.2fm valid=%d\n",
+"accept=%u reject=%u | landing_z=%.2fm valid=%d\n",
            (int)t.tof_surface_state,
            (t.tof_surface_state == 1) ? "FLOOR" : ((t.tof_surface_state == 2) ? "OTHER" : "UNKNOWN"),
            (int)t.tof_correction_enabled,
@@ -328,7 +328,7 @@ static int cmd_arm(int argc, char **argv) {
     cmd.type = CMD_ARM;
     if (!flight_core_push_command(&cmd)) { printf("loi: command queue day\n"); return 1; }
     printf("da gui ARM -- go 'status' de xac nhan (co the bi tu choi neu attitude invalid "
-           "hoac nghieng qua %.0f do, xem log firmware)\n", FSM_ARM_MAX_TILT_DEG);
+"hoac nghieng qua %.0f do, xem log firmware)\n", FSM_ARM_MAX_TILT_DEG);
     return 0;
 }
 
@@ -475,10 +475,10 @@ static int cmd_heartbeat(int argc, char **argv) {
     telemetry_snapshot_t t;
     flight_core_read_telemetry(&t);
     printf("heartbeat da gui. LUU Y: firmware KHONG con tu sinh heartbeat trong nen -- "
-           "watchdog Commander (timeout mac dinh 1000ms) chi duoc nuoi boi nguon dieu khien "
-           "BEN NGOAI (UDP/GUI/MicroPython) hoac chinh lenh nay. Bay bang console USB thi phai "
-           "go lai truoc moi 1s, neu khong Commander se SOFT FAULT -> LANDING. "
-           "heartbeat_age truoc lenh nay = %dms\n", (int)t.heartbeat_age_ms);
+"watchdog Commander (timeout mac dinh 1000ms) chi duoc nuoi boi nguon dieu khien "
+"BEN NGOAI (UDP/GUI/MicroPython) hoac chinh lenh nay. Bay bang console USB thi phai "
+"go lai truoc moi 1s, neu khong Commander se SOFT FAULT -> LANDING. "
+"heartbeat_age truoc lenh nay = %dms\n", (int)t.heartbeat_age_ms);
     return 0;
 }
 
@@ -501,8 +501,8 @@ static int cmd_test_motor_all(int argc, char **argv) {
     if (argc < 2) { printf("usage: test_motor_all <duty_pct 0-100>\n"); return 1; }
     printf("!!! XAC NHAN DA THAO HET CANH QUAT TRUOC KHI TIEP TUC !!!\n");
     printf("(chi chay neu dang DISARMED -- ca 4 dong co quay CUNG LUC, DONG duty -- "
-           "chi de sanity-check du 4 con quay, KHONG dung de xac nhan vi tri/chieu, "
-           "xem app_config.h muc \"XAC NHAN VI TRI VAT LY DONG CO\")\n");
+"chi de sanity-check du 4 con quay, KHONG dung de xac nhan vi tri/chieu, "
+"xem app_config.h muc \"XAC NHAN VI TRI VAT LY DONG CO\")\n");
 
     command_t cmd = {0};
     cmd.type = CMD_TEST_MOTOR;
@@ -524,7 +524,7 @@ static int cmd_bench_start(int argc, char **argv) {
     (void)argc; (void)argv;
     printf("!!! XAC NHAN DRONE DA DUOC GIU CHAT / KEP TREN GIA DO TRUOC KHI TIEP TUC !!!\n");
     printf("(day KHONG phai che do bay -- throttle se tang dan qua lenh '+'/'-', "
-           "attitude PID chay binh thuong tu throttle >= %d, xem tuning.h ATT_MIN_THROTTLE_DUTY)\n",
+"attitude PID chay binh thuong tu throttle >= %d, xem tuning.h ATT_MIN_THROTTLE_DUTY)\n",
            ATT_MIN_THROTTLE_DUTY);
     command_t cmd = {0};
     cmd.type = CMD_BENCH_RAMP_START;
@@ -574,7 +574,70 @@ static int cmd_calib_gyro(int argc, char **argv) {
     command_t cmd = {0};
     cmd.type = CMD_CALIB_GYRO;
     flight_core_push_command(&cmd);
-    printf("calib_gyro: da gui -- DUNG YEN drone ~1.5s, xem log firmware de biet ket qua\n");
+    printf("calib_gyro: da gui -- DUNG YEN drone; settle 1.5s + collect 4s + validate 1.5s, xem cal_status\n");
+    return 0;
+}
+
+// cmd_cal_status() - mot man hinh DUY NHAT tra loi "calibration co an khong".
+//
+// VI SAO can lenh rieng: `status` da rat dai va khong cho nhin ky gyro. Cau hoi
+// "bias co thuc su duoc khu khong" can 3 dong so DAT CANH NHAU (raw/bias/corr)
+// de doc gia tri va TU KIEM CHUNG raw - bias == corr. Roi rac trong status thi
+// khong ai ghep lai duoc.
+static int cmd_cal_status(int argc, char **argv) {
+    (void)argc; (void)argv;
+    telemetry_snapshot_t t;
+    flight_core_read_telemetry(&t);
+
+    static const char *GCAL_NAMES[] = {
+        "IDLE", "SETTLING", "WAIT_STATIONARY", "COLLECT", "VALIDATE", "PASS", "FAIL"
+    };
+    const int gs = t.gyro_cal_state;
+    const char *gname = (gs >= 0 && gs < (int)(sizeof(GCAL_NAMES)/sizeof(GCAL_NAMES[0])))
+                         ? GCAL_NAMES[gs] : "?";
+
+    printf("=== MPU6050 CONFIG (read-back tu chip) ===\n");
+    printf("  valid=%d  GYRO_CONFIG=0x%02X FS_SEL=%u scale=%.1f LSB/dps\n",
+           (int)t.imu_cfg_valid, t.imu_gyro_config, (unsigned)t.imu_fs_sel,
+           (double)t.imu_gyro_lsb_per_dps);
+    printf("           ACCEL_CONFIG=0x%02X AFS_SEL=%u scale=%.0f LSB/g\n",
+           t.imu_accel_config, (unsigned)t.imu_afs_sel, (double)t.imu_accel_lsb_per_g);
+    if (!t.imu_cfg_valid) printf("  ** CONFIG KHONG HOP LE -> ARM BI CHAN **\n");
+
+    printf("=== GYRO (dps) ===  state=%s bad_samples=%d fail=%d\n",
+           gname, t.gyro_cal_bad_samples, t.gyro_cal_fail);
+    printf("  GRAW  = %8.3f %8.3f %8.3f\n",
+           (double)t.gyro_raw_dps.x, (double)t.gyro_raw_dps.y, (double)t.gyro_raw_dps.z);
+    printf("  GBIAS = %8.3f %8.3f %8.3f\n",
+           (double)t.gyro_bias_dps.x, (double)t.gyro_bias_dps.y, (double)t.gyro_bias_dps.z);
+    printf("  GCORR = %8.3f %8.3f %8.3f   <- Mahony/PID dung dong nay\n",
+           (double)t.gyro_corr_dps.x, (double)t.gyro_corr_dps.y, (double)t.gyro_corr_dps.z);
+    printf("  GRAWmean = %8.3f %8.3f %8.3f\n",
+           (double)t.gyro_raw_mean_dps.x, (double)t.gyro_raw_mean_dps.y,
+           (double)t.gyro_raw_mean_dps.z);
+    printf("  GCORRmean= %8.3f %8.3f %8.3f   (independent validation)\n",
+           (double)t.gyro_corr_mean_dps.x, (double)t.gyro_corr_mean_dps.y,
+           (double)t.gyro_corr_mean_dps.z);
+    printf("  GSTDRAW  = %8.3f %8.3f %8.3f\n",
+           (double)t.gyro_raw_std_dps.x, (double)t.gyro_raw_std_dps.y,
+           (double)t.gyro_raw_std_dps.z);
+    printf("  GSTDCORR = %8.3f %8.3f %8.3f\n",
+           (double)t.gyro_corr_std_dps.x, (double)t.gyro_corr_std_dps.y,
+           (double)t.gyro_corr_std_dps.z);
+    printf("  kiem tra: GRAW - GBIAS phai == GCORR; drone dung yen => GCORR ~ 0\n");
+    printf("  gyro_valid=%d (NVS co bias cu=%d)  temp calib=%.1fC hien tai=%.1fC%s\n",
+           (int)t.calib_gyro_valid, (int)t.gyro_valid_from_nvs,
+           (double)t.gyro_cal_temp_c, (double)t.imu_temp_c,
+           t.gyro_cal_temp_warn ? "  ** LECH NHIET DO LON **" : "");
+
+    printf("=== ACCEL (g) ===  accel_valid=%d (diagonal offset+scale, 6-face)\n",
+           (int)t.calib_accel_valid);
+    printf("  ARAW  = %8.4f %8.4f %8.4f\n",
+           (double)t.accel_raw_g.x, (double)t.accel_raw_g.y, (double)t.accel_raw_g.z);
+    printf("  ACORR = %8.4f %8.4f %8.4f   ANORM=%.4f (nen ~1.0 khi dung yen)\n",
+           (double)t.accel_corr_g.x, (double)t.accel_corr_g.y, (double)t.accel_corr_g.z,
+           (double)t.accel_norm_g);
+    printf("  faces_done=%d/6\n", t.calib_accel_faces_done);
     return 0;
 }
 
@@ -593,8 +656,8 @@ static int cmd_calib_accel_face(int argc, char **argv) {
     cmd.type = CMD_CALIB_ACCEL_FACE;
     flight_core_push_command(&cmd);
     printf("calib_accel_face: da gui -- GIU YEN drone o 1 huong ~0.5s. Goi lai lenh nay 6 lan,\n"
-           "doi huong (mat) khac nhau moi lan (vd: nam ngua, up, nghieng 4 canh) de bao phu +-g\n"
-           "ca 3 truc. Xem log firmware 'mat N/6' de theo doi tien do.\n");
+"doi huong (mat) khac nhau moi lan (vd: nam ngua, up, nghieng 4 canh) de bao phu +-g\n"
+"ca 3 truc. Xem log firmware 'mat N/6' de theo doi tien do.\n");
     return 0;
 }
 
@@ -613,7 +676,7 @@ static int cmd_calib_mag_start(int argc, char **argv) {
     cmd.type = CMD_CALIB_MAG_START;
     flight_core_push_command(&cmd);
     printf("calib_mag_start: da gui -- TU DONG chay 60s, XOAY drone hinh so 8 LIEN TUC suot thoi gian nay. "
-           "Tu dong tinh ket qua khi het gio (khong can 'calib_mag_stop' -- lenh do van dung duoc de ket thuc SOM)\n");
+"Tu dong tinh ket qua khi het gio (khong can 'calib_mag_stop' -- lenh do van dung duoc de ket thuc SOM)\n");
     return 0;
 }
 
@@ -641,7 +704,7 @@ static int cmd_calib_baro_ground(int argc, char **argv) {
     cmd.type = CMD_CALIB_BARO_GROUND;
     flight_core_push_command(&cmd);
     printf("calib_baro_ground: da gui -- DUNG YEN drone tren mat dat ~1s, xem log firmware "
-           "de biet ket qua (khuyen nghi goi lenh nay NGAY TRUOC arm de co moc moi nhat)\n");
+"de biet ket qua (khuyen nghi goi lenh nay NGAY TRUOC arm de co moc moi nhat)\n");
     return 0;
 }
 
@@ -657,7 +720,7 @@ static int cmd_mag_test(int argc, char **argv) {
     if (cmd.as.mag_selftest.read_loop_ms > 5000) cmd.as.mag_selftest.read_loop_ms = 5000;
     if (!flight_core_push_command(&cmd)) { printf("loi: command queue day\n"); return 1; }
     printf("mag_test: da gui (sign=%d loop=%dms) -- xem cac dong '[mag_test ...]' trong log firmware. "
-           "Vong doc cuoi la quan trong nhat: ok%% cao = chip phat mau on dinh\n",
+"Vong doc cuoi la quan trong nhat: ok%% cao = chip phat mau on dinh\n",
            (int)cmd.as.mag_selftest.write_sign_reg, (int)cmd.as.mag_selftest.read_loop_ms);
     return 0;
 }
@@ -812,7 +875,7 @@ static int cmd_tof_reinit(int argc, char **argv) {
     }
     if (rc == -1) {
         printf("tof_reinit: ToF dang TAT trong app_config.h (SENSOR_TOF_ENABLED=0), "
-               "hoac bus I2C chua init.\n");
+"hoac bus I2C chua init.\n");
         return 1;
     }
     if (rc == -2) {
@@ -859,8 +922,16 @@ static int cmd_i2c_scan(int argc, char **argv) {
         if (a == BOARD_IMU_I2C_ADDR)       who = "MPU6050 (IMU)";
         else if (a == BOARD_MAG_I2C_ADDR)  who = "QMC5883P (mag)";
         else if (a == BOARD_BARO_I2C_ADDR) who = "BMP280 (baro)";
-        else if (a == BOARD_TOF_I2C_ADDR)  who = "VL53L0X ToF (huong xuong)";
-        else if (a == 0x29)                who = "VL53L0X ToF @ dia chi MAC DINH";
+        // Ten chip lay tu driver dang build (BOARD_TOF_CHIP), khong hardcode:
+        // in nham dong chip o day se dan nguoi debug di sai huong ngay tu buoc
+        // dau tien. Ca hai dong VL53 deu mac dinh o 0x29.
+        else if (a == BOARD_TOF_I2C_ADDR || a == 0x29) {
+            static char tof_who[48];
+            snprintf(tof_who, sizeof(tof_who), "%s ToF (huong xuong%s)",
+                     tof_driver_chip_name(),
+                     (a == 0x29 && BOARD_TOF_I2C_ADDR != 0x29) ? ", dia chi MAC DINH" : "");
+            who = tof_who;
+        }
         printf("  0x%02X  %s\n", a, who);
     }
 
@@ -1053,8 +1124,9 @@ static void register_commands(void) {
         { .command = "+", .help = "Tang throttle bench-test len 1 nac (mac dinh +20 duty) -- CHI khi dang bench-test (bench_start truoc)", .func = cmd_bench_throttle_up },
         { .command = "-", .help = "Giam throttle bench-test 1 nac (mac dinh -20 duty) -- CHI khi dang bench-test (bench_start truoc)", .func = cmd_bench_throttle_down },
         { .command = "bench_stop", .help = "Cat throttle bench-test NGAY, ve ARMED (khong latch, lap lai duoc)", .func = cmd_bench_stop },
-        { .command = "calib_gyro", .help = "Do lai gyro bias tinh (~1.5s, dung yen) -- CHI khi DISARMED", .func = cmd_calib_gyro },
+        { .command = "calib_gyro", .help = "Fresh gyro calib: settle+RAW collect+independent validate (~7s stationary) -- DISARMED", .func = cmd_calib_gyro },
         { .command = "calib_gyro_abort", .help = "Huy phien calib_gyro dang do (khong luu)", .func = cmd_calib_gyro_abort },
+        { .command = "cal_status", .help = "Xem GRAW/GBIAS/GCORR/GSTD + config MPU doc lai -- kiem tra calib co an khong", .func = cmd_cal_status },
         { .command = "calib_accel_face", .help = "Bat 1 mat trong quy trinh accel 6-face -- goi 6 lan, doi huong moi lan", .func = cmd_calib_accel_face },
         { .command = "calib_accel_reset", .help = "Huy tien trinh accel 6-face dang do, lam lai tu dau", .func = cmd_calib_accel_reset },
         { .command = "calib_mag_start", .help = "Bat dau thu mau mag, TU DONG chay 60s -- xoay hinh so 8 suot thoi gian nay", .func = cmd_calib_mag_start },
@@ -1074,8 +1146,8 @@ void app_main(void) {
 
 #if !MOTOR_POSITIONS_CONFIRMED
     ESP_LOGW(TAG, "!!! app_config.h: MOTOR_POSITIONS_CONFIRMED=0 -- vi tri vat ly CH1..CH4 CHUA "
-                  "xac nhan. THAO HET CANH QUAT roi dung lenh 'test_motor <1-4> <pct>' de xac "
-                  "nhan TRUOC khi lap canh/bay that (xem app_config.h de biet quy trinh day du).");
+"xac nhan. THAO HET CANH QUAT roi dung lenh 'test_motor <1-4> <pct>' de xac "
+"nhan TRUOC khi lap canh/bay that (xem app_config.h de biet quy trinh day du).");
 #endif
 
     // Cấu hình phần cứng dựng ở MỘT chỗ duy nhất (main/board_setup.h) và dùng
@@ -1087,7 +1159,7 @@ void app_main(void) {
     ESP_LOGI(TAG, "flight_core_start() -> %s", esp_err_to_name(err));
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "flight_core_start() THAT BAI -- KHONG the dieu khien duoc (kiem tra "
-                      "motor_gpio trong board_config.h, day dan dong co)");
+"motor_gpio trong board_config.h, day dan dong co)");
         return;
     }
 
@@ -1098,8 +1170,8 @@ void app_main(void) {
             // BAT BUOC de bay: CHI gyro + accel. Mag KHONG con bat buoc (che do
             // bay dung yaw-RATE — xem recompute_uncalibrated() trong flight_core.c).
             ESP_LOGW(TAG, "!!! CHUA CALIBRATE (thieu accel hop le trong NVS) -- lenh 'arm' se bi TU CHOI. "
-                          "Go 'calib_accel_face' 6 lan + 'calib_gyro' truoc khi bay (xem 'help'). "
-                          "Mag KHONG bat buoc.");
+"Go 'calib_accel_face' 6 lan + 'calib_gyro' truoc khi bay (xem 'help'). "
+"Mag KHONG bat buoc.");
         }
     }
 

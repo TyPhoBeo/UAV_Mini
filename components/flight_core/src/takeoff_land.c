@@ -1,6 +1,29 @@
 #include "flight_core/takeoff_land.h"
 
+#include "flight_core/alt_estimator.h"
+
 #include <math.h>
+
+// ============================================================================
+// RÀNG BUỘC GIỮA BA NGƯỠNG SÁT ĐẤT — bắt lúc BIÊN DỊCH
+// ============================================================================
+// Ba hằng số này nằm ở HAI file khác nhau (tuning.h và alt_estimator.h) nhưng
+// mắc nối tiếp nhau trên cùng một đường dữ liệu:
+//
+//   range thô --[>= ALT_EST_TOF_MIN_RANGE_M]--> tof_vertical
+//             --[< ALT_EST_GROUND_ZERO_BAND_M thì ép về 0]--> tof_z_m
+//             --[>= TAKEOFF_LIFTOFF_Z_M]--> bằng chứng rời đất
+//
+// Đặt lệch nhau thì KHÔNG có lỗi nào cả — chỉ là takeoff abort
+// NO_LIFT_EVIDENCE mãi mãi, và người debug đi tìm pin/cánh quạt/hover_ff trong
+// khi nguyên nhân là hai con số ở hai file cách nhau vài trăm dòng. Đã xảy ra
+// thật (0.015 vs 0.01). Ràng ở đây để lần sau là lỗi BUILD.
+_Static_assert(ALT_EST_GROUND_ZERO_BAND_M <= TAKEOFF_LIFTOFF_Z_M,
+                "ALT_EST_GROUND_ZERO_BAND_M > TAKEOFF_LIFTOFF_Z_M: tof_z_m bi ep ve 0 TRUOC khi "
+                "cham nguong roi dat -> lift_evidence KHONG BAO GIO dung -> takeoff abort mai mai");
+_Static_assert(ALT_EST_TOF_MIN_RANGE_M <= TAKEOFF_LIFTOFF_Z_M,
+                "ALT_EST_TOF_MIN_RANGE_M > TAKEOFF_LIFTOFF_Z_M: gate hinh hoc loai mau TRUOC khi "
+                "tof_z_m kip dat nguong roi dat -> lift_evidence KHONG BAO GIO dung");
 
 // ================= TAKEOFF =================
 
@@ -77,7 +100,8 @@ static void tko_abort(takeoff_state_t *st, takeoff_abort_reason_t why,
 void takeoff_run(takeoff_state_t *st, const takeoff_tune_t *tune,
                   alt_hold_state_t *hold_st, const alt_hold_tune_t *hold_tune,
                   bool alt_valid, float alt_m, float vz_ms,
-                  bool alt_source_ok, float tilt_deg,
+                  bool tof_fusable, float tof_z_m, float tof_vz_ms,
+                  float tilt_deg,
                   float dt, int64_t now_us, int safe_max_duty,
                   takeoff_result_t *out) {
     *out = (takeoff_result_t){0};
@@ -152,7 +176,7 @@ void takeoff_run(takeoff_state_t *st, const takeoff_tune_t *tune,
     // lần cất cánh, và leo quá tầm ToF (~1.8m) cũng abort giữa chừng.
     bool alt_source_lost = false;
     if (st->phase == TKO_CLIMB || st->phase == TKO_HOLD) {
-        alt_source_lost = !alt_source_ok || !alt_valid;
+        alt_source_lost = !tof_fusable || !alt_valid;
         if (tko_latch_window(alt_source_lost, &st->tof_lost_active,
                               &st->tof_lost_since_us, now_us, TAKEOFF_TOF_LOST_MS)) {
             tko_abort(st, TKO_ABORT_TOF_LOST, now_us, out);
@@ -166,7 +190,10 @@ void takeoff_run(takeoff_state_t *st, const takeoff_tune_t *tune,
     // Ga sàn cố định cho motor brushed quay ĐỀU. KHÔNG chạy Z/Vz PID ở đây —
     // đó chính là điều kiện chống windup thứ hai (xem takeoff_land.h điểm 2).
     if (st->phase == TKO_PRIME) {
-        out->throttle_duty = clampi(tune->prime_duty, 0, safe_max_duty);
+        const float prime_frac = clampf((float)(now_us - st->phase_since_us) /
+                                        ((float)tune->prime_ms * 1000.0f), 0.0f, 1.0f);
+        out->throttle_duty = clampi((int)((float)tune->prime_duty * prime_frac),
+                                    0, safe_max_duty);
         out->phase = TKO_PRIME;
         out->target_z_m = 0.0f;
         out->vz_target_ms = 0.0f;
@@ -358,9 +385,66 @@ void takeoff_run(takeoff_state_t *st, const takeoff_tune_t *tune,
     // tune->liftoff_ms là con số PHẢI đo trên khung thật, không phải đoán:
     // ngắn quá -> mở Ki khi còn đè đất -> ground windup; dài quá -> Ki khoá
     // trong lúc đã bay -> drone trôi.
-    if (!st->liftoff_flag &&
-        (now_us - st->phase_since_us) >= (int64_t)tune->liftoff_ms * 1000) {
+    // ---- BẰNG CHỨNG RỜI ĐẤT: ĐỘ CAO + GA, KHÔNG DÙNG Vz ----
+    //
+    // ⚠ ĐÃ BỎ VẾ `tof_vz_ms >= TAKEOFF_LIFTOFF_VZ_MS`. Đo được trên phần cứng
+    // thật (log TKOEL=6.5..7.1): drone ĐANG LÊN ĐỀU, tof_z_m đi 0.198 -> 0.419,
+    // nhưng tof_vz_lpf_ms dao động 0.185/0.105/0.252/0.138/0.225/0.170/-0.021.
+    // Vz đạo hàm từ ToF ~30Hz ở tốc độ leo chậm (0.1-0.3 m/s) có tỷ lệ
+    // tín-hiệu/nhiễu rất thấp, nên nó CHẠM 0 thường xuyên ngay giữa lúc leo
+    // hoàn toàn bình thường.
+    //
+    // VÌ SAO ĐIỀU ĐÓ GIẾT CẢ CHUỖI: 4 vế này AND với nhau rồi đi qua
+    // tko_latch_window() đòi ĐÚNG liên tục TAKEOFF_LIFTOFF_MS (1000ms). Một
+    // mẫu Vz rớt là cửa sổ RESET VỀ 0. Với nhiễu như trên, cửa sổ không bao giờ
+    // đóng -> liftoff_flag mãi false -> airborne mãi false -> estimator ép
+    // alt_m = 0 và KHÔNG BAO GIỜ fuse ToF (TOFA=0 trong suốt chuyến bay) ->
+    // abort. Drone bay lên thật mà firmware khẳng định nó chưa rời đất.
+    //
+    // Độ cao thì KHÔNG có vấn đề đó: nó là số ĐO trực tiếp, không phải đạo hàm,
+    // nên không bị khuếch đại nhiễu. Giữ thêm vế ga để loại trường hợp ai đó
+    // NHẤC drone lên bằng tay lúc motor chưa đủ lực.
+    const bool lift_evidence = tof_fusable &&
+        collective >= (int)(hold_tune->hover * TAKEOFF_LIFTOFF_THR_FRAC) &&
+        tof_z_m >= TAKEOFF_LIFTOFF_Z_M;
+    if (!st->liftoff_flag && tko_latch_window(lift_evidence,
+            &st->liftoff_active, &st->liftoff_since_us, now_us, tune->liftoff_ms)) {
         st->liftoff_flag = true;
+        out->liftoff_edge = true;
+        st->target_z_m = fmaxf(tof_z_m, 0.0f);
+    }
+    // ---- ABORT "KHÔNG NHẤC NỔI" — CHỈ XÉT ĐỘ CAO ĐO ĐƯỢC ----
+    // Điều kiện DUY NHẤT: sau TAKEOFF_NO_LIFT_TIMEOUT_MS trong CLIMB mà ToF vẫn
+    // đọc dưới TAKEOFF_NO_LIFT_ALT_M thì drone thật sự chưa đi lên.
+    //
+    // VÌ SAO KHÔNG DÙNG LẠI `lift_evidence` (bản trước dùng, và nó SAI Ở ĐÂY):
+    // lift_evidence là AND của BỐN vế và được thiết kế cho một câu hỏi KHÁC —
+    // "đã đủ chắc chắn để nới trần I và mở Ki attitude chưa". Nó CỐ Ý khắt khe,
+    // vì mở Ki sớm khi còn đè đất thì ground-windup. Dùng đúng bộ khắt khe đó
+    // làm điều kiện HỦY CHUYẾN BAY thì một chuyến hoàn toàn bình thường vẫn bị
+    // hủy chỉ vì MỘT vế phụ chưa khớp — điển hình là `tof_vz_ms >= 0.05`, vốn
+    // rớt xuống dưới ngưỡng ngay khi drone leo đều rồi chững lại một nhịp.
+    //
+    // Hai câu hỏi khác nhau thì phải có hai điều kiện khác nhau:
+    //   lift_evidence  -> "đã rời đất CHẮC CHẮN chưa" (gate Ki, khắt khe, 4 vế)
+    //   khối này       -> "có đi lên được KHÔNG" (hủy bay, thô, 1 vế: độ cao)
+    //
+    // tof_fusable KHÔNG có mặt ở đây là CÓ CHỦ ĐÍCH: mất ToF đã có nhánh (D)
+    // TKO_ABORT_TOF_LOST xử lý ở ĐẦU hàm, chạy TRƯỚC khối này. Thêm nó vào đây
+    // chỉ tạo hai mã abort cho cùng một sự cố.
+    // ⚠ NGƯỠNG PHẢI CO THEO TARGET, KHÔNG ĐƯỢC DÙNG HẰNG SỐ TRẦN:
+    // target thấp hơn TAKEOFF_NO_LIFT_ALT_M (vd fc.takeoff(150) -> 0.15m) sẽ
+    // bay ĐÚNG tới đích rồi vẫn bị hủy vì 0.15 < 0.20 — hủy một chuyến bay
+    // hoàn hảo, với lý do ghi là "không nhấc nổi". Lấy min() với một phần của
+    // target để ngưỡng luôn nằm DƯỚI đích thật sự.
+    const float no_lift_alt = fminf(TAKEOFF_NO_LIFT_ALT_M,
+                                     st->final_target_m * TAKEOFF_NO_LIFT_TARGET_FRAC);
+    if (!st->liftoff_flag &&
+        (now_us - st->phase_since_us) >= (int64_t)TAKEOFF_NO_LIFT_TIMEOUT_MS * 1000 &&
+        tof_z_m < no_lift_alt) {
+        st->last_throttle = collective;
+        tko_abort(st, TKO_ABORT_NO_LIFT_EVIDENCE, now_us, out);
+        return;
     }
     out->liftoff_flag = st->liftoff_flag;
 
@@ -387,7 +471,11 @@ void takeoff_run(takeoff_state_t *st, const takeoff_tune_t *tune,
     // được bàn giao sang HOLDING TRƯỚC khi kịp bị phát hiện. Lúc đó bằng chứng
     // vẫn hiện ra ở telemetry (ALTSAT=1 kéo dài, TKOI kịch trần) nhưng KHÔNG có
     // auto-abort — người lái phải tự KILL. Xem tuning.h mục 3c.
-    if (tko_latch_window((st->target_z_m == st->final_target_m),
+    const bool hold_ready = st->liftoff_flag &&
+        st->target_z_m == st->final_target_m &&
+        fabsf(alt_m - st->final_target_m) <= TAKEOFF_HOLD_Z_TOL_M &&
+        fabsf(vz_ms) <= TAKEOFF_HOLD_VZ_TOL_MS;
+    if (tko_latch_window(hold_ready,
                           &st->at_target_active, &st->at_target_since_us,
                           now_us, TAKEOFF_HOLD_ENTER_MS)) {
         tko_handoff(st, now_us, out);
@@ -408,16 +496,47 @@ landing_tune_t landing_default_tune(void) {
     return t;
 }
 
+// ============================================================================
+// ⚠ alt_m VÀ tof_z_m Ở HÀM NÀY LÀ **AGL** (độ cao trên BỀ MẶT ĐANG Ở DƯỚI),
+//   KHÔNG PHẢI độ cao trên sàn cất cánh. Xem khối cảnh báo ở takeoff_land.h.
+//   Hạ xuống một cái bàn cao 0.75m: AGL về 0 là đã CHẠM BÀN; datum về 0 là đã
+//   đâm xuyên qua bàn xuống sàn.
+// ============================================================================
 void landing_run(landing_state_t *st, const landing_tune_t *tune,
                   alt_hold_state_t *hold_st, const alt_hold_tune_t *hold_tune,
                   bool was_hold_engaged,
                   bool alt_valid, float alt_m, float vz_ms, int manual_throttle_duty,
+                  bool tof_fusable, float tof_z_m, float tof_vz_ms,
+                  bool terrain_pending, uint32_t terrain_commits, float az_earth_ms2,
                   float dt, int64_t now_us, int safe_max_duty,
                   landing_result_t *out) {
+    out->hold_driving = true;
+    out->touchdown_done = false;
+
+    // ---- C1: KHÔNG vào DESCEND khi terrain đang PENDING ----
+    // Ở mép bàn range nhảy qua nhảy lại; bắt đầu hạ ngay lúc đó là flare sai
+    // điểm. Giữ độ cao (vz_target = 0) cho tới khi estimator xác nhận xong —
+    // pending tự hết sau TERR_CONFIRM_N mẫu (~100-150ms), không phải chờ vô
+    // hạn. KHÔNG chạm vz_integral: nó vẫn đang giữ hover đã học.
+    if (st->phase == LAND_IDLE && terrain_pending) {
+        if (!was_hold_engaged && !hold_st->engaged) {
+            alt_hold_preload(hold_st, hold_tune, manual_throttle_duty);
+        }
+        out->throttle_duty = alt_hold_vz_cascade(hold_st, hold_tune, 0.0f, vz_ms, dt,
+                                                  true /* FREEZE I: số liệu đang loạn */,
+                                                  hold_tune->vz_ilimit,
+                                                  ALT_HOLD_MIN_THROTTLE_DUTY, safe_max_duty);
+        st->last_throttle = out->throttle_duty;
+        return;
+    }
+
     if (st->phase == LAND_IDLE) {
         st->phase = LAND_DESCEND;
         st->settle_us = 0;
         st->toflost_us = 0;
+        st->az_spike_us = 0;
+        st->terr_commit_seen = terrain_commits;
+        st->terr_seen_init = true;
         // Vào từ HOLD/flight: giữ vz_integral warm (bumpless). Vào từ manual
         // (chưa engaged) thì preload = throttle - hover.
         if (!was_hold_engaged) {
@@ -425,8 +544,25 @@ void landing_run(landing_state_t *st, const landing_tune_t *tune,
         }
     }
 
-    out->hold_driving = true;
-    out->touchdown_done = false;
+    // ---- C2: BẬC TERRAIN GIỮA LÚC ĐANG HẠ -> RESET PHA VỀ DESCEND ----
+    // Đang hạ mà drone trôi ngang khỏi mép bàn: AGL đột ngột TĂNG ~0.75m. Logic
+    // flare/touchdown ăn thẳng số đó sẽ tưởng vừa bay vọt lên — và nguy hiểm
+    // hơn: bộ đếm contact/settle đang chạy dở sẽ mang bằng chứng của BỀ MẶT CŨ
+    // sang bề mặt mới. Xoá sạch mọi bộ đếm và tính lại flare theo AGL mới.
+    // TUYỆT ĐỐI KHÔNG nhảy thẳng TOUCHDOWN hay cắt ga ở đây.
+    if (!st->terr_seen_init) {
+        st->terr_commit_seen = terrain_commits;
+        st->terr_seen_init = true;
+    } else if (terrain_commits != st->terr_commit_seen) {
+        st->terr_commit_seen = terrain_commits;
+        if (st->phase != LAND_TOUCHDOWN) {   // đã cutoff thì không quay lại nữa
+            st->phase = LAND_DESCEND;
+            st->contact_ticks = 0;
+            st->settle_us = 0;
+            st->az_spike_us = 0;
+            st->cutoff_us = 0;
+        }
+    }
 
     // ---- TOUCHDOWN: ramp ga về 0 trong CUTOFF_MS rồi báo caller disarm ----
     if (st->phase == LAND_TOUCHDOWN) {
@@ -450,7 +586,7 @@ void landing_run(landing_state_t *st, const landing_tune_t *tune,
 
     // ---- BLIND: hạ mù ga giảm cố định (mất ToF). ToF lại -> về DESCEND ----
     if (st->phase == LAND_BLIND) {
-        if (alt_valid) {
+        if (alt_valid && tof_fusable) {
             st->phase = LAND_DESCEND;   // fall-through xuống cascade
             st->toflost_us = 0;
         } else {
@@ -466,7 +602,7 @@ void landing_run(landing_state_t *st, const landing_tune_t *tune,
     }
 
     // ---- Mất ToF quá lâu ở DESCEND/FLARE -> chuyển BLIND ----
-    if (!alt_valid) {
+    if (!alt_valid || !tof_fusable) {
         if (st->toflost_us == 0) st->toflost_us = now_us;
         if ((now_us - st->toflost_us) > (int64_t)LAND_TOF_TIMEOUT_MS * 1000) {
             st->phase = LAND_BLIND;
@@ -523,22 +659,22 @@ void landing_run(landing_state_t *st, const landing_tune_t *tune,
     // Đủ điểm -> vào CONTACT_CANDIDATE (VẪN GIỮ ĐIỀU KHIỂN, chưa cắt gì), phải
     // duy trì LAND_CONTACT_TICKS tick liên tục mới sang TOUCHDOWN.
     {
-        const bool thr_at_floor = throttle_cmd <= (LAND_MIN_THROTTLE + LAND_CONTACT_THR_MARGIN);
-        const bool vz_still     = fabsf(vz_ms) < LAND_CONTACT_VZ_MS;
-        const bool alt_low      = alt_valid && alt_m < (tune->touchdown_alt_m + LAND_CONTACT_ALT_MARGIN_M);
+        const bool thr_reducing = st->last_throttle == 0 || throttle_cmd <= st->last_throttle + 5;
+        const bool vz_still     = fabsf(tof_vz_ms) < LAND_CONTACT_VZ_MS;
+        const bool alt_low      = tof_fusable && tof_z_m <= tune->touchdown_alt_m;
         // Z ngừng giảm: so với Z lúc bắt đầu nghi ngờ. Chỉ có nghĩa khi ĐANG
         // ở CONTACT_CANDIDATE (đã có mốc để so).
-        const bool z_stopped = (st->phase == LAND_CONTACT_CANDIDATE) && alt_valid &&
-                                ((st->alt_at_candidate - alt_m) < LAND_CONTACT_Z_PROGRESS_M);
+        const bool z_stopped = alt_low && vz_still;
 
         int score = 0;
-        if (thr_at_floor) score++;
+        if (thr_reducing) score++;
         if (vz_still)     score++;
         if (alt_low)      score++;
         if (z_stopped)    score++;
         st->last_contact_score = score;
 
-        if (score >= LAND_CONTACT_SCORE_MIN) {
+        // ---- NHÁNH 1 (CHÍNH): AGL thấp + vz lặng + ga đang giảm, DUY TRÌ ----
+        if (tof_fusable && alt_low && vz_still && thr_reducing) {
             if (st->phase != LAND_CONTACT_CANDIDATE) {
                 st->phase = LAND_CONTACT_CANDIDATE;
                 st->alt_at_candidate = alt_valid ? alt_m : 0.0f;
@@ -551,18 +687,26 @@ void landing_run(landing_state_t *st, const landing_tune_t *tune,
             }
         } else {
             // Mất điều kiện -> QUAY LẠI hạ bình thường. Một accel spike hay
-            // một mẫu baro xấu không được để lại dấu vết gì.
+            // một mẫu ToF xấu không được để lại dấu vết gì.
             if (st->phase == LAND_CONTACT_CANDIDATE) {
                 st->phase = (alt_valid && alt_m < tune->flare_alt_m) ? LAND_FLARE : LAND_DESCEND;
             }
             st->contact_ticks = 0;
         }
 
-        // settle_us giữ nguyên ý nghĩa cũ (ga sát sàn + vz lặng) nhưng giờ chỉ
-        // là ĐƯỜNG DỰ PHÒNG dài hạn: nếu bộ chấm điểm ở trên vì lý do nào đó
-        // không bao giờ đủ điểm mà drone rõ ràng đã nằm im rất lâu, vẫn phải
-        // kết thúc được thay vì quay motor vô hạn.
-        if (thr_at_floor && vz_still) {
+        // ---- NHÁNH 2 (BACKUP): GA SÁT SÀN + Vz LẶNG, KHÔNG DÙNG ĐỘ CAO ----
+        // ĐỔI THEO SPEC C3: điều kiện giờ là `ga <= LAND_MIN_THROTTLE` VÀ
+        // `|vz| < LAND_SETTLE_VZ_MS`, giữ liên tục LAND_SETTLE_MS.
+        //
+        // VÌ SAO BỎ ĐIỀU KIỆN ĐỘ CAO Ở NHÁNH NÀY (bản trước là
+        // `alt_low && vz_still`, tức vẫn phụ thuộc ToF): VL53L0X ở cự ly rất
+        // gần (<3-5cm) đọc kém tin cậy và thường rơi hẳn khỏi gate hình học
+        // (ALT_EST_TOF_MIN_RANGE_M = 3cm) -> alt_low KHÔNG BAO GIỜ true đúng
+        // lúc drone đã nằm trên nền. Nhánh backup mà lại phụ thuộc chính cái
+        // phép đo đang hỏng thì nó không phải backup. Hai bằng chứng còn lại
+        // (ga đã tụt kịch sàn hạ cánh mà drone vẫn không đi xuống nữa) là
+        // bằng chứng CƠ HỌC, không cần cảm biến độ cao.
+        if (throttle_cmd <= LAND_MIN_THROTTLE && fabsf(vz_ms) < LAND_SETTLE_VZ_MS) {
             if (st->settle_us == 0) st->settle_us = now_us;
             if ((now_us - st->settle_us) >= (int64_t)LAND_SETTLE_MS * 1000) {
                 st->phase = LAND_TOUCHDOWN;
@@ -571,5 +715,22 @@ void landing_run(landing_state_t *st, const landing_tune_t *tune,
         } else {
             st->settle_us = 0;
         }
+
+        // ---- NHÁNH 3: SPIKE az_earth DUY TRÌ ----
+        // Xem cảnh báo DẤU ở tuning.h (LAND_TOUCHDOWN_AZ_MS2): ngưỡng đang là
+        // giá trị ÂM đúng theo spec, nên nhánh này bắt "gia tốc hướng xuống
+        // lớn", không phải "va chạm đẩy lên". Duy trì bắt buộc — một mẫu accel
+        // đơn lẻ TUYỆT ĐỐI không được cắt máy.
+        if (az_earth_ms2 < LAND_TOUCHDOWN_AZ_MS2) {
+            if (st->az_spike_us == 0) st->az_spike_us = now_us;
+            if ((now_us - st->az_spike_us) >= (int64_t)LAND_TOUCHDOWN_AZ_HOLD_MS * 1000) {
+                st->phase = LAND_TOUCHDOWN;
+                st->cutoff_us = 0;
+            }
+        } else {
+            st->az_spike_us = 0;
+        }
+
+        st->last_throttle = throttle_cmd;
     }
 }

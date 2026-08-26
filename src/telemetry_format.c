@@ -4,17 +4,29 @@
 
 #include "flight_core/flight_core.h"
 
-// alt_mode_from_state() — UAV-S3 KHÔNG có "alt_mode" độc lập như UAV-Mini
-// (alt_hold LUÔN chạy khi HOLDING/FLYING, do FSM quyết định — không phải 1
-// cờ riêng có thể OFF trong lúc bay). Hàm này CHỈ derive 1 số hiển thị tương
-// đương cho GUI cũ (0=OFF 1=LOG_ONLY 2=HOLD 3=TAKEOFF 4=LANDING) từ FSM state
-// THẬT — xem command_parser.c mục @ALT MODE để biết @ALT MODE SET ánh xạ ra
-// sao (KHÔNG đối xứng hoàn toàn, ghi rõ ở đó).
+// alt_mode_from_state() - UAV-S3 KHONG co "alt_mode" doc lap nhu UAV-Mini
+// (alt_hold LUON chay khi HOLDING/FLYING, do FSM quyet dinh - khong phai 1
+// co rieng co the OFF trong luc bay). Ham nay derive so hien thi cho GUI tu
+// FSM state THAT.
+//
+//   0 = OFF (DISARMED/ARMED/EMERGENCY)
+//   1 = LOG_ONLY (khong dung o build nay)
+//   2 = HOLD    (FSM_HOLDING - giu do cao, KHONG co lenh nghieng)
+//   3 = TAKEOFF (FSM_TAKING_OFF)
+//   4 = LANDING (FSM_LANDING)
+//   5 = FLYING  (FSM_FLYING - dang co lenh nghieng tien/lui/trai/phai)
+//
+// VI SAO tach 5 ra khoi 2: truoc day HOLDING va FLYING CUNG tra 2, nen GUI
+// khong the phan biet - bay tien/lui van hien "HOLD". FSM da chuyen state
+// dung (xem fsm_on_move_command), chi rieng truong telemetry nay lam mat
+// thong tin do. Them gia tri MOI thay vi doi y nghia cua 2, de @ALT MODE SET
+// (command_parser.c) va GUI cu khong bi anh huong: chung chi biet 0..4 va se
+// bo qua 5 nhu mot gia tri la, thay vi hieu sai thanh mot mode khac.
 int telemetry_format_alt_mode(fsm_state_t s) {
     switch (s) {
         case FSM_TAKING_OFF: return 3;
-        case FSM_HOLDING:
-        case FSM_FLYING:     return 2;
+        case FSM_HOLDING:    return 2;
+        case FSM_FLYING:     return 5;
         case FSM_LANDING:    return 4;
         default:              return 0;   // DISARMED/ARMED/EMERGENCY
     }
@@ -57,10 +69,8 @@ void telemetry_format_status_line(char *out, size_t out_size) {
         // REACQUIRE; BSEQ=seq mẫu baro (phải tăng ~50/s); BFI=baro fusion đã
         // khởi tạo gốc toạ độ chưa.
         " AIRB=%d CAND=%d AZCORR=%.3f BCREJ=%u BREACQ=%d BSEQ=%u BFI=%d"
-        // ALTSRC = NGUON dang thuc su giu Z: 0=NONE 1=TOF 2=BARO 3=TOF+BARO.
-        // KHAC ADEGR: degraded chi noi "co correction hay khong", ALTSRC noi
-        // correction do CUA AI. ALTSRC=2 khi ban tuong dang bay bang ToF nghia la
-        // ToF da ngung dong gop -> do cao so voi san dang troi theo baro.
+        // ALTSRC: 0=GROUND_LOCK, 1=IMU_PREDICT, 2=TOF_FUSED,
+        // 3=TOF_SHORT_BRIDGE, 4=TOF_LOST. Baro khong co state flight-control.
         " ALTSRC=%u"
         // Battery debug (battery_driver.h) — BATRAW/BATMV/BATRATIO/BATVRAW cho
         // phép truy ngược thang đo: sai ở ADC, ở calibration, hay ở chia áp.
@@ -119,7 +129,28 @@ void telemetry_format_status_line(char *out, size_t out_size) {
         //   HOVLK  = da chot lan nao chua (0 = dang chay hang so cu)
         //   HOVLV  = vbat trung vi luc chot (V, KHONG TAI)
         //   HOVLD  = hover_ff suy ra tu model (duty)
-        " HOVLK=%d HOVLV=%.2f HOVLD=%.0f\n",
+        " HOVLK=%d HOVLV=%.2f HOVLD=%.0f"
+        // IMU+ToF altitude debug; append-only de GUI cu van parse duoc.
+        " TOFZ=%.3f TOFVZ=%.3f TOFVZV=%d TOFFUSE=%d TOFTRACK=%d"
+        " FLOORLOCK=%d FLOORREADY=%d FLOORN=%u FLOORSTD=%.4f BAROFC=%d"
+        " AZBZ=%.4f AZERAW=%.4f AZGRAV=%.4f AZBIAS=%.4f AZLPF2=%.4f"
+        " ZREQ=%.3f ZERR=%.3f VZERR=%.3f VZP=%.2f VZI=%.2f VZD=%.2f"
+        " VZOUT=%.1f HOVTHR=%.1f THRCORR=%.1f"
+        // ---- TERRAIN — nối THÊM Ở CUỐI DÒNG, CÙNG LÝ DO với TOFEN/HOVLK ở
+        // trên: chèn vào GIỮA sẽ làm DỊCH group index của STATUS_RE bên GUI.
+        // TOFF =terrain_off_m (bề mặt đang nhìn cao hơn sàn cất cánh bao nhiêu)
+        // TPEND=đang nghi có bậc (I freeze, alt coast); TCMT=số lần commit;
+        // TRES =residual mẫu cuối (số để tune TERR_JUMP_THRESH_M);
+        // CLR  =KHOẢNG HỞ THẬT dưới bụng (AGL) — số quyết định va chạm, KHÔNG
+        //       phải ALTm; FRAME=0 DATUM / 1 AGL.
+        " TOFF=%.3f TPEND=%d TCMT=%u TRES=%.3f CLR=%.3f FRAME=%d"
+        // Gyro calibration diagnostics ở cadence STATUS, không phải 1kHz.
+        " GRAWX=%.3f GRAWY=%.3f GRAWZ=%.3f"
+        " GBIASX=%.3f GBIASY=%.3f GBIASZ=%.3f"
+        " GCORRX=%.3f GCORRY=%.3f GCORRZ=%.3f"
+        " GSTDRAWX=%.3f GSTDRAWY=%.3f GSTDRAWZ=%.3f"
+        " GSTDCORRX=%.3f GSTDCORRY=%.3f GSTDCORRZ=%.3f"
+        " GCAL=%d GCALSTATE=%d GCALFAIL=%d GTEMP=%.1f GCALTEMP=%.1f\n",
         t.armed ? 1 : 0,
         t.throttle_duty,
         t.roll_deg, t.pitch_deg, t.yaw_deg,
@@ -184,6 +215,30 @@ void telemetry_format_status_line(char *out, size_t out_size) {
         (double)t.tof_corr_z_m, (double)t.tof_corr_vz_ms,
         (double)t.baro_corr_z_m, (double)t.baro_corr_vz_ms,
         (double)t.bias_residual_m, (unsigned)t.bias_adapt_count,
-        t.hover_latched ? 1 : 0, (double)t.hover_latch_v, (double)t.hover_latch_duty
+        t.hover_latched ? 1 : 0, (double)t.hover_latch_v, (double)t.hover_latch_duty,
+        (double)t.tof_z_m, (double)t.tof_vz_ms, t.tof_vz_valid ? 1 : 0,
+        t.tof_fusable ? 1 : 0, t.tof_track_state,
+        t.floor_locked ? 1 : 0, t.floor_ready ? 1 : 0,
+        (unsigned)t.floor_sample_count, (double)t.floor_std_m,
+        t.baro_used_by_flight_control ? 1 : 0,
+        (double)t.az_body_z_g, (double)t.az_earth_raw_ms2,
+        (double)t.az_after_gravity_ms2, (double)t.az_after_bias_ms2,
+        (double)t.az_corrected_ms2,
+        (double)t.alt_request_m, (double)t.z_error_m, (double)t.vz_error_ms,
+        (double)t.vz_p_term, (double)t.vz_i_term, (double)t.vz_d_term,
+        (double)t.vz_output_duty, (double)t.hover_throttle_duty,
+        (double)t.throttle_correction_duty,
+        (double)t.terrain_off_m, t.terrain_pending ? 1 : 0,
+        (unsigned)t.terrain_commits, (double)t.terrain_residual_m,
+        (double)t.clearance_m, (int)t.alt_frame,
+        (double)t.gyro_raw_dps.x, (double)t.gyro_raw_dps.y, (double)t.gyro_raw_dps.z,
+        (double)t.gyro_bias_dps.x, (double)t.gyro_bias_dps.y, (double)t.gyro_bias_dps.z,
+        (double)t.gyro_corr_dps.x, (double)t.gyro_corr_dps.y, (double)t.gyro_corr_dps.z,
+        (double)t.gyro_raw_std_dps.x, (double)t.gyro_raw_std_dps.y,
+        (double)t.gyro_raw_std_dps.z,
+        (double)t.gyro_corr_std_dps.x, (double)t.gyro_corr_std_dps.y,
+        (double)t.gyro_corr_std_dps.z,
+        t.calib_gyro_valid ? 1 : 0, t.gyro_cal_state, t.gyro_cal_fail,
+        (double)t.imu_temp_c, (double)t.gyro_cal_temp_c
     );
 }

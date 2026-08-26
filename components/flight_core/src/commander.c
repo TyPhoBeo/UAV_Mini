@@ -45,12 +45,6 @@ commander_result_t commander_evaluate(commander_state_t *st, const commander_con
         r.reason = "imu invalid";
         return r;
     }
-    if (in->imu_stale) {
-        r.fault = FAULT_HARD;
-        r.reason = "imu stale (sensor_hub ngung cap nhat)";
-        return r;
-    }
-
     const float ar = fabsf(in->roll_deg);
     const float ap = fabsf(in->pitch_deg);
     if (ar > cfg->hard_tilt_deg || ap > cfg->hard_tilt_deg) {
@@ -85,6 +79,15 @@ commander_result_t commander_evaluate(commander_state_t *st, const commander_con
     // ========================================================================
     // SOFT faults — còn kiểm soát được, hạ êm
     // ========================================================================
+
+    // Theo policy UAV-Mini: khi hub ngừng cập nhật nhưng attitude cuối vẫn còn
+    // hợp lệ, ưu tiên thử LANDING qua Commander. Nếu attitude mất hẳn hoặc góc
+    // nghiêng vượt giới hạn, lớp hard-fault/cut trực tiếp vẫn thắng.
+    if (in->imu_stale && in->state != FSM_LANDING && in->state != FSM_EMERGENCY) {
+        r.fault = FAULT_SOFT;
+        r.reason = "imu stale -> thu landing bang attitude cuoi";
+        return r;
+    }
 
     // Heartbeat: PHẢN ỨNG THEO STATE.
     //   LANDING  -> BỎ QUA. Đang hạ rồi, báo soft fault nữa chỉ để chuyển sang
@@ -124,13 +127,8 @@ commander_result_t commander_evaluate(commander_state_t *st, const commander_con
     // FSM_ARMED cũng được LOẠI TRỪ, cùng LÝ DO với BENCH_RAMP: ở ARMED
     // throttle_cmd=0 (xem flight_core.c bước 9), motor chưa quay, alt_hold
     // KHÔNG chạy — không có gì đang "giữ độ cao" để mà mất. Bắt buộc phải loại
-    // trừ vì CMD_ARM giờ tự calib lại mốc 0m rồi alt_estimator_reanchor()
-    // (xem flight_core.c CMD_ARM), và reanchor đặt valid=false cho tới khi có
-    // mẫu baro mới (~20ms ở 50Hz). Không loại trừ thì tick NGAY SAU khi ARM
-    // thành công sẽ thấy alt_estimator_lost=true -> SOFT fault ->
-    // fsm_on_soft_fault(FSM_ARMED)=FSM_DISARMED -> ARM tự bị huỷ, không bao giờ
-    // arm được. Việc CHẶN cất cánh khi estimator chết là việc của prearm_check()
-    // lúc ARM và guard trong CMD_TAKEOFF, KHÔNG phải của fault runtime ở đây.
+    // trừ vì ở ARMED motor chưa chạy và floor ToF vẫn đang được kiểm tra bởi
+    // prearm/takeoff gate; runtime fault chỉ có nghĩa khi controller đang bay.
     if (in->state != FSM_LANDING && in->state != FSM_BENCH_RAMP &&
         in->state != FSM_ARMED &&
         (in->alt_hold_engage_lost || in->alt_estimator_lost)) {
@@ -139,8 +137,8 @@ commander_result_t commander_evaluate(commander_state_t *st, const commander_con
         return r;
     }
 
-    // Estimator còn HỢP LỆ nhưng đã quá lâu KHÔNG có correction nào (ToF lẫn
-    // baro). Z lúc này là dead-reckoning thuần accel và sai số tăng BẬC HAI —
+    // Estimator còn HỢP LỆ nhưng ToF đã vào bridge/lost. Z lúc này là
+    // dead-reckoning thuần accel và sai số tăng BẬC HAI —
     // xem ALT_EST_NO_CORRECTION_DEGRADED_MS. Thà hạ êm khi còn biết mình ở đâu
     // còn hơn bay tiếp bằng một con số đang trôi tự do.
     //
@@ -149,7 +147,7 @@ commander_result_t commander_evaluate(commander_state_t *st, const commander_con
     // leo là đúng.
     if (airborne && in->alt_estimator_degraded) {
         r.fault = FAULT_SOFT;
-        r.reason = "khong co correction (ToF+baro) qua lau -> Z dang troi tu do";
+        r.reason = "ToF correction mat qua lau -> Z dang troi tu do";
         return r;
     }
 

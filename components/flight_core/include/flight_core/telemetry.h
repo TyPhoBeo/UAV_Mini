@@ -57,6 +57,10 @@ typedef enum {
     //               hố "drone nằm ì" mà latch sinh ra để lấp.
     ARM_REJECT_HOVER_LATCH_NO_SAMPLE,
     ARM_REJECT_HOVER_LATCH_VOLT_LOW,
+    // ---- Thêm cùng startup gyro calibration (xem tuning.h mục 8b) ----
+    ARM_REJECT_IMU_CFG,             // read-back GYRO/ACCEL_CONFIG không khớp -> scale KHÔNG tin được
+    ARM_REJECT_GYRO_BIAS_LARGE,     // gyro corrected khi đứng yên vẫn lệch > PREARM_GYRO_MAX_MEAN_DPS
+    ARM_REJECT_GYRO_NOT_STATIONARY, // chưa có cửa sổ stationary corrected-gyro đủ dài ngay trước ARM
 } arm_reject_t;
 
 // takeoff_reject_t — vì sao lệnh TAKEOFF gần nhất KHÔNG khởi động được chuỗi
@@ -72,7 +76,7 @@ typedef enum {
 typedef enum {
     TAKEOFF_REJECT_NONE = 0,
     TAKEOFF_REJECT_STATE,            // FSM không ở ARMED (fsm_on_takeoff_request)
-    TAKEOFF_REJECT_NO_CORRECTION,    // không có baro LẪN ToF ground ref -> Z sẽ trôi tự do
+    TAKEOFF_REJECT_NO_CORRECTION,    // floor ToF chua gom du/on dinh (wire value giu tuong thich)
     TAKEOFF_REJECT_ALT_EST_INVALID,  // alt_estimator state không hữu hạn
 } takeoff_reject_t;
 
@@ -374,6 +378,52 @@ typedef struct {
     // thể tồn tại song song với 1 phiên calib mag vừa hỏng.
     bool     calib_gyro_valid, calib_accel_valid, calib_mag_valid;
 
+    // ================= GYRO BIAS DIAGNOSTICS (xem tuning.h muc 8b) =================
+    // Ba bo so nay ton tai de tra loi DUT KHOAT cau hoi "bias co thuc su duoc
+    // khu khong", thay vi phai suy doan tu hanh vi bay. Quan he BAT BUOC:
+    //
+    //     gyro_corr_dps == gyro_raw_dps - gyro_bias_dps
+    //
+    // Drone dung yen, calib dat  => gyro_raw ~ gyro_bias, gyro_corr ~ 0.
+    // Neu gyro_corr KHONG ~0 khi dung yen thi calib CHUA an, va nhin vao ba
+    // hang so nay la biet ngay lech o dau — khong con phai doan.
+    //
+    // Don vi: dps, SENSOR FRAME (remap sensor->body hien la identity).
+    // Publish o nhip STATUS binh thuong, KHONG phai 250Hz.
+    vec3f_t  gyro_raw_dps;      // GRAWX/Y/Z  — truoc khi tru bias
+    vec3f_t  gyro_bias_dps;     // GBIASX/Y/Z — bias dang ap dung
+    vec3f_t  gyro_corr_dps;     // GCORRX/Y/Z — sau khi tru bias (= thu Mahony/PID dung)
+    vec3f_t  gyro_std_dps;      // alias tương thích: corrected std validation gần nhất
+    vec3f_t  gyro_raw_mean_dps; // mean RAW của cửa sổ COLLECT gần nhất
+    vec3f_t  gyro_corr_mean_dps;// mean raw-bias của cửa sổ VALIDATE độc lập
+    vec3f_t  gyro_raw_std_dps;  // GSTDRAWX/Y/Z
+    vec3f_t  gyro_corr_std_dps; // GSTDCORRX/Y/Z
+
+    vec3f_t  accel_raw_g;       // ARAWX/Y/Z  — truoc bias/scale
+    vec3f_t  accel_corr_g;      // ACORRX/Y/Z — sau bias/scale (thu Mahony dung)
+    float    accel_norm_g;      // ANORM — |accel_corr|, nen ~1.0 khi dung yen
+
+    // ---- Trang thai startup gyro calibration ----
+    // So mau KHONG dat tieu chi dung yen trong cua so gan nhat. Thay cho
+    // gyro_cal_attempt cu (khong con retry): khi calib truot vi "qua nhieu
+    // mau nghi dong", day la con so noi duoc TRUOT BAO NHIEU, chu khong chi
+    // "co truot". So nho ma van fail = nguong qua chat; so lon = drone that
+    // su bi dong/rung.
+    int      gyro_cal_bad_samples;
+    int      gyro_cal_state;        // 0 IDLE,1 SETTLING,2 COLLECT,3 VALIDATE,4 PASS,5 FAIL
+    int      gyro_cal_fail;         // gyro_cal_fail_t; 0=NONE
+    float    gyro_cal_temp_c;       // IMUTEMP luc calib — de so voi imu_temp_c hien tai (muc 9)
+    bool     gyro_cal_temp_warn;    // |imu_temp_c - gyro_cal_temp_c| > CALIB_TEMP_WARN_DELTA_C
+    bool     gyro_valid_from_nvs;   // NVS co bias cu (tham khao, KHONG dung de bay)
+
+    // ---- Cau hinh MPU6050 doc lai tu chip (muc 2) ----
+    // Scale THAT SU dang dung de convert, suy ra tu FS_SEL/AFS_SEL doc lai —
+    // khong phai hang so bien dich. imu_cfg_valid=false -> ARM bi chan.
+    bool     imu_cfg_valid;
+    uint8_t  imu_gyro_config, imu_accel_config;   // GYROFS / ACCELFS (gia tri thanh ghi tho)
+    uint8_t  imu_fs_sel, imu_afs_sel;
+    float    imu_gyro_lsb_per_dps, imu_accel_lsb_per_g;
+
     // ---- Mag TRONG Mahony (khác hẳn mag_ok_driver ở trên!) ----
     // mag_ok_driver = "đọc I2C được". Mấy trường dưới = "vector đó có THẬT SỰ
     // được dùng để sửa yaw hay không" — hai chuyện hoàn toàn khác nhau:
@@ -401,7 +451,38 @@ typedef struct {
     float gyro_calib_std_x_dps, gyro_calib_std_y_dps, gyro_calib_std_z_dps;   // std-dev lần calib gyro GẦN NHẤT
     float accel_calib_residual_g;    // residual max lần calib accel GẦN NHẤT (0 nếu chưa từng calib)
 
+    // ---- IMU+ToF altitude refactor (append-only wire fields) ----
+    float tof_z_m, tof_vz_ms;
+    bool  tof_vz_valid, tof_fusable;
+    int   tof_track_state;
+    bool  floor_locked, floor_ready;
+    uint32_t floor_sample_count;
+    float floor_std_m;
+    bool  baro_used_by_flight_control; // invariant: false
+    float az_body_z_g, az_earth_raw_ms2, az_after_gravity_ms2, az_after_bias_ms2;
+    float alt_request_m;
+    float z_error_m, vz_error_ms;
+    float vz_p_term, vz_i_term, vz_d_term, vz_output_duty;
+    float hover_throttle_duty, throttle_correction_duty;
+
     int64_t stamp_us;
+    // ---- TERRAIN (alt_estimator.h mục TERRAIN OFFSET) ----
+    // TOFF  = terrain_off_m: độ cao BỀ MẶT đang nhìn so với SÀN cất cánh. 0 khi
+    //         đang trên đúng mặt sàn; 0.75 khi đang trên mặt bàn cao 0.75m.
+    // TPEND = đang NGHI có bậc, chưa xác nhận. Trong lúc này I-term freeze và
+    //         alt COAST bằng accel — TPEND=1 kéo dài (>0.5s) nghĩa là mép bàn
+    //         làm range nhảy loạn, không confirm nổi.
+    // TCMT  = số lần đã COMMIT offset (tăng 1 mỗi lần qua một bậc).
+    // TRES  = residual mẫu gần nhất (m) — số dùng để tune TERR_JUMP_THRESH_M.
+    // CLR   = khoảng hở THẬT tới bề mặt dưới bụng (AGL). Đây là con số quyết
+    //         định drone có đâm vào bàn hay không, KHÔNG phải ALTm.
+    // FRAME = 0 DATUM (giữ độ cao so với sàn) / 1 AGL (terrain following).
+    float    terrain_off_m;
+    bool     terrain_pending;
+    uint32_t terrain_commits;
+    float    terrain_residual_m;
+    float    clearance_m;
+    int32_t  alt_frame;
 } telemetry_snapshot_t;
 
 static inline void telemetry_snapshot_init(telemetry_snapshot_t *t) {

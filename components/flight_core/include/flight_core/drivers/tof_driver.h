@@ -12,7 +12,7 @@ extern "C" {
 #endif
 
 // ============================================================
-// VL53L0X ToF driver — MỘT sensor, hướng xuống
+// ToF driver — MỘT sensor, hướng xuống. HỖ TRỢ HAI DÒNG CHIP.
 // ============================================================
 //
 // Vai trò trong hệ: nguồn CORRECTION có điều kiện cho alt_estimator.
@@ -20,6 +20,30 @@ extern "C" {
 // kéo z về đúng khi nó thật sự đang nhìn MẶT SÀN đã khoá (xem
 // alt_estimator.h mục "ToF surface-gated correction"). Bay qua bàn/ghế thì ToF
 // bị GATE, KHÔNG được sửa z — đó là thiết kế, không phải lỗi.
+//
+// ============================================================
+// CHỌN CHIP — BOARD_TOF_CHIP trong main/board_config.h
+// ============================================================
+//   TOF_CHIP_VL53L0X : thanh ghi 8-bit,  tầm tin cậy ~1.2m
+//   TOF_CHIP_VL53L1X : thanh ghi 16-bit, tầm tin cậy ~1.3m (SHORT) / ~2.6m (LONG)
+//
+// API DƯỚI ĐÂY KHÔNG ĐỔI theo chip. Người dùng driver (sensor_hub, flight_core,
+// main.c) không cần biết chip nào đang chạy — dùng tof_driver_chip_name() nếu
+// cần in ra cho người đọc log.
+//
+// Hiện thực chia làm ba file trong src/drivers/:
+//   tof_driver.c    — facade: XSHUT, dò địa chỉ, watchdog, staleness (file này)
+//   vl53l0x_driver.c — backend dòng L0X
+//   vl53l1x_driver.c — backend dòng L1X
+// Giao diện giữa chúng: src/drivers/tof_backend.h (NỘI BỘ, không dùng từ ngoài).
+//
+// VÌ SAO tách file thay vì if/else: địa chỉ thanh ghi khác ĐỘ RỘNG (8 vs 16
+// bit), nên MỌI hàm read/write đều khác chữ ký. Không có một dòng nào ở tầng
+// thấp dùng chung được. Chi tiết đầy đủ: tof_backend.h.
+//
+// ⚠ CẮM NHẦM CHIP KHÔNG BAO GIỜ IM LẶNG: chip lạ vẫn ACK ở 0x29 nhưng ID đọc
+// ra sai, và driver in ra ĐÚNG dòng cấu hình cần sửa (xem
+// identify_foreign_device() trong tof_driver.c).
 //
 // ============================================================
 // ĐÃ ĐƠN GIẢN HOÁ TỪ 2 SENSOR VỀ 1
@@ -50,7 +74,6 @@ extern "C" {
 // state trong RAM chip (kể cả địa chỉ I2C đã đổi ở lần boot trước). Không nối
 // cũng chạy bình thường.
 // ============================================================
-
 
 // ============================================================
 // Stale timeout
@@ -147,6 +170,11 @@ esp_err_t tof_driver_read(tof_reading_t *out);
 // hỏng thật (nguồn/nhiễu) và cần sửa mạch, KHÔNG phải sửa phần mềm — watchdog
 // chỉ mua thêm thời gian, nó không làm cảm biến đáng tin trở lại.
 uint32_t tof_driver_stall_restarts(void);
+
+// Tên dòng chip ĐANG được biên dịch vào ("VL53L0X" / "VL53L1X"). Hằng chuỗi
+// tĩnh, luôn khác NULL. Dùng cho log/telemetry để người đọc biết firmware này
+// build cho chip nào — KHÔNG phải kết quả dò lúc chạy.
+const char *tof_driver_chip_name(void);
 
 
 #endif  // FC_FEATURE_TOF

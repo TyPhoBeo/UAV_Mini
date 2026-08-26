@@ -168,13 +168,64 @@ static int s_bench_throttle_duty = 0;
 // Gộp hai cái vào một biến thì không có cách nào biết phải trả về đâu.
 static int     s_bench_throttle_offset = 0;
 static int64_t s_bench_offset_update_us = 0;
+
+// ============================================================================
+// LATCH GA CHO FSM_FLYING — "bay ngang thì TẮT PID độ cao, giữ nguyên phần còn lại"
+// ============================================================================
+// FLYING = đang có lệnh nghiêng (tiến/lùi/trái/phải). Ở state này alt_hold
+// KHÔNG chạy: throttle bị ĐÓNG BĂNG tại đúng giá trị mà alt_hold đang xuất ở
+// tick cuối cùng của HOLDING, cộng thêm offset W/S nếu người lái đang giữ phím.
+//
+// VÌ SAO KHÔNG để alt_hold chạy tiếp khi nghiêng:
+// Nghiêng để bay ngang làm giảm THÀNH PHẦN THẲNG ĐỨNG của lực đẩy (cos của góc
+// nghiêng), nên drone tụt nhẹ. alt_hold nhìn thấy tụt và ĐẨY GA LÊN để bù —
+// nhưng ga cao hơn ở góc nghiêng đó lại làm drone BAY NGANG NHANH HƠN. Vòng
+// lặp này biến một lệnh "tiến nhẹ" thành phóng đi kèm dao động độ cao.
+//
+// ĐIỀU GÌ KHÔNG ĐỔI (đây là phần quan trọng): TOÀN BỘ phần còn lại vẫn chạy y
+// hệt — attitude PID (roll/pitch/yaw), mixer, estimator độ cao (vẫn cập nhật
+// alt_m/vz_ms để telemetry và geofence dùng), Commander/failsafe, terrain
+// guard, W/S. CHỈ MỖI vòng PID giữ độ cao bị treo.
+//
+// -1 = chưa latch (đang HOLDING hoặc chưa bay). Đặt lại về -1 mỗi khi rời
+// FLYING để lần vào sau chốt giá trị MỚI, không dùng lại số của chuyến trước.
+static int     s_flying_throttle_latch = -1;
+
+// Duty mà alt_hold xuất ở tick HOLDING gần nhất — nguồn để chốt latch ở trên.
+// Cần biến RIÊNG vì throttle_cmd là biến CỤC BỘ, bị gán 0 ở đầu bước 9 mỗi
+// tick, nên tại thời điểm vào FLYING không còn đọc lại được giá trị cũ.
+// 0 = chưa từng ở HOLDING (rơi về hover_ff của tune, xem chỗ dùng).
+static int     s_last_hold_throttle = 0;
 // Watchdog: mất gói "nhả phím" (UDP) hoặc ground-station chết -> offset tự về
 // 0. KHÔNG BAO GIỜ để một offset ga dương dính lại khi không còn ai điều khiển.
 // 400ms = khớp SP_STALE_TIMEOUT_US, cùng lý do (xem tuning.h mục 6).
 #define BENCH_OFFSET_STALE_US   ((int64_t)400000)
 
 // Setpoint điều khiển bởi lệnh Python (xem apply_command()).
+// ---- Frame độ cao (alt_estimator.h alt_frame_t) — ĐỔI ĐƯỢC LÚC RUNTIME qua
+// fc.set_param("alt_frame", 0=DATUM | 1=AGL).
+//   DATUM = giữ độ cao so với SÀN cất cánh (mặc định, hành vi cũ). Bay qua bàn
+//           thì khoảng hở GIẢM đúng bằng chiều cao bàn.
+//   AGL   = giữ KHOẢNG CÁCH so với bề mặt đang nhìn (terrain following). Bay
+//           qua bàn thì drone LEO LÊN đúng bằng chiều cao bàn.
+// KHÔNG reset trong reset_all_controllers(): đây là lựa chọn của người lái,
+// không phải state điều khiển.
+static alt_frame_t s_alt_frame = ALT_FRAME_DATUM;
+
+// ---- D4: cửa sổ degrade khi mất nguồn Z giữa lúc HOLD ----
+// Trong cửa sổ này alt_hold KHÔNG báo engage_lost: giữ vz≈0 bằng az_earth,
+// I-term FREEZE. Hết cửa sổ mới nhả cho Commander -> LANDING blind.
+static bool    s_alt_degrade_active = false;
+static int64_t s_alt_degrade_since_us = 0;
+// Guard khoảng hở (B8) — cờ EDGE để chỉ rebase terrain MỘT LẦN mỗi lần chạm
+// guard, không phải mỗi tick (mỗi tick sẽ làm terr_commit_count chạy loạn và
+// làm landing tưởng có bậc địa hình mới liên tục).
+#if FC_FEATURE_TERRAIN_OFFSET
+static bool    s_terr_guard_active = false;
+#endif
+
 static float   s_alt_target_m = 0.0f;
+static float   s_alt_request_m = 0.0f; // Commander-clamped request; target slews toward it
 static bool    s_timed_active = false;
 static float   s_timed_roll_deg = 0.0f;
 static float   s_timed_pitch_deg = 0.0f;
@@ -221,12 +272,132 @@ static bool  s_headless_warned = false;
 static calibration_params_t s_calib;
 static bool s_uncalibrated = true;   // true -> CMD_ARM tu choi (xem apply_command CMD_ARM)
 
-static bool    s_calib_gyro_active = false;
-static int     s_calib_gyro_samples_left = 0;   // đếm TICK trôi qua (cửa sổ ~1.5s cố định)
-static int     s_calib_gyro_valid_count = 0;    // đếm mẫu THẬT SỰ cộng vào sum (imu.ok==true)
-static vec3f_t s_calib_gyro_sum;
-static vec3f_t s_calib_gyro_sum_sq;             // cho variance: var = E[x^2]-E[x]^2, xem "5. Detect movement"
-static int     s_calib_gyro_motion_bad_count;   // số tick |accel_norm-1.0| vượt CALIB_MOTION_ACCEL_TOL_G
+static bool s_calib_gyro_active = false;
+
+// ============================================================================
+// GYRO CALIBRATION — MỘT FSM dùng chung cho boot và lệnh CAL GYRO.
+// ============================================================================
+// Máy trạng thái chạy TRONG stabilize_task (bước 1b), KHÔNG phải task riêng:
+// nó cần đúng dòng mẫu IMU mà vòng bay dùng, và cần bảo đảm Mahony KHÔNG tích
+// phân trong lúc nó chạy (mục 21). Chạy ở task khác thì phải đồng bộ hai thứ
+// đó qua khoá — phức tạp hơn mà không được gì.
+// ĐÃ BỎ GCAL_WAIT_STATIONARY và toàn bộ cơ chế attempt/retry.
+//
+// VÌ SAO BỎ (lỗi thật, quan sát được trên bo):
+//   GYRO CAL retry 2/3: khong co cua so stationary lien tuc
+//   GYRO CAL FAIL code=3 -> ARM BI CHAN
+// Cổng cũ đòi GYRO_CAL_STATIONARY_CONFIRM_MS mẫu đứng yên LIÊN TỤC, và test
+// mỗi mẫu là |gyro_raw| < GYRO_CAL_RAW_NORM_MAX_DPS. Nhưng gyro_raw ĐÃ MANG
+// SẴN BIAS — bo này bias ~(0.08, -2.78, -1.94) nên |gyro_raw| ≈ 3.4 dps ngay
+// khi nằm im. Ngưỡng 5.0 dps chỉ còn chừa 1.6 dps cho nhiễu, và MỘT mẫu vượt
+// là reset bộ đếm về 0. Không bao giờ gom nổi một cửa sổ liên tục.
+//
+// Đó là lỗi vòng luẩn quẩn: cổng dùng để CHO PHÉP đo bias lại phụ thuộc vào
+// chính cái bias chưa đo. Bias càng lớn — tức càng cần calib — thì càng không
+// calib được.
+//
+// Quay lại luồng cũ (theo yêu cầu người dùng): SETTLE -> COLLECT thẳng, gom đủ
+// GYRO_CAL_DURATION_MS rồi mới phán xét bằng THỐNG KÊ CẢ CỬA SỔ (std + tỉ lệ
+// mẫu xấu), không chặn theo từng mẫu. std là đại lượng KHÔNG phụ thuộc bias
+// (bias là DC, std là AC) nên nó đo đúng thứ cần đo: "drone có bị động không".
+typedef enum {
+    GCAL_IDLE = 0,
+    GCAL_SETTLING = 1,
+    GCAL_COLLECT = 2,
+    GCAL_PASS = 3,
+    GCAL_FAIL = 4,
+} gyro_cal_state_t;
+
+typedef enum {
+    GCAL_FAIL_NONE = 0,
+    GCAL_FAIL_IMU_UNAVAILABLE,
+    GCAL_FAIL_IMU_CONFIG_INVALID,
+    GCAL_FAIL_TOO_FEW_SAMPLES,
+    GCAL_FAIL_BIAS_NONFINITE,
+    GCAL_FAIL_ABORTED,
+} gyro_cal_fail_t;
+
+// Welford online mean/variance: không giữ 4000 mẫu và ổn định số hơn
+// E[x^2]-E[x]^2 khi variance nhỏ so với DC bias.
+typedef struct {
+    vec3f_t gyro_mean, gyro_m2;
+    vec3f_t accel_mean, accel_m2;
+    int count;
+    int ticks_left;
+} gyro_cal_window_t;
+
+static gyro_cal_state_t s_gcal_state = GCAL_IDLE;
+static gyro_cal_fail_t  s_gcal_fail = GCAL_FAIL_NONE;
+static gyro_cal_window_t s_gcal_win;
+// Số mẫu KHÔNG đạt tiêu chí đứng yên trong cửa sổ hiện tại. Chỉ ĐẾM, không
+// dùng để cắt ngang — phán xét bằng tỉ lệ ở CUỐI cửa sổ (xem enum ở trên).
+static int              s_gcal_bad_samples = 0;
+static vec3f_t          s_gcal_candidate_bias;
+static float            s_gcal_temp_c = 0.0f;
+static const char      *s_gcal_fail_reason = "";
+
+static vec3f_t s_gcal_last_raw_mean;
+static vec3f_t s_gcal_last_corr_mean;
+static vec3f_t s_gcal_last_raw_std;
+static vec3f_t s_gcal_last_corr_std;
+static bool    s_gcal_reset_done = false;
+
+// ---- Pre-arm gyro health (mục 18): trung bình trượt khi DISARMED ----
+static vec3f_t s_prearm_gyro_sum;
+static int     s_prearm_gyro_count = 0;
+static vec3f_t s_prearm_gyro_mean;       // cập nhật mỗi khi đủ cửa sổ
+static bool    s_prearm_gyro_mean_valid = false;
+
+static void gyro_cal_window_reset(gyro_cal_window_t *w, int ticks) {
+    memset(w, 0, sizeof(*w));
+    w->ticks_left = ticks;
+}
+
+static void welford_axis(float sample, int n, float *mean, float *m2) {
+    const float delta = sample - *mean;
+    *mean += delta / (float)n;
+    *m2 += delta * (sample - *mean);
+}
+
+static void gyro_cal_window_add(gyro_cal_window_t *w, vec3f_t gyro_dps, vec3f_t accel_g) {
+    w->count++;
+    welford_axis(gyro_dps.x, w->count, &w->gyro_mean.x, &w->gyro_m2.x);
+    welford_axis(gyro_dps.y, w->count, &w->gyro_mean.y, &w->gyro_m2.y);
+    welford_axis(gyro_dps.z, w->count, &w->gyro_mean.z, &w->gyro_m2.z);
+    welford_axis(accel_g.x, w->count, &w->accel_mean.x, &w->accel_m2.x);
+    welford_axis(accel_g.y, w->count, &w->accel_mean.y, &w->accel_m2.y);
+    welford_axis(accel_g.z, w->count, &w->accel_mean.z, &w->accel_m2.z);
+}
+
+static vec3f_t gyro_cal_window_mean(const gyro_cal_window_t *w, bool gyro) {
+    return gyro ? w->gyro_mean : w->accel_mean;
+}
+
+static vec3f_t gyro_cal_window_std(const gyro_cal_window_t *w, bool gyro) {
+    if (w->count < 2) return vec3f_zero();
+    const float inv = 1.0f / (float)(w->count - 1);
+    const vec3f_t m2 = gyro ? w->gyro_m2 : w->accel_m2;
+    return (vec3f_t){
+        sqrtf(fmaxf(m2.x * inv, 0.0f)),
+        sqrtf(fmaxf(m2.y * inv, 0.0f)),
+        sqrtf(fmaxf(m2.z * inv, 0.0f)),
+    };
+}
+
+static bool vec3_finite(vec3f_t v) {
+    return isfinite(v.x) && isfinite(v.y) && isfinite(v.z);
+}
+
+static bool gyro_cal_sample_stationary(const imu_sample_t *imu) {
+    if (imu == NULL || !imu->ok || !vec3_finite(imu->gyro_raw_dps) ||
+        !vec3_finite(imu->accel_raw_g)) return false;
+    const vec3f_t g = imu->gyro_raw_dps;
+    const vec3f_t a = imu->accel_raw_g;
+    const float gnorm = sqrtf(g.x * g.x + g.y * g.y + g.z * g.z);
+    const float anorm = sqrtf(a.x * a.x + a.y * a.y + a.z * a.z);
+    return gnorm < GYRO_CAL_RAW_NORM_MAX_DPS &&
+           fabsf(anorm - 1.0f) < GYRO_CAL_ACCEL_NORM_TOL_G;
+}
 
 static bool    s_calib_accel_capturing = false;
 static int     s_calib_accel_samples_left = 0;  // đếm TICK trôi qua (cửa sổ ~0.5s cố định)
@@ -271,7 +442,6 @@ static float s_last_imu_temp_c = 0.0f;
 // Quality metric của lần calib GẦN NHẤT (thành công hay thất bại đều cập
 // nhật — hữu ích để debug ngay cả khi calib bị từ chối) — publish qua
 // telemetry, xem telemetry.h.
-static vec3f_t s_last_gyro_calib_std = { 0 };
 static float   s_last_accel_calib_residual_g = 0.0f;
 
 // recompute_uncalibrated() — gọi sau load NVS lúc boot + sau mỗi lần calib xong.
@@ -294,6 +464,170 @@ static float   s_last_accel_calib_residual_g = 0.0f;
 // điều kiện bắt buộc; chỉ khác thông báo nào tới tay người dùng.
 static void recompute_uncalibrated(void) {
     s_uncalibrated = !s_calib.accel_valid;
+}
+
+// ============================================================================
+// Gyro calibration FSM — dùng CÙNG MỘT đường cho startup và CAL GYRO.
+// ============================================================================
+static bool gyro_cal_state_active(gyro_cal_state_t state) {
+    return state == GCAL_SETTLING || state == GCAL_COLLECT;
+}
+
+static int gyro_cal_ticks(int duration_ms) {
+    const int ticks = (int)((float)duration_ms * CONTROL_TASK_HZ / 1000.0f);
+    return ticks > 0 ? ticks : 1;
+}
+
+static void gyro_cal_set_runtime_bias(vec3f_t bias) {
+    // Một copy struct dưới mutex của hub: X/Y/Z đổi cùng một thời điểm, không
+    // giữ lock quanh I2C. Đây là điểm DUY NHẤT thay bias runtime.
+    s_imu_calib.gyro_bias_dps = bias;
+    sensor_hub_set_imu_calib(&s_imu_calib);
+}
+
+static void gyro_cal_enter_collect(void) {
+    gyro_cal_window_reset(&s_gcal_win, gyro_cal_ticks(GYRO_CAL_DURATION_MS));
+    s_gcal_bad_samples = 0;
+    s_gcal_state = GCAL_COLLECT;
+    ESP_LOGI(TAG, "GYRO CAL: COLLECT RAW %dms — GIU YEN drone", GYRO_CAL_DURATION_MS);
+}
+
+static void gyro_cal_finish_fail(gyro_cal_fail_t fail, const char *reason) {
+    s_gcal_fail = fail;
+    s_gcal_fail_reason = reason;
+    s_gcal_state = GCAL_FAIL;
+    s_calib_gyro_active = false;
+    s_calib.gyro_valid = false;
+    gyro_cal_set_runtime_bias(vec3f_zero());
+    s_prearm_gyro_mean_valid = false;
+    s_prearm_gyro_count = 0;
+    s_prearm_gyro_sum = vec3f_zero();
+    ESP_LOGE(TAG, "GYRO CAL FAIL code=%d (%s) -> bias NVS KHONG duoc dung de bay, ARM BI CHAN",
+             (int)fail, reason);
+}
+
+// KHÔNG còn retry tự động. Một lần đo, một kết luận.
+//
+// Retry tự động chỉ có nghĩa khi lần sau có cơ hội khác lần trước — mà nguyên
+// nhân trượt ở đây (drone bị cầm/rung, hoặc bias vượt sanity bound) không tự
+// thay đổi trong vài giây. Ba lần thử chỉ kéo dài 15s rồi báo cùng một lỗi,
+// trong khi người dùng không biết phải làm gì giữa các lần.
+// Trượt -> nói rõ lý do -> người dùng đặt lại drone -> gõ 'calib_gyro'.
+
+static void gyro_calibration_start(void) {
+    imu_cfg_readback_t cfg;
+    imu_driver_get_config(&cfg);
+
+    // Boot va CAL GYRO deu chi duoc chay khi DISARMED. Cat output them mot lan
+    // ngay tai entry point de dieu kien "motors OFF" khong chi la suy luan tu
+    // state FSM; trong suot calibration, pre-arm van bi khoa boi gyro_valid=false.
+    motor_driver_all_off();
+
+    s_gcal_candidate_bias = vec3f_zero();
+    s_gcal_last_raw_mean = vec3f_zero();
+    s_gcal_last_corr_mean = vec3f_zero();
+    s_gcal_last_raw_std = vec3f_zero();
+    s_gcal_last_corr_std = vec3f_zero();
+    s_gcal_temp_c = 0.0f;
+    s_gcal_bad_samples = 0;
+    s_gcal_fail = GCAL_FAIL_NONE;
+    s_gcal_fail_reason = "";
+    s_gcal_reset_done = false;
+    s_prearm_gyro_mean_valid = false;
+    s_prearm_gyro_count = 0;
+    s_prearm_gyro_sum = vec3f_zero();
+    s_calib.gyro_valid = false;
+    gyro_cal_set_runtime_bias(vec3f_zero());
+    mahony_init(&s_mahony, NULL);
+
+    if (!s_imu_ok_driver) {
+        gyro_cal_finish_fail(GCAL_FAIL_IMU_UNAVAILABLE, "IMU init/read unavailable");
+        return;
+    }
+    if (!cfg.valid) {
+        gyro_cal_finish_fail(GCAL_FAIL_IMU_CONFIG_INVALID, "MPU6050 read-back config invalid");
+        return;
+    }
+
+    s_calib_gyro_active = true;
+    gyro_cal_window_reset(&s_gcal_win, gyro_cal_ticks(GYRO_CAL_SETTLE_MS));
+    s_gcal_state = GCAL_SETTLING;
+    ESP_LOGW(TAG, "GYRO CAL start: settle=%dms -> collect=%dms (NO VALIDATE, chi lay mau va tinh bias)",
+             GYRO_CAL_SETTLE_MS, GYRO_CAL_DURATION_MS);
+}
+
+// Gọi mỗi tick TRƯỚC Mahony. Validation tự tính raw-candidate, không dùng
+// gyro_dps đang mang bias runtime; vì vậy phép kiểm độc lập với producer.
+static bool gyro_calibration_tick(const imu_sample_t *imu, bool imu_updated) {
+    switch (s_gcal_state) {
+        case GCAL_IDLE:
+        case GCAL_PASS:
+        case GCAL_FAIL:
+            return false;
+
+        case GCAL_SETTLING:
+            if (--s_gcal_win.ticks_left <= 0) gyro_cal_enter_collect();
+            return true;
+
+        case GCAL_COLLECT: {
+            if (imu_updated) {
+                // Chỉ gom mẫu IMU để tính mean raw = bias. Không cấm cửa sổ theo
+                // stationary; mục tiêu là ước lượng offset, không validate động cơ.
+                gyro_cal_window_add(&s_gcal_win, imu->gyro_raw_dps, imu->accel_raw_g);
+                s_gcal_temp_c = imu->temp_c;
+            }
+            if (--s_gcal_win.ticks_left > 0) return true;
+
+            const int expected = gyro_cal_ticks(GYRO_CAL_DURATION_MS);
+            if ((float)s_gcal_win.count < (float)expected * GYRO_CAL_MIN_VALID_FRACTION) {
+                gyro_cal_finish_fail(GCAL_FAIL_TOO_FEW_SAMPLES,
+                                     "qua it mau IMU trong COLLECT");
+                return true;
+            }
+
+            const vec3f_t raw_mean = gyro_cal_window_mean(&s_gcal_win, true);
+            const vec3f_t raw_std = gyro_cal_window_std(&s_gcal_win, true);
+            const vec3f_t accel_std = gyro_cal_window_std(&s_gcal_win, false);
+            s_gcal_last_raw_mean = raw_mean;
+            s_gcal_last_raw_std = raw_std;
+            s_gcal_last_corr_mean = vec3f_zero();
+            s_gcal_last_corr_std = vec3f_zero();
+
+            if (!vec3_finite(raw_mean) || !vec3_finite(raw_std) || !vec3_finite(accel_std)) {
+                gyro_cal_finish_fail(GCAL_FAIL_BIAS_NONFINITE,
+                                       "bias/std non-finite");
+                return true;
+            }
+
+            s_gcal_candidate_bias = raw_mean;
+            gyro_cal_set_runtime_bias(s_gcal_candidate_bias);
+            s_calib.gyro_bias_dps = s_gcal_candidate_bias;
+            s_calib.gyro_cal_temp_c = s_gcal_temp_c;
+            s_calib.gyro_valid = true;
+            s_gcal_state = GCAL_PASS;
+            s_gcal_fail = GCAL_FAIL_NONE;
+            s_gcal_fail_reason = "";
+            s_calib_gyro_active = false;
+            s_gcal_reset_done = false;
+            const esp_err_t save_err = calibration_save_gyro(&s_calib.gyro_bias_dps,
+                                                              s_gcal_temp_c);
+            if (save_err == ESP_OK) {
+                s_calib.gyro_valid_from_nvs = true;
+                s_calib.gyro_cal_temp_valid_from_nvs = true;
+            }
+            ESP_LOGW(TAG, "GYRO CAL PASS: GRAWmean=(%.3f,%.3f,%.3f) GBIAS=(%.3f,%.3f,%.3f) "
+                          "raw_std=(%.3f,%.3f,%.3f) accel_std=(%.3f,%.3f,%.3f) temp=%.1fC NVS=%s",
+                     (double)raw_mean.x, (double)raw_mean.y, (double)raw_mean.z,
+                     (double)s_calib.gyro_bias_dps.x, (double)s_calib.gyro_bias_dps.y,
+                     (double)s_calib.gyro_bias_dps.z,
+                     (double)raw_std.x, (double)raw_std.y, (double)raw_std.z,
+                     (double)accel_std.x, (double)accel_std.y, (double)accel_std.z,
+                     (double)s_gcal_temp_c,
+                     save_err == ESP_OK ? "saved" : "save-failed");
+            return true;
+        }
+    }
+    return false;
 }
 
 // yaw tương đối so với mốc lúc ARM gần nhất (giống YAWREL= của UAV-Mini) —
@@ -337,7 +671,7 @@ static uint32_t s_imu_no_new_sample_count = 0;
 // Nguồn correction độ cao ở tick TRƯỚC — chỉ để log CẠNH chuyển giao. Vòng bay
 // chạy 250Hz nên log theo trạng thái sẽ ra 250 dòng/giây và không ai đọc được;
 // log theo CẠNH cho đúng một dòng mỗi lần thật sự đổi nguồn.
-static alt_source_t s_alt_source_prev = ALT_SRC_NONE;
+static alt_source_t s_alt_source_prev = ALT_SRC_GROUND_LOCK;
 
 // ---- Deadline monitoring (xem bước 0b trong stabilize_task) ----
 // Chu kỳ danh nghĩa (us) + hệ số coi là "trượt". 1.5x = trượt nửa chu kỳ, đủ
@@ -409,17 +743,39 @@ static volatile bool s_motor_kill_latched = false;
 // để stabilize_task đọc latch=true thì lý do đã sẵn sàng.
 static const char *volatile s_kill_reason = "";
 
+// s_kill_benign — latch này đến từ một lệnh DISARM CHỦ ĐÍCH trên mặt đất, KHÔNG
+// phải từ fault/KILL. Cả hai loại latch chặn đường bay y hệt nhau (không có
+// ngoại lệ nào ở gate 4a của stabilize_task); cờ này CHỈ để bench-test
+// (CMD_TEST_MOTOR) phân biệt được "người dùng vừa disarm xong" với "vừa có sự
+// cố".
+//
+// VÌ SAO CẦN: test_motor đòi DISARMED + !latched, nhưng đường DUY NHẤT hạ latch
+// là CMD_ARM — mà ARM lại rời khỏi DISARMED, và DISARM quay về DISARMED thì
+// latch lại ngay ở dưới. Không có chuỗi lệnh nào tới được DISARMED + !latched
+// sau lần DISARM/KILL đầu tiên -> test_motor chết vĩnh viễn. Với board mới
+// (chưa calib accel/mag) thì ARM còn bị từ chối, nên deadlock ngay từ boot đầu.
+static volatile bool s_kill_benign = false;
+
 // enter_kill_latch() — đường VÀO DUY NHẤT của latch. Gọi được từ bất kỳ task
 // nào. Idempotent (gọi lại khi đã latched không làm gì thêm, không spam log).
-static void enter_kill_latch(const char *reason) {
+// benign=true CHỈ cho CMD_DISARM hợp lệ từ ARMED (chưa bay) — mọi đường fault,
+// failsafe, KILL đều phải để false.
+static void enter_kill_latch_ex(const char *reason, bool benign) {
     if (s_motor_kill_latched) return;
     s_kill_reason = reason ? reason : "?";
+    s_kill_benign = benign;
     s_motor_kill_latched = true;
     // Cắt phần cứng NGAY tại đây, không đợi tick sau của stabilize_task: nếu
     // stabilize_task đang bị trễ/treo thì "đợi tick sau" nghĩa là motor tiếp
     // tục quay ở duty cuối cùng vô thời hạn.
     motor_driver_all_off();
     ESP_LOGE(TAG, "KILL LATCH: %s -- motor cat, can ARM lai de bay tiep", s_kill_reason);
+}
+
+// Mặc định: latch KHÔNG benign. Mọi đường fault/failsafe/KILL gọi hàm này, nên
+// một call site mới quên nghĩ tới benign sẽ tự động rơi vào phía AN TOÀN.
+static void enter_kill_latch(const char *reason) {
+    enter_kill_latch_ex(reason, false);
 }
 
 // Handle của stabilize_task — giữ ở phạm vi module (thay vì biến local trong
@@ -468,7 +824,7 @@ static void reset_all_controllers(void) {
     s_bench_throttle_offset = 0;
     // Về NONE chứ không giữ nguồn cũ: sau reset estimator chưa có correction
     // nào, nếu giữ giá trị cũ thì lần đổi thật đầu tiên sẽ không log.
-    s_alt_source_prev = ALT_SRC_NONE;
+    s_alt_source_prev = ALT_SRC_GROUND_LOCK;
 }
 
 // finalize_mag_calibration() — tính hard/soft-iron từ min/max đã tích lũy +
@@ -565,6 +921,16 @@ static void apply_set_param(const char *name, float value) {
         s_tko_tune.prime_duty = (int)value;
     } else if (strncmp(name, "max_climb", COMMAND_PARAM_NAME_MAX) == 0) {
         s_tko_tune.max_climb_ms = value;
+    } else if (strncmp(name, "alt_frame", COMMAND_PARAM_NAME_MAX) == 0) {
+        // B7 — chọn frame giữ độ cao LÚC RUNTIME. Đổi được cả khi đang bay:
+        // không đụng vz_integral, chỉ đổi đại lượng ĐO đưa vào tầng alt, nên
+        // ga không giật (chỉ có target hiệu dụng dịch đi bằng terrain_off_m).
+        s_alt_frame = (value >= 0.5f) ? ALT_FRAME_AGL : ALT_FRAME_DATUM;
+        ESP_LOGI(TAG, "alt_frame = %s (%s)",
+                  (s_alt_frame == ALT_FRAME_AGL) ? "AGL" : "DATUM",
+                  (s_alt_frame == ALT_FRAME_AGL)
+                      ? "giu khoang cach so voi BE MAT — qua ban thi LEO LEN"
+                      : "giu do cao so voi SAN cat canh — qua ban thi khoang ho GIAM");
     } else if (strncmp(name, "max_lean_deg", COMMAND_PARAM_NAME_MAX) == 0) {
         // Runtime-tunable riêng cho fc.control() (KHÔNG đụng SP_TILT_MAX_DEG
         // của ground-station UDP, xem tuning.h muc 7). Trần cứng 45deg — quá
@@ -605,9 +971,8 @@ static struct {
     bool  mag_ok_for_heading;   // mag đọc được VÀ đã calib (chỉ CẢNH BÁO, không chặn)
     bool  battery_sample_ok;
     float battery_v;
-    bool  baro_ready;           // đã calibrate_ground()
-    bool  baro_healthy;
     bool  alt_estimator_valid;
+    bool  tof_floor_ready;
     bool  loop_healthy;         // không trượt deadline liên tục
 } s_prearm;
 
@@ -695,11 +1060,62 @@ static bool prearm_check(int64_t now_us) {
         ok = false;
     }
 
+    // Cấu hình MPU6050 phải TIN ĐƯỢC trước mọi thứ khác: scale sai thì mọi số
+    // dps/g đều sai theo tỷ lệ, và cả gyro bias lẫn ngưỡng nghiêng bên dưới
+    // đều mất ý nghĩa. Kiểm TRƯỚC gyro calib vì nó là tiền đề của gyro calib.
+    {
+        imu_cfg_readback_t cfg;
+        imu_driver_get_config(&cfg);
+        if (!cfg.valid) {
+            ESP_LOGW(TAG, "ARM tu choi: MPU6050 CONFIG read-back KHONG HOP LE "
+                          "(GYRO_CONFIG=0x%02X ACCEL_CONFIG=0x%02X) -> scale khong tin duoc. "
+                          "Xem log 'MPU6050 CFG' luc boot.", cfg.gyro_config, cfg.accel_config);
+            record_reject(ARM_REJECT_IMU_CFG);
+            ok = false;
+        }
+    }
+
     if (!s_prearm.gyro_calibrated) {
-        ESP_LOGW(TAG, "ARM tu choi: gyro CHUA calib — chay 'calib_gyro' (drone dung yen ~1.5s)");
+        // Phân biệt hai nguyên nhân RẤT khác nhau: startup calib đã chạy và
+        // TRƯỢT (có lý do cụ thể) vs chưa từng có calib nào. Gộp chung thành
+        // "chưa calib" sẽ khiến người dùng gọi lại calib_gyro mà không biết
+        // lần trước hỏng vì drone bị rung.
+        if (s_gcal_state == GCAL_FAIL) {
+            ESP_LOGW(TAG, "ARM tu choi: fresh gyro calib THAT BAI code=%d (%s) — dat drone that yen "
+                          "tren mat phang roi go 'calib_gyro' de do lai",
+                     (int)s_gcal_fail, s_gcal_fail_reason);
+        } else if (gyro_cal_state_active(s_gcal_state)) {
+            ESP_LOGW(TAG, "ARM tu choi: fresh gyro calib DANG CHAY state=%d — cho, GIU YEN drone",
+                     (int)s_gcal_state);
+        } else {
+            ESP_LOGW(TAG, "ARM tu choi: gyro CHUA calib — chay 'calib_gyro' (drone dung yen)");
+        }
         record_reject(ARM_REJECT_GYRO_CALIB);
         ok = false;
     }
+
+    // if (s_prearm.gyro_calibrated && !s_prearm_gyro_mean_valid) {
+    //     ESP_LOGW(TAG, "ARM tu choi: chua co cua so gyro corrected stationary %dms; "
+    //                   "giu yen drone roi ARM lai", PREARM_GYRO_WINDOW_MS);
+    //     record_reject(ARM_REJECT_GYRO_NOT_STATIONARY);
+    //     ok = false;
+    // } else if (s_prearm_gyro_mean_valid) {
+    //     // Gyro ĐÃ calib nhưng thực đo khi đứng yên vẫn lệch -> bias đã trôi
+    //     // (nhiệt độ) hoặc drone không thật sự đứng yên. Cả hai đều KHÔNG nên
+    //     // cất cánh. Dùng trung bình cả cửa sổ PREARM_GYRO_WINDOW_MS, không phải
+    //     // một mẫu (mục 18: "Do not fail based on one noisy sample").
+    //     const vec3f_t m = s_prearm_gyro_mean;
+    //     if (fabsf(m.x) > PREARM_GYRO_MAX_MEAN_DPS ||
+    //         fabsf(m.y) > PREARM_GYRO_MAX_MEAN_DPS ||
+    //         fabsf(m.z) > PREARM_GYRO_MAX_MEAN_DPS) {
+    //         ESP_LOGW(TAG, "ARM tu choi: gyro corrected khi dung yen van lech "
+    //                       "(%.3f,%.3f,%.3f)dps > %.2f — bias da troi (nhiet do?) hoac drone dang bi cham. "
+    //                       "Go 'calib_gyro' de do lai.",
+    //                   (double)m.x, (double)m.y, (double)m.z, (double)PREARM_GYRO_MAX_MEAN_DPS);
+    //         record_reject(ARM_REJECT_GYRO_BIAS_LARGE);
+    //         ok = false;
+    //     }
+    // }
     if (!s_prearm.accel_calibrated) {
         ESP_LOGW(TAG, "ARM tu choi: accel CHUA calib 6-face — chay 'calib_accel_face' x6");
         record_reject(ARM_REJECT_ACCEL_CALIB);
@@ -722,26 +1138,38 @@ static bool prearm_check(int64_t now_us) {
         }
     }
 
-    // Baro/estimator: BẮT BUỘC vì takeoff/alt_hold của firmware này đều là
-    // auto (fc.takeoff(alt) tự leo tới độ cao). Không có Z tin cậy thì chuỗi
-    // cất cánh không có phản hồi để leo.
-    if (s_baro_ok_driver) {
-        if (!s_prearm.baro_ready) {
-            ESP_LOGW(TAG, "ARM tu choi: baro CHUA co moc 0m — chay 'calib_baro_ground' (drone dung yen)");
-            record_reject(ARM_REJECT_BARO_NOT_READY);
-            ok = false;
-        } else if (!s_prearm.baro_healthy) {
-            ESP_LOGW(TAG, "ARM tu choi: baro UNHEALTHY (nhieu ap suat qua lon luc calib) — "
-                          "tranh gio/quat va calib_baro_ground lai");
-            record_reject(ARM_REJECT_BARO_UNHEALTHY);
-            ok = false;
-        }
-        if (!s_prearm.alt_estimator_valid) {
-            ESP_LOGW(TAG, "ARM tu choi: alt estimator chua hop le (chua co mau baro moi)");
-            record_reject(ARM_REJECT_ALT_EST_INVALID);
-            ok = false;
-        }
+    // Flight-control Z chi dung IMU + ToF. Barometer khong duoc phep chan ARM.
+    //
+    // FC_FEATURE_FLOOR_GATE=0 (mac dinh hien tai, theo yeu cau nguoi dung):
+    // BO cong chan nay. Viec thu mau san + khoa san VAN CHAY (xem
+    // alt_estimator.c), chi khong dung de tu choi ARM nua. Xem fc_features.h
+    // de biet danh doi va cach bat lai.
+#if FC_FEATURE_FLOOR_GATE
+    if (!s_prearm.tof_floor_ready || !s_prearm.alt_estimator_valid) {
+        // In DU SO LIEU: khong co no thi "chua co mau floor hop le" khong phan
+        // biet duoc 3 nguyen nhan hoan toan khac nhau — ToF chet (n=0), drone
+        // dang bi rung/cam tay (std lon), hay estimator invalid vi ly do khac.
+        ESP_LOGW(TAG, "ARM tu choi: floor ToF chua chot duoc — n=%u/%d std=%.4f (tran %.4f) "
+                      "ref_valid=%d est_valid=%d. Dat drone DUNG YEN tren mat phang cung, "
+                      "cho ~1s. std lon = dang cam tay/rung; n=0 = ToF khong ra mau.",
+                  (unsigned)s_alt_est.floor_sample_count, ALT_EST_FLOOR_MIN_SAMPLES,
+                  (double)s_alt_est.floor_std_m, (double)ALT_EST_FLOOR_MAX_STD_M,
+                  (int)s_alt_est.tof_ground_ref_valid, (int)s_prearm.alt_estimator_valid);
+        record_reject(ARM_REJECT_ALT_EST_INVALID);
+        ok = false;
     }
+#else
+    // Cong da tat -> chi CANH BAO khi floor chua san, KHONG chan. Van phai in
+    // ra: cat canh khi floor chua chot nghia la alt_m tinh tu mot goc toa do
+    // chua on dinh, va nguoi bay can biet dieu do dang xay ra.
+    if (!s_prearm.tof_floor_ready) {
+        ESP_LOGW(TAG, "ARM: floor ToF CHUA chot (n=%u/%d std=%.4f ref_valid=%d) nhung cong floor "
+                      "DANG TAT (FC_FEATURE_FLOOR_GATE=0) -> VAN CHO ARM. Do cao co the lech vi "
+                      "goc toa do chua on dinh.",
+                  (unsigned)s_alt_est.floor_sample_count, ALT_EST_FLOOR_MIN_SAMPLES,
+                  (double)s_alt_est.floor_std_m, (int)s_alt_est.tof_ground_ref_valid);
+    }
+#endif
 
     if (!s_prearm.loop_healthy) {
         ESP_LOGW(TAG, "ARM tu choi: vong dieu khien dang TRE HAN lien tuc (%d tick) — "
@@ -760,75 +1188,20 @@ static bool prearm_check(int64_t now_us) {
     return ok;
 }
 
-// ============================================================================
-// try_acquire_tof_ground_ref() — chốt ground-ref ToF, CÓ RETRY
-// ============================================================================
-// TRƯỚC ĐÂY: một snapshot DUY NHẤT (sensor_hub_read() một lần). Bug đo được
-// trên phần cứng thật: chuỗi ARM -> TAKEOFF hoàn toàn ToF-only (baro tắt) trả
-// TKOREJ=NO_CORRECTION dù TOK=1 và raw TOF=0.26m (nằm giữa dải hợp lệ
-// [ALT_EST_TOF_MIN_RANGE_M, MAX], KHÔNG phải chuyện sát 0 "chip trả rác").
-//
-// NGUYÊN NHÂN: sensor_hub.c publish_tof() gọi mark_err() (hạ tof_h.valid về
-// false) MỖI KHI range_status != 0 — và chính comment trong sensor_hub.c nói
-// thẳng "range_status != 0 là chuyện BÌNH THƯỜNG với ToF (ngoài tầm, bề mặt
-// hấp thụ, ánh nắng)". Nghĩa là tof_h.valid CHẬP CHỜN THEO THIẾT KẾ giữa các
-// chu kỳ publish (~32ms, SENSOR_TOF_DIVISOR=8 @ SENSOR_HUB_HZ=250 — xem
-// sensor_hub.c), không phải lỗi. Một snapshot DUY NHẤT trúng đúng tick chập
-// chờn đó là mất ground-ref VĨNH VIỄN cho cả chuyến bay — không có gì tự sửa
-// lại vì chỗ gọi hàm này chỉ thử đúng một lần.
-//
-// SỬA: đọc LẶP LẠI, mỗi lần cách nhau đủ để rơi vào một chu kỳ publish khác
-// (10ms < 32ms chu kỳ), trong một cửa sổ có giới hạn cứng — không đợi tín
-// hiệu "đã có mẫu mới" (không có cơ chế đó), chỉ đơn giản tăng số lần thử độc
-// lập để một tick chập chờn không quyết định cả chuyến bay.
-//
-// Blocking ở đây AN TOÀN: hàm chỉ gọi từ CMD_ARM (FSM còn DISARMED, motor
-// chưa từng mở gate) và CMD_TAKEOFF (FSM_ARMED, chưa airborne) — đúng lý do
-// baro_driver_calibrate_ground() vốn đã được phép block ~940ms ở cùng nhánh
-// CMD_ARM này từ trước.
-//
-// PHÂN BIỆT 2 kiểu thất bại trong log — để lần sau không phải đoán mò: "chưa
-// từng đọc được mẫu hợp lệ nào" (driver/hub có vấn đề thật) khác hẳn "đọc
-// được nhưng range NGOÀI [MIN,MAX]" (sensor mount quá gần/xa sàn — vấn đề
-// PHẦN CỨNG, không retry nào cứu được, xem log range cụ thể để biết ngay).
-static bool try_acquire_tof_ground_ref(const char *ctx_tag, int max_attempts_ms) {
-    const int step_ms = 10;
-    const int max_attempts = max_attempts_ms / step_ms;
+static bool abort_landing_to_hold(const char *reason, int64_t now_us) {
+    const fsm_state_t next = fsm_on_landing_abort_hold(s_fsm.state);
+    if (next == s_fsm.state) return false;
 
-    bool saw_any_valid_sample = false;
-    float last_rejected_range_m = 0.0f;
-
-    for (int i = 0; i < max_attempts; ++i) {
-        sensor_snapshot_t tsnap;
-        sensor_hub_read(&tsnap);
-        if (tsnap.tof_h.valid && tsnap.tof.valid) {
-            saw_any_valid_sample = true;
-            alt_estimator_set_tof_ground_ref(&s_alt_est, tsnap.tof.distance_m);
-            if (s_alt_est.tof_ground_ref_valid) {
-                ESP_LOGI(TAG, "%s: ToF ground ref = %.3fm (sensor cach san, %d/%d lan doc)",
-                          ctx_tag, (double)tsnap.tof.distance_m, i + 1, max_attempts);
-                return true;
-            }
-            last_rejected_range_m = tsnap.tof.distance_m;
-        }
-        if (i + 1 < max_attempts) {
-            vTaskDelay(pdMS_TO_TICKS(step_ms));
-        }
-    }
-
-    if (saw_any_valid_sample) {
-        ESP_LOGE(TAG, "%s: ToF DOC DUOC mau nhung range=%.3fm NGOAI DAI HOP LE "
-                      "[%.2f, %.2f]m sau %dms thu -- KIEM TRA VI TRI LAP SENSOR "
-                      "(qua gan hoac qua xa san), day KHONG phai loi tam thoi",
-                  ctx_tag, (double)last_rejected_range_m,
-                  (double)ALT_EST_TOF_MIN_RANGE_M, (double)ALT_EST_TOF_MAX_RANGE_M,
-                  max_attempts_ms);
-    } else {
-        ESP_LOGE(TAG, "%s: KHONG doc duoc mau ToF hop le nao sau %dms (%d lan thu) "
-                      "-- kiem tra day/dia chi I2C, xem 'tof_test'",
-                  ctx_tag, max_attempts_ms, max_attempts);
-    }
-    return false;
+    // landing và HOLD dùng chung vz_integral; không reset controller để tránh
+    // giật ga. Chỉ neo target tại độ cao hiện tại và hủy state landing.
+    s_alt_target_m = commander_clamp_altitude(&s_cmd_cfg, s_alt_est.alt_m);
+    s_alt_request_m = s_alt_target_m;
+    s_timed_active = false;
+    landing_reset(&s_land_state);
+    fsm_transition(&s_fsm, next, now_us);
+    ESP_LOGW(TAG, "LANDING ABORT -> HOLDING (%s), target=%.2fm, giu Vz-I bumpless",
+             reason, (double)s_alt_target_m);
+    return true;
 }
 
 static void apply_command(const command_t *cmd, int64_t now_us) {
@@ -859,12 +1232,7 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
                 // ============================================================
                 // LATCH GA HOVER THEO ĐIỆN ÁP PIN — xem hover_model.h
                 // ============================================================
-                // ĐẶT Ở ĐÂY, TRƯỚC baro calib, có hai lý do độc lập:
-                //   1. Từ chối SỚM. Dưới kia là baro_driver_calibrate_ground()
-                //      chặn ~940ms + alt_estimator_reanchor(). Fail sau đó
-                //      nghĩa là đã đổi mốc 0m của estimator rồi mới bỏ ARM —
-                //      để lại hệ ở trạng thái nửa vời không ai yêu cầu.
-                //   2. Motor CHƯA quay (FSM còn DISARMED, armed gate của driver
+                // Đặt ở đây vì motor CHƯA quay (FSM còn DISARMED, armed gate của driver
                 //      chưa mở, throttle khoá 0) -> vbat đo được là điện áp
                 //      KHÔNG TẢI. Đó CHÍNH LÀ đại lượng model cần. Đo sau khi
                 //      motor quay sẽ dính sụt áp nội trở và cho ra hover cao
@@ -928,97 +1296,7 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
                 }
 #endif  // FC_FEATURE_HOVER_LATCH
 
-                // ---- Lấy lại mốc 0m NGAY LÚC ARM (BẮT BUỘC) ----
-                // Chuyển từ CMD_TAKEOFF sang đây theo yêu cầu: mốc được chốt
-                // MỘT LẦN lúc arm, rồi cả TAKEOFF và alt_hold dùng chung mốc đó
-                // — không calib lại lúc bấm takeoff nữa.
-                //
-                // VÌ SAO ĐẶT Ở ĐÂY được mà không nguy hiểm: tại thời điểm này
-                // FSM còn là DISARMED (chưa fsm_transition bên dưới) nên
-                // motor_driver chưa mở armed gate, throttle=0, không có gì đang
-                // bay bị ảnh hưởng bởi ~1s block của baro_driver_calibrate_ground().
-                //
-                // THỨ TỰ CÓ CHỦ ĐÍCH: prearm_check() chạy TRƯỚC (ở trên), dùng
-                // mốc/estimator CŨ. Nếu calib trước rồi mới prearm_check thì
-                // reanchor() vừa đặt valid=false sẽ làm chính prearm_check thất
-                // bại vì "alt estimator chua hop le" — tự chặn ARM của mình.
-                //
-                // Calib thất bại -> TỪ CHỐI ARM HẲN (không transition), cùng lý
-                // do như bản CMD_TAKEOFF cũ: alt_estimator coi baro là anchor
-                // DUY NHẤT, không có mốc đúng thì mọi thứ phía sau đều sai.
-#if FC_FEATURE_BARO
-                if (s_baro_ok_driver) {
-                    if (!sensor_hub_suspend(SENSOR_BUS_LEASE_TIMEOUT_MS)) {
-                        ESP_LOGE(TAG, "ARM tu choi: khong muon duoc bus I2C tu sensor_hub de calib baro");
-                        s_arm_reject = ARM_REJECT_BUS_LEASE;
-                        s_arm_reject_seq++;
-                        break;
-                    }
-                    const esp_err_t berr = baro_driver_calibrate_ground();
-                    sensor_hub_resume();
-                    if (berr != ESP_OK) {
-                        ESP_LOGE(TAG, "ARM tu choi: calib_baro_ground that bai (%s) — "
-                                      "khong co moc 0m tin cay, khong arm",
-                                  esp_err_to_name(berr));
-                        s_arm_reject = ARM_REJECT_BARO_CALIB_FAILED;
-                        s_arm_reject_seq++;
-                        break;
-                    }
-                    // Mốc vừa đổi -> re-anchor estimator về CÙNG mốc. GIỮ
-                    // accel_bias_ms2 đã học (KHÔNG dùng alt_estimator_reset()).
-                    // valid=false ngay sau đây là BÌNH THƯỜNG và tự hết sau 1
-                    // mẫu baro (~20ms) — Commander đã loại trừ FSM_ARMED khỏi
-                    // check "estimator lost" đúng vì chỗ này (xem commander.c).
-                    alt_estimator_reanchor(&s_alt_est);
-                    ESP_LOGI(TAG, "ARM: CALIB BARO GROUND THANH CONG — moc 0m da lay lai, "
-                                  "san sang takeoff (takeoff se KHONG calib lai)");
-                } else
-#endif  // FC_FEATURE_BARO
-                {
-                    // Baro tắt hẳn theo app_config: prearm_check() cũng bỏ qua
-                    // mọi điều kiện baro trong trường hợp này (xem prearm_check),
-                    // nên ở đây chỉ cảnh báo cho khớp, không chặn.
-                    ESP_LOGW(TAG, "ARM: baro TAT/chua init (SENSOR_BARO_ENABLED=0?) -> "
-                                  "BO QUA calib moc 0m. alt_estimator se KHONG co anchor.");
-                }
-
-                // ---- Chốt ground reference của ToF (drone đang nằm yên trên sàn) ----
-                // Sensor lắp CÁCH sàn một khoảng vật lý, nên khi UAV nằm đất
-                // ToF KHÔNG đọc 0. Thiếu số này thì mọi phép so "range dự đoán
-                // tới sàn" lệch đúng bằng chiều cao lắp sensor — đủ để phân
-                // loại nhầm mặt sàn thành "bề mặt khác" và ToF tự tắt hẳn.
-                //
-                // Lấy từ snapshot của hub (không đọc I2C ở đây): tại thời điểm
-                // ARM hub đã chạy hàng chục giây nên chắc chắn có mẫu.
-                if (s_tof_ok_driver) {
-                    // RETRY thay vi mot snapshot duy nhat: tof_h.valid chap chon
-                    // theo THIET KE (mark_err moi khi range_status != 0, xem
-                    // sensor_hub.c publish_tof). Mot lan doc trung dung tick do
-                    // = mat ground-ref ca chuyen bay. Xem try_acquire_tof_ground_ref().
-                    //
-                    // 300ms: du cho ~9 chu ky publish ToF (~32ms/chu ky) nen mot
-                    // vai mau range_status != 0 lien tiep khong con quyet dinh
-                    // duoc ket qua. Van du ngan de ARM khong thay cham.
-                    if (!try_acquire_tof_ground_ref("ARM", 300)) {
-                        if (s_baro_ok_driver) {
-                            ESP_LOGW(TAG, "ARM: ToF KHONG chot duoc ground-ref -> ToF se KHONG "
-                                          "correction world-Z (bay bang IMU + baro).");
-                        } else {
-                            // Baro TAT + ToF khong chot duoc = SAU KHI ARM XONG van
-                            // khong co nguon correction nao. Noi ro hau qua ngay day:
-                            // truoc kia chi log mot dong chung chung roi de nguoi dung
-                            // bam TAKEOFF va bi tu choi ma khong hieu.
-                            //
-                            // KHONG chan ARM: CMD_TAKEOFF se thu lai (cung ham, cung
-                            // retry) va ToF chap chon thuong tinh lai trong vai tram ms.
-                            ESP_LOGW(TAG, "ARM: ToF KHONG chot duoc ground-ref VA baro dang TAT "
-                                          "-> HIEN GIO khong co nguon correction do cao nao. "
-                                          "TAKEOFF se thu lai luc bam; neu van khong duoc thi "
-                                          "lenh bi TU CHOI (TKOREJ=NO_CORRECTION). Xem dong "
-                                          "ERROR ngay tren de biet ly do CU THE.");
-                        }
-                    }
-                }
+                // Floor ToF da duoc estimator gom lien tuc khi DISARMED.
 
                 // ARM là đường DUY NHẤT hạ kill latch — có chủ đích. Sau một
                 // lần KILL/hard fault, phải có hành động ARM tường minh của
@@ -1028,6 +1306,12 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
                     ESP_LOGW(TAG, "ARM: ha kill latch (ly do cu: %s)", s_kill_reason);
                     s_motor_kill_latched = false;
                     s_kill_reason = "";
+                    // Xoá LUÔN cờ benign: để sót true ở đây thì lần latch sau
+                    // (enter_kill_latch_ex ghi cờ TRƯỚC khi set latch nên thực
+                    // ra vẫn đúng, nhưng không dựa vào thứ tự đó) hoặc bất kỳ
+                    // đoạn code nào đọc s_kill_benign khi !latched đều thấy giá
+                    // trị cũ vô nghĩa.
+                    s_kill_benign = false;
                 }
                 motor_driver_arm();   // mở LUÔN armed gate của driver
                 reset_all_controllers();
@@ -1067,11 +1351,18 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
             if (next != s_fsm.state) {
                 // DISARM cũng LATCH (không chỉ disarm motor): theo yêu cầu an
                 // toàn "DISARM command -> motor_kill_latched = true". Chỉ hợp
-                // lệ từ FSM_ARMED (chưa bay) nên latch ở đây không cắt máy
-                // giữa trời — muốn hạ khi đang bay thì dùng LAND, muốn cắt
-                // ngay bất kể state thì dùng KILL.
-                enter_kill_latch("CMD_DISARM");
+                // lệ từ FSM_ARMED/FSM_BENCH_RAMP (chưa bay, xem
+                // fsm_on_disarm_request()) nên latch ở đây không cắt máy giữa
+                // trời — muốn hạ khi đang bay thì dùng LAND, muốn cắt ngay bất
+                // kể state thì dùng KILL.
+                //
+                // benign=true: đây là hành động CHỦ ĐÍCH của người dùng trên
+                // mặt đất, không phải sự cố. Latch vẫn chặn bay y hệt; chỉ
+                // bench-test (CMD_TEST_MOTOR) được phép đi tiếp — nếu không thì
+                // ARM->DISARM là ngõ cụt, không còn đường nào test motor nữa.
+                enter_kill_latch_ex("CMD_DISARM", true);
                 reset_all_controllers();
+                alt_estimator_unlock_floor(&s_alt_est);
                 fsm_transition(&s_fsm, next, now_us);
             }
             break;
@@ -1085,11 +1376,22 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
                       fsm_state_name(s_fsm.state));
             enter_kill_latch("CMD_KILL");
             reset_all_controllers();
+            alt_estimator_unlock_floor(&s_alt_est);
             fsm_transition(&s_fsm, FSM_DISARMED, now_us);
             s_sp_roll_deg = s_sp_pitch_deg = s_sp_yaw_rate_dps = 0.0f;
             break;
         }
         case CMD_TAKEOFF: {
+            if (s_fsm.state == FSM_LANDING) {
+                // Go-around trên không: KHÔNG chạy lại PRIME mặt đất. Về HOLD
+                // bumpless rồi dùng target của lệnh để leo bằng cascade Z/Vz.
+                const float requested_m = commander_clamp_altitude(
+                    &s_cmd_cfg, (float)cmd->as.takeoff.alt_mm * 0.001f);
+                if (abort_landing_to_hold("CMD_TAKEOFF go-around", now_us)) {
+                    if (requested_m > s_alt_request_m) s_alt_request_m = requested_m;
+                }
+                break;
+            }
             // Xoá lý do lần trước NGAY ĐẦU mỗi lần thử (cùng quy ước với
             // CMD_ARM): không thì lý do cũ dính lại và GUI hiện sai sau khi
             // người dùng đã sửa xong. _seq chỉ tăng khi THẬT SỰ bị từ chối.
@@ -1141,29 +1443,24 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
                 // Ở đây drone vẫn đang nằm yên trên sàn (FSM_ARMED, chưa có lực
                 // nâng nào), nên đây là thời điểm lấy mốc sàn HỢP LỆ Y HỆT lúc
                 // ARM. Đọc từ snapshot của hub, KHÔNG chạm I2C, không block.
-                if (s_tof_ok_driver && !s_alt_est.tof_ground_ref_valid) {
-                    // CUNG ham retry nhu CMD_ARM — mot noi dinh nghia, hai cho
-                    // dung. Cua so DAI HON (600ms) vi day la co hoi CUOI: that
-                    // bai o day la lenh bi tu choi han. O ARM thi con duong nay
-                    // de thu lai, nen ARM uu tien phan hoi nhanh hon.
-                    try_acquire_tof_ground_ref("TAKEOFF", 600);
+                // FC_FEATURE_FLOOR_GATE=0 -> KHONG doi floor_ready nua (xem
+                // fc_features.h). Van doi s_tof_ok_driver: khong co ToF song
+                // thi khong co nguon Z nao ca, cat canh la bay mu hoan toan.
+#if FC_FEATURE_FLOOR_GATE
+                const bool has_tof_src = s_tof_ok_driver && alt_estimator_floor_ready(&s_alt_est);
+#else
+                const bool has_tof_src = s_tof_ok_driver;
+                if (s_tof_ok_driver && !alt_estimator_floor_ready(&s_alt_est)) {
+                    ESP_LOGW(TAG, "TAKEOFF: floor ToF chua chot nhung cong floor DANG TAT "
+                                  "(FC_FEATURE_FLOOR_GATE=0) -> van cat canh. Do cao co the lech.");
                 }
-
-                const bool has_tof_src  = s_tof_ok_driver && s_alt_est.tof_ground_ref_valid;
-                const bool has_baro_src = s_baro_ok_driver;
-                if (!has_tof_src && !has_baro_src) {
-                    ESP_LOGW(TAG, "TAKEOFF tu choi: KHONG co nguon correction nao "
-                                  "(baro TAT va ToF khong dung duoc) -> Z se troi tu do ngay khi roi dat. "
-                                  "Bat SENSOR_BARO_ENABLED=1 hoac sua ToF.");
+#endif
+                if (!has_tof_src) {
+                    ESP_LOGW(TAG, "TAKEOFF tu choi: ToF khong hoat dong (driver loi) -> khong co nguon Z; "
+                                  "chay 'i2c_scan' va 'tof_test'.");
                     s_tko_reject = TAKEOFF_REJECT_NO_CORRECTION;
                     s_tko_reject_seq++;
                     break;
-                }
-                if (!has_baro_src) {
-                    ESP_LOGW(TAG, "TAKEOFF: CHI CO ToF (baro TAT). Gioi han: mat correction khi len "
-                                  "tren ~%.1fm hoac khi bay qua ban/ghe -> qua %dms se tu LANDING.",
-                              (double)ALT_EST_TOF_MAX_RANGE_M,
-                              ALT_EST_NO_CORRECTION_DEGRADED_MS);
                 }
                 if (!s_alt_est.valid) {
                     ESP_LOGW(TAG, "TAKEOFF tu choi: alt_estimator KHONG hop le (state khong huu han) — "
@@ -1197,7 +1494,7 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
                 // engage được nên bàn giao sẽ thất bại ngay.
                 float tko_target_m = (float)cmd->as.takeoff.alt_mm * 0.001f;
                 if (tko_target_m <= 0.0f) {
-                    tko_target_m = ALT_HOLD_MIN_ENGAGE_M;
+                    tko_target_m = TAKEOFF_DEFAULT_TARGET_M;
                     ESP_LOGW(TAG, "TAKEOFF: alt khong hop le trong lenh -> dung san %.2fm",
                               (double)tko_target_m);
                 }
@@ -1209,11 +1506,34 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
                 // Event chuẩn bị estimator (xem alt_estimator.h): zero Z/Vz +
                 // XOÁ trạng thái reacquire baro cũ. GIỮ accel_bias đã học,
                 // GIỮ valid, KHÔNG chạm Mahony.
+                if (!alt_estimator_lock_floor(&s_alt_est)) {
+#if FC_FEATURE_FLOOR_GATE
+                    ESP_LOGW(TAG, "TAKEOFF tu choi: floor ToF mat validity truoc luc lock");
+                    s_tko_reject = TAKEOFF_REJECT_NO_CORRECTION;
+                    s_tko_reject_seq++;
+                    break;
+#else
+                    // Cong floor DANG TAT -> khong tu choi. Chot goc toa do
+                    // bang mau ToF hop le HIEN CO (fallback), thay vi bang
+                    // trung binh cua so mau on dinh nhu duong chuan.
+                    //
+                    // Khong lam gi ca thi tof_ground_range_m giu gia tri CU
+                    // (cua lan bay truoc, hoac 0 neu chua tung) -> alt_m sai
+                    // ngay tu tick dau. Chot bang mau hien tai it nhat cho ra
+                    // mot goc DUNG NGHIA, chi la kem on dinh hon.
+                    if (!alt_estimator_lock_floor_fallback(&s_alt_est)) {
+                        ESP_LOGW(TAG, "TAKEOFF tu choi: khong co CA mau floor on dinh LAN mau ToF "
+                                      "hop le nao de chot goc toa do -> khong biet dang o do cao nao");
+                        s_tko_reject = TAKEOFF_REJECT_NO_CORRECTION;
+                        s_tko_reject_seq++;
+                        break;
+                    }
+                    ESP_LOGW(TAG, "TAKEOFF: chot goc toa do bang mau ToF hien tai (%.3fm) vi floor "
+                                  "chua on dinh va cong floor DANG TAT -> do cao co the lech",
+                              (double)s_alt_est.tof_ground_range_m);
+#endif
+                }
                 alt_estimator_prepare_takeoff(&s_alt_est);
-                // KHOÁ mặt phẳng sàn tại world-Z hiện tại (=0). Từ đây ToF chỉ
-                // được sửa world-Z khi nó thật sự đang nhìn ĐÚNG mặt phẳng này
-                // — đó là thứ ngăn UAV tự bốc lên khi bay qua bàn.
-                alt_estimator_lock_floor(&s_alt_est);
 
                 takeoff_begin(&s_tko_state, tko_target_m, now_us);
                 ESP_LOGI(TAG, "TAKEOFF: target=%.2fm | PRIME %d duty trong %dms (KHONG chay Z/Vz PID) "
@@ -1239,10 +1559,10 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
                               (double)alt_estimator_height_above_landing_surface(&s_alt_est));
                 } else {
 #if FC_FEATURE_TOF
-                    ESP_LOGW(TAG, "LAND: khong co mau ToF dung duoc -> ha theo world-Z (nhu cu)");
+                    ESP_LOGI(TAG, "LAND: flow rut gon ha theo altitude ToF truc tiep");
 #else
-                    ESP_LOGI(TAG, "LAND: ToF TAT theo cau hinh -> ha theo world-Z (baro). "
-                                  "Khong co do cao tren BE MAT, chi co world-Z.");
+                    ESP_LOGE(TAG, "LAND: ToF TAT -> khong co nguon Z cho flight control; "
+                                  "chi con blind throttle ramp");
 #endif
                 }
                 landing_reset(&s_land_state);
@@ -1252,7 +1572,7 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
         }
         case CMD_SET_ALTITUDE: {
             const float m = (float)cmd->as.set_altitude.alt_mm * 0.001f;
-            s_alt_target_m = commander_clamp_altitude(&s_cmd_cfg, m);
+            s_alt_request_m = commander_clamp_altitude(&s_cmd_cfg, m);
             break;
         }
         case CMD_SET_YAW: {
@@ -1278,12 +1598,12 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
                 case MOVE_BACK:    pitch =  MOVE_MAX_TILT_DEG * pct; break;
                 case MOVE_LEFT:    roll  =  MOVE_MAX_TILT_DEG * pct; break;
                 case MOVE_RIGHT:   roll  = -MOVE_MAX_TILT_DEG * pct; break;
-                case MOVE_UP:      s_alt_target_m += 0.10f * pct; break;   // step nhẹ, không timed
-                case MOVE_DOWN:    s_alt_target_m -= 0.10f * pct; break;
+                case MOVE_UP:      s_alt_request_m += 0.10f * pct; break;
+                case MOVE_DOWN:    s_alt_request_m -= 0.10f * pct; break;
                 case MOVE_CW:      yaw_rate = -MOVE_MAX_YAW_DPS * pct; break;
                 case MOVE_CCW:     yaw_rate =  MOVE_MAX_YAW_DPS * pct; break;
             }
-            s_alt_target_m = commander_clamp_altitude(&s_cmd_cfg, s_alt_target_m);
+            s_alt_request_m = commander_clamp_altitude(&s_cmd_cfg, s_alt_request_m);
             if (roll != 0.0f || pitch != 0.0f || yaw_rate != 0.0f) {
                 s_timed_active = true;
                 s_timed_roll_deg = roll;
@@ -1297,7 +1617,9 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
         case CMD_HOVER: {
             // Idempotent: hủy timed-command đang chạy (nếu có), về HOLDING.
             s_timed_active = false;
-            fsm_transition(&s_fsm, fsm_on_move_command(s_fsm.state, false), now_us);
+            if (!abort_landing_to_hold("CMD_HOVER", now_us)) {
+                fsm_transition(&s_fsm, fsm_on_move_command(s_fsm.state, false), now_us);
+            }
             break;
         }
         case CMD_HEARTBEAT: {
@@ -1316,15 +1638,32 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
                           fsm_state_name(s_fsm.state));
                 break;
             }
-            // KILL LATCH THẮNG test_motor. Lệnh này gọi motor_driver_arm() —
-            // tức MỞ LẠI armed gate ở tầng driver — nên nếu không chặn ở đây
-            // thì một CMD_TEST_MOTOR (từ core 0: console/UDP) làm motor quay
-            // 500ms NGAY SAU một KILL. Latch chỉ có nghĩa khi MỌI đường mở gate
-            // đều tôn trọng nó, không riêng vòng điều khiển.
-            if (s_motor_kill_latched) {
+            // KILL LATCH do SỰ CỐ thắng test_motor. Lệnh này gọi
+            // motor_driver_arm() — tức MỞ LẠI armed gate ở tầng driver — nên
+            // nếu không chặn thì một CMD_TEST_MOTOR (từ core 0: console/UDP)
+            // làm motor quay 500ms NGAY SAU một KILL. Latch chỉ có nghĩa khi
+            // MỌI đường mở gate đều tôn trọng nó, không riêng vòng điều khiển.
+            //
+            // NGOẠI LỆ DUY NHẤT — latch benign (CMD_DISARM chủ đích trên mặt
+            // đất, xem s_kill_benign). Không có ngoại lệ này thì test_motor là
+            // ngõ cụt: nó đòi DISARMED + !latched, mà đường DUY NHẤT hạ latch
+            // là CMD_ARM (rời khỏi DISARMED), còn DISARM (về DISARMED) thì
+            // latch lại ngay -> sau lần DISARM/KILL đầu tiên KHÔNG còn chuỗi
+            // lệnh nào tới được DISARMED + !latched. Board mới chưa calib còn
+            // không ARM được, deadlock ngay từ boot đầu.
+            //
+            // An toàn không đổi: vẫn phải DISARMED, vẫn cắt sau
+            // TEST_MOTOR_PULSE_MS, và một latch từ fault/failsafe/KILL (benign
+            // = false) vẫn chặn cứng như cũ.
+            if (s_motor_kill_latched && !s_kill_benign) {
                 ESP_LOGW(TAG, "test_motor tu choi: KILL LATCH dang bat (%s) -- ARM lai truoc",
                           s_kill_reason);
                 break;
+            }
+            if (s_motor_kill_latched) {
+                ESP_LOGW(TAG, "test_motor: kill latch dang bat nhung la loai BENIGN (%s) -- "
+                              "cho phep bench-test. Latch VAN chan bay, phai ARM de bay.",
+                          s_kill_reason);
             }
             const int raw_idx = (int)cmd->as.test_motor.motor_idx;
             const int pct = clampi((int)cmd->as.test_motor.duty_pct, 0, TEST_MOTOR_MAX_DUTY_PCT);
@@ -1391,6 +1730,9 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
             //
             // Bỏ qua IM LẶNG có chủ đích ở nhóm cuối: phím giữ gửi lại ~10Hz,
             // log mỗi lần sẽ ngập console.
+            if (s_fsm.state == FSM_LANDING && cmd->as.bench_offset.offset_duty != 0) {
+                abort_landing_to_hold("throttle W/S", now_us);
+            }
             const bool offset_usable = (s_fsm.state == FSM_BENCH_RAMP) ||
                                         (s_fsm.state == FSM_HOLDING) ||
                                         (s_fsm.state == FSM_FLYING);
@@ -1563,9 +1905,11 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
             // sàn trên alt_min_m + 0.1 để geofence không bao giờ rỗng/đảo
             // ngược (commander_clamp_altitude() sẽ vô nghĩa nếu min>=max).
             xSemaphoreTake(s_tuning_mtx, portMAX_DELAY);
-            s_cmd_cfg.alt_min_m = clampf(cmd->as.set_commander_cfg.alt_min_m, -5.0f, 100.0f);
+            s_cmd_cfg.alt_min_m = clampf(cmd->as.set_commander_cfg.alt_min_m,
+                                         0.0f, COMMANDER_DEFAULT_ALT_MAX_M - 0.1f);
             s_cmd_cfg.alt_max_m = clampf(cmd->as.set_commander_cfg.alt_max_m,
-                                           s_cmd_cfg.alt_min_m + 0.1f, 100.0f);
+                                           s_cmd_cfg.alt_min_m + 0.1f,
+                                           COMMANDER_DEFAULT_ALT_MAX_M);
             s_cmd_cfg.battery_floor_v = clampf(cmd->as.set_commander_cfg.battery_floor_v, 0.0f, 30.0f);
             s_cmd_cfg.heartbeat_timeout_ms = clampi(cmd->as.set_commander_cfg.heartbeat_timeout_ms, 100, 60000);
             s_cmd_cfg.hard_tilt_deg = clampf(cmd->as.set_commander_cfg.hard_tilt_deg, 10.0f, 90.0f);
@@ -1590,6 +1934,9 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
             const float pit = clampf(cmd->as.control.pit, -100.0f, 100.0f);
             const float yaw = clampf(cmd->as.control.yaw, -100.0f, 100.0f);
             const float thr = clampf(cmd->as.control.thr, -100.0f, 100.0f);
+            if (s_fsm.state == FSM_LANDING && fabsf(thr) > 1.0f) {
+                abort_landing_to_hold("joystick throttle", now_us);
+            }
             // rol/pit ECHO thẳng (fc.get_states() đọc lại NGUYÊN VĂN input
             // ngoài, không cần đảo — xem s_ctrl_rol_pct/pit_pct).
             s_ctrl_rol_pct = rol;
@@ -1619,20 +1966,16 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
             if (s_fsm.state != FSM_DISARMED) {
                 ESP_LOGW(TAG, "calib_gyro tu choi: chi cho phep khi DISARMED"); break;
             }
-            s_calib_gyro_active = true;
-            s_calib_gyro_samples_left = (int)((float)CALIB_GYRO_DURATION_MS * CONTROL_TASK_HZ / 1000.0f);
-            s_calib_gyro_valid_count = 0;
-            s_calib_gyro_sum = vec3f_zero();
-            s_calib_gyro_sum_sq = vec3f_zero();
-            s_calib_gyro_motion_bad_count = 0;
-            ESP_LOGI(TAG, "calib_gyro: bat dau do bias tinh ~%dms - DUNG YEN drone (temp=%.1fC)",
-                      CALIB_GYRO_DURATION_MS, (double)s_last_imu_temp_c);
+            // Dùng đúng FSM của startup: RAW -> stationary Welford -> candidate
+            // -> validation độc lập -> atomic commit. Lệnh mới reset toàn bộ
+            // phiên đang chạy, không mang old bias/running mean sang phiên mới.
+            gyro_calibration_start();
             break;
         }
         case CMD_CALIB_GYRO_ABORT: {
-            if (s_calib_gyro_active) {
-                s_calib_gyro_active = false;
-                ESP_LOGI(TAG, "calib_gyro_abort: da huy phien dang do (khong luu)");
+            if (gyro_cal_state_active(s_gcal_state)) {
+                gyro_cal_finish_fail(GCAL_FAIL_ABORTED, "CAL GYRO aborted by user");
+                ESP_LOGI(TAG, "calib_gyro_abort: da huy phien dang do; gyro invalid, ARM bi chan");
             } else {
                 ESP_LOGW(TAG, "calib_gyro_abort: khong co phien nao dang chay");
             }
@@ -1722,9 +2065,12 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
             if (s_fsm.state != FSM_DISARMED) {
                 ESP_LOGW(TAG, "calib_erase tu choi: chi cho phep khi DISARMED"); break;
             }
+            // Dung moi phien gyro dang chay va xoa bias trong ban sao cua
+            // sensor_hub qua cung duong atomic. Chi memset s_imu_calib o day
+            // se lam telemetry thay 0 nhung hub van giu ban sao bias cu.
+            gyro_cal_finish_fail(GCAL_FAIL_ABORTED, "all calibration erased by user");
             calibration_erase_all();
             memset(&s_calib, 0, sizeof(s_calib));
-            memset(&s_imu_calib, 0, sizeof(s_imu_calib));
             s_calib_accel_faces_done = 0;
             recompute_uncalibrated();
             ESP_LOGW(TAG, "CALIB_ERASE: da xoa toan bo calib (RAM+NVS) -> UNCALIBRATED, ARM se bi tu choi");
@@ -1751,14 +2097,10 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
 #if FC_FEATURE_BARO
             const esp_err_t berr = baro_driver_calibrate_ground();
             sensor_hub_resume();
-            if (berr != ESP_OK) {
+            if (berr != ESP_OK)
                 ESP_LOGE(TAG, "calib_baro_ground that bai: %s", esp_err_to_name(berr));
-            } else {
-                // Mốc đổi -> re-anchor estimator (giữ accel_bias_ms2 đã học,
-                // xem alt_estimator.h) — DISARMED-only nên estimator đang ở
-                // GROUND (Z=0/Vz=0 khoá cứng), an toàn tuyệt đối.
-                alt_estimator_reanchor(&s_alt_est);
-            }
+            else
+                ESP_LOGI(TAG, "calib_baro_ground OK (DEBUG ONLY, khong doi Z/Vz/floor ToF)");
 #endif  // FC_FEATURE_BARO
             break;
         }
@@ -1816,13 +2158,10 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
 _Static_assert(ALT_HOLD_WS_VZ_MS <= ALT_HOLD_VZ_LIMIT_MS,
                "ALT_HOLD_WS_VZ_MS (phim W/S) phai <= ALT_HOLD_VZ_LIMIT_MS (tran vz_target chung)");
 
-// Chân INT của MPU6050 là ĐỒNG HỒ NHỊP của vòng điều khiển khi chạy chế độ
-// interrupt-driven, nên sample rate của chip PHẢI bằng đúng tần số vòng lặp.
-// Lệch 2 số này = vòng chạy sai tần số trong khi `dt` hằng số bên dưới vẫn
-// giữ nguyên -> toàn bộ gain PID/estimator sai hệ số mà không có gì báo lỗi.
-_Static_assert(IMU_SAMPLE_RATE_HZ == CONTROL_TASK_HZ,
-               "IMU_SAMPLE_RATE_HZ (imu_driver.h) phai bang CONTROL_TASK_HZ - chan INT la dong ho "
-               "nhip cua stabilize_task, xem imu_driver_enable_data_ready_int()");
+// sensor_hub gom đúng N mẫu IMU rồi mới đánh thức vòng điều khiển. Canh quan
+// hệ này lúc biên dịch để PID/estimator luôn nhận đúng nhịp 250Hz.
+_Static_assert(IMU_SAMPLE_RATE_HZ == CONTROL_TASK_HZ * IMU_SAMPLES_PER_CONTROL,
+               "IMU_SAMPLE_RATE_HZ phai bang CONTROL_TASK_HZ * IMU_SAMPLES_PER_CONTROL");
 
 // Timeout chờ ngắt = 2 chu kỳ. Ở nhịp bình thường ngắt luôn tới trước hạn này
 // (và nếu task bị trễ thì notify đã nằm sẵn -> lấy ngay, không chờ). Chỉ hết
@@ -1985,10 +2324,37 @@ static void stabilize_task(void *arg) {
         // tof_healthy_for_alt = "cảm biến còn sống, mẫu chưa quá hạn" — CHỈ sức
         // khoẻ. Việc phân biệt "mẫu này có MỚI không" do alt_estimator tự làm
         // bằng seq (ToF ~30Hz vs estimator 250Hz), giống hệt baro.
+        //
+        // ⚠ TÍNH THUẦN BẰNG TUỔI, CỐ Ý KHÔNG ĐỌC snap.tof_h.valid.
+        //
+        // sensor_hub.h (mục SENSOR_TOF_STALE_US) đã luôn nói ý định là: "200ms
+        // = ~6 mẫu bị mất mới coi là stale — đủ rộng cho vài lần range_status
+        // lỗi (bề mặt hấp thụ/ngoài tầm là chuyện BÌNH THƯỜNG với ToF, không
+        // phải hỏng cảm biến)". Nhưng nó CHƯA BAO GIỜ được hiện thực: mark_err()
+        // đặt tof_h.valid = false ngay từ MẪU XẤU ĐẦU TIÊN, nên vế `&&
+        // tof_h.valid` làm điều kiện false trước khi vế tuổi kịp có ý nghĩa.
+        // Cửa sổ 200ms là code chết — nó chỉ có thể làm điều kiện CHẶT HƠN,
+        // chưa bao giờ nới ra như đã hứa.
+        //
+        // Hậu quả thật: một mẫu ToF xấu trong lúc TAKING_OFF/PRIME -> estimator
+        // invalid -> Commander soft-fault -> huỷ cất cánh. Xem thêm khối "LUOI
+        // DO TREN MAT DAT" trong alt_estimator.c.
+        //
+        // AN TOÀN vì mark_err() KHÔNG tăng seq và KHÔNG dời timestamp:
+        //   - timestamp chỉ nhích khi có mẫu TỐT -> tuổi ở đây đúng nghĩa
+        //     "bao lâu rồi chưa có mẫu dùng được". Cảm biến chết thật thì tuổi
+        //     cứ tăng và sau 200ms vẫn thành false, đúng như trước.
+        //   - seq đứng yên -> alt_estimator thấy tof_new = false -> KHÔNG
+        //     correction lại trên mẫu cũ (xem publish_tof() trong sensor_hub.c).
+        //     Đây là điều kiện làm cho việc nới lỏng này không tạo ra rủi ro
+        //     "kéo Z nhiều lần bằng cùng một measurement".
+        //   - chưa từng có mẫu tốt nào -> seq vẫn 0 -> sensor_hub_age_us() trả
+        //     INT64_MAX -> luôn > 200ms -> false. Không cần guard riêng. Đây
+        //     cũng là đường bảo vệ khi ToF bị tắt/không init được: hub không
+        //     publish lần nào nên seq đứng ở 0 vĩnh viễn.
         const tof_reading_t tof = snap.tof;
         const int64_t tof_age_us = sensor_hub_age_us(&snap.tof_h, now_us);
-        const bool tof_healthy_for_alt = snap.tof_h.valid &&
-                                          (tof_age_us <= SENSOR_TOF_STALE_US);
+        const bool tof_healthy_for_alt = (tof_age_us <= SENSOR_TOF_STALE_US);
 
         mag_sample_t mag = snap.mag;
         // mag_ok = có mẫu hợp lệ, MỚI, và chưa stale. mag ODR thấp nên "không
@@ -1996,14 +2362,18 @@ static void stabilize_task(void *arg) {
         const bool mag_ok = snap.mag_h.valid && mag_new &&
                              (mag_age_us <= SENSOR_MAG_STALE_US);
 
+#if FC_FEATURE_BARO
         baro_sample_t baro = snap.baro;
+#endif
         // baro_healthy_for_alt = "cảm biến còn sống, mẫu chưa quá hạn" — CHỈ
         // sức khoẻ, KHÔNG bao gồm "mẫu này có mới không". Việc phân biệt mẫu
         // mới giờ do alt_estimator tự làm bằng seq (xem alt_estimator.h
         // "CORRECT") — trước đây gộp cả 2 vào một cờ tên `baro_ok`, đúng chức
         // năng nhưng che mất ranh giới ngữ nghĩa giữa health và new-sample.
+#if FC_FEATURE_BARO
         const bool baro_healthy_for_alt = snap.baro_h.valid &&
                                            (baro_age_us <= SENSOR_BARO_STALE_US);
+#endif
 
         // battery_v = 0.0f nếu chưa có mẫu HỢP LỆ -> Commander coi là "chưa có
         // mẫu", KHÔNG trip fault (quy ước sẵn có của commander_evaluate()) VÀ
@@ -2044,6 +2414,22 @@ static void stabilize_task(void *arg) {
             if (s_imu_no_new_sample_count < UINT32_MAX) s_imu_no_new_sample_count++;
         }
 
+        // ---- 1a-bis) STARTUP GYRO CALIB — chạy TRƯỚC Mahony (xem mục 21) ----
+        // Trong lúc máy này chạy, Mahony KHÔNG được tích phân: gyro chưa hiệu
+        // chỉnh (Gz lệch ~2dps trên phần cứng này) sẽ nạp vài giây yaw sai vào
+        // quaternion, và cái sai đó KHÔNG tự mất đi sau khi calib xong — Mahony
+        // không có tham chiếu yaw tuyệt đối để kéo lại (board này không có mag
+        // dùng được). Vì vậy calib xong còn reset hẳn quaternion, xem ngay dưới.
+        const bool gcal_running = gyro_calibration_tick(&imu, imu_updated);
+        if (s_gcal_state == GCAL_PASS && !s_gcal_reset_done) {
+            // Bắt đầu lại từ quaternion sạch với gyro ĐÃ hiệu chỉnh. Mahony hội
+            // tụ lại roll/pitch từ accel trong vài trăm ms; yaw bắt đầu từ 0 —
+            // đúng như mọi lần boot khác (không mag thì yaw luôn là tương đối).
+            mahony_init(&s_mahony, NULL);
+            s_gcal_reset_done = true;
+            ESP_LOGI(TAG, "Mahony RESET sau gyro calib PASS -> tich phan voi gyro DA hieu chinh");
+        }
+
         // ---- 1b) Calibration state machines (CHỈ tích lũy khi DISARMED — xem
         // command.h CMD_CALIB_*). Dùng mẫu RAW imu.accel_g / mag.mag_body (TRƯỚC
         // khi áp correction bước 1c bên dưới) — calib mới PHẢI đo từ gốc, không
@@ -2054,96 +2440,39 @@ static void stabilize_task(void *arg) {
         if (s_fsm.state != FSM_DISARMED) {
             // An toàn: nếu vừa ARM giữa lúc đang calib dở (hiếm, xem apply_command
             // CMD_ARM guard vẫn cho phép nếu ĐÃ có calib cũ hợp lệ) -> hủy ngay.
-            if (s_calib_gyro_active)     { s_calib_gyro_active = false;     ESP_LOGW(TAG, "calib_gyro huy: khong con DISARMED"); }
+            if (gyro_cal_state_active(s_gcal_state)) {
+                gyro_cal_finish_fail(GCAL_FAIL_ABORTED, "left DISARMED during gyro calibration");
+            }
             if (s_calib_accel_capturing) { s_calib_accel_capturing = false; ESP_LOGW(TAG, "calib_accel huy: khong con DISARMED"); }
             if (s_calib_mag_active)      { s_calib_mag_active = false;      ESP_LOGW(TAG, "calib_mag huy: khong con DISARMED"); }
+            // Rời DISARMED -> xoá cửa sổ prearm gyro health. Giữ lại thì lần
+            // DISARM sau sẽ đánh giá bằng dữ liệu trộn giữa hai phiên.
+            s_prearm_gyro_count = 0;
+            s_prearm_gyro_sum = vec3f_zero();
         } else {
-            if (s_calib_gyro_active) {
-                // CHỈ cộng mẫu MỚI và đọc I2C THÀNH CÔNG (imu_updated) — mẫu
-                // lỗi bị imu_driver_read() fallback về {0,0,0}, cộng dồn mẫu
-                // đó vào sum sẽ kéo trung bình lệch về 0 một cách SAI, trông
-                // như "calib thành công" nhưng thực ra không đo được gì thật.
-                // imu_updated (thay vì imu.ok) còn chặn việc cộng CÙNG MỘT mẫu
-                // hai lần: trung bình vẫn đúng nhưng std đo được sẽ nhỏ giả
-                // tạo, và std chính là thứ CALIB_GYRO_MAX_STD_DPS dùng để
-                // quyết định "drone có đứng yên thật không".
-                if (imu_updated) {
-                    s_calib_gyro_sum.x += imu.gyro_dps.x;
-                    s_calib_gyro_sum.y += imu.gyro_dps.y;
-                    s_calib_gyro_sum.z += imu.gyro_dps.z;
-                    s_calib_gyro_sum_sq.x += imu.gyro_dps.x * imu.gyro_dps.x;
-                    s_calib_gyro_sum_sq.y += imu.gyro_dps.y * imu.gyro_dps.y;
-                    s_calib_gyro_sum_sq.z += imu.gyro_dps.z * imu.gyro_dps.z;
-                    s_calib_gyro_valid_count++;
-
-                    // Motion detect phụ (xem "5. Detect movement"): accel_norm
-                    // lệch xa 1g nghĩa là drone đang bị CẦM/LẮC (gia tốc thật
-                    // cộng vào, không chỉ gravity) — dùng RAW imu.accel_g (chưa
-                    // qua bước 1c, đủ thô để phát hiện chuyển động rõ ràng).
-                    const float accel_norm = sqrtf(imu.accel_g.x * imu.accel_g.x +
-                                                    imu.accel_g.y * imu.accel_g.y +
-                                                    imu.accel_g.z * imu.accel_g.z);
-                    if (fabsf(accel_norm - 1.0f) > CALIB_MOTION_ACCEL_TOL_G) {
-                        s_calib_gyro_motion_bad_count++;
+            // ---- Pre-arm corrected-gyro health: chỉ tạo cửa sổ khi RAW IMU
+            // stationary. Một mẫu chuyển động reset TOÀN BỘ cửa sổ và invalid
+            // kết quả cũ, nên ARM không thể dùng mean từ trước khi drone bị nhấc.
+            if (imu_updated && !gcal_running && s_calib.gyro_valid) {
+                if (!gyro_cal_sample_stationary(&imu)) {
+                    s_prearm_gyro_count = 0;
+                    s_prearm_gyro_sum = vec3f_zero();
+                    s_prearm_gyro_mean_valid = false;
+                } else {
+                    s_prearm_gyro_sum.x += imu.gyro_dps.x;
+                    s_prearm_gyro_sum.y += imu.gyro_dps.y;
+                    s_prearm_gyro_sum.z += imu.gyro_dps.z;
+                    s_prearm_gyro_count++;
+                    const int win_n = gyro_cal_ticks(PREARM_GYRO_WINDOW_MS);
+                    if (s_prearm_gyro_count >= win_n) {
+                        const float inv = 1.0f / (float)s_prearm_gyro_count;
+                        s_prearm_gyro_mean = (vec3f_t){ s_prearm_gyro_sum.x * inv,
+                                                         s_prearm_gyro_sum.y * inv,
+                                                         s_prearm_gyro_sum.z * inv };
+                        s_prearm_gyro_mean_valid = true;
+                        s_prearm_gyro_count = 0;
+                        s_prearm_gyro_sum = vec3f_zero();
                     }
-                }
-                if (--s_calib_gyro_samples_left <= 0) {
-                    const int n = (int)((float)CALIB_GYRO_DURATION_MS * CONTROL_TASK_HZ / 1000.0f);
-                    if ((float)s_calib_gyro_valid_count < (float)n * CALIB_MIN_VALID_FRACTION) {
-                        ESP_LOGE(TAG, "GYRO CALIB THAT BAI: qua it mau IMU doc thanh cong (%d/%d, "
-                                      "IMU loi lien tuc? kiem tra day I2C/SENSOR_IMU_ENABLED) -> KHONG luu, giu bias cu",
-                                  s_calib_gyro_valid_count, n);
-                    } else {
-                        const vec3f_t mean = {
-                            s_calib_gyro_sum.x / (float)s_calib_gyro_valid_count,
-                            s_calib_gyro_sum.y / (float)s_calib_gyro_valid_count,
-                            s_calib_gyro_sum.z / (float)s_calib_gyro_valid_count,
-                        };
-                        // std-dev = sqrt(E[x^2]-E[x]^2) — thước đo "gyro có ổn
-                        // định suốt cửa sổ hay không" (xem "6. Gyro calibration
-                        // output"), fmaxf(...,0) chống sai số làm âm do float.
-                        const vec3f_t std = {
-                            sqrtf(fmaxf(s_calib_gyro_sum_sq.x / (float)s_calib_gyro_valid_count - mean.x * mean.x, 0.0f)),
-                            sqrtf(fmaxf(s_calib_gyro_sum_sq.y / (float)s_calib_gyro_valid_count - mean.y * mean.y, 0.0f)),
-                            sqrtf(fmaxf(s_calib_gyro_sum_sq.z / (float)s_calib_gyro_valid_count - mean.z * mean.z, 0.0f)),
-                        };
-                        s_last_gyro_calib_std = std;
-                        const bool motion_by_std = std.x > CALIB_GYRO_MAX_STD_DPS ||
-                                                    std.y > CALIB_GYRO_MAX_STD_DPS ||
-                                                    std.z > CALIB_GYRO_MAX_STD_DPS;
-                        const bool motion_by_accel = (float)s_calib_gyro_motion_bad_count /
-                                                      (float)s_calib_gyro_valid_count > CALIB_MOTION_MAX_BAD_FRACTION;
-                        if (motion_by_std || motion_by_accel) {
-                            // "5. Detect movement" — KHÔNG commit bias nếu drone
-                            // bị cầm/lắc trong lúc đo (PX4 cũng yêu cầu bất động).
-                            ESP_LOGE(TAG, "GYRO CALIB THAT BAI: PHAT HIEN CHUYEN DONG "
-                                          "(std=(%.3f,%.3f,%.3f)dps > %.2f, hoac %d/%d mau accel lech >%.2fg) "
-                                          "-> KHONG luu, GIU YEN drone va thu lai",
-                                      std.x, std.y, std.z, (double)CALIB_GYRO_MAX_STD_DPS,
-                                      s_calib_gyro_motion_bad_count, s_calib_gyro_valid_count,
-                                      (double)CALIB_MOTION_ACCEL_TOL_G);
-                        } else {
-                            // imu.gyro_dps ĐÃ trừ bias cũ (xem imu_driver_read()) -> trung
-                            // bình residual còn lại = sai số bias hiện tại, cộng DỒN vào
-                            // bias cũ (KHÔNG ghi đè 0) là công thức đúng cho "re-zero".
-                            s_imu_calib.gyro_bias_dps.x += mean.x;
-                            s_imu_calib.gyro_bias_dps.y += mean.y;
-                            s_imu_calib.gyro_bias_dps.z += mean.z;
-                            s_calib.gyro_bias_dps = s_imu_calib.gyro_bias_dps;
-                            s_calib.gyro_valid = true;
-                            calibration_save_gyro(&s_calib.gyro_bias_dps);
-                            // sensor_hub giữ BẢN SAO riêng của calib (nó mới là
-                            // bên gọi imu_driver_read()) — không đẩy sang thì
-                            // bias vừa đo xong sẽ không có tác dụng gì cho tới
-                            // lần reboot sau.
-                            sensor_hub_set_imu_calib(&s_imu_calib);
-                            ESP_LOGW(TAG, "GYRO CALIB XONG (%d/%d mau hop le, std=(%.3f,%.3f,%.3f)dps, temp=%.1fC): "
-                                          "bias=(%.3f,%.3f,%.3f)dps",
-                                      s_calib_gyro_valid_count, n, std.x, std.y, std.z, (double)s_last_imu_temp_c,
-                                      s_imu_calib.gyro_bias_dps.x, s_imu_calib.gyro_bias_dps.y, s_imu_calib.gyro_bias_dps.z);
-                        }
-                    }
-                    s_calib_gyro_active = false;
                 }
             }
 
@@ -2357,12 +2686,23 @@ static void stabilize_task(void *arg) {
         // tính hụt đúng bằng phần đã mất. Clamp CÙNG dải với dt (CONTROL_DT_
         // MAX_S) để mất mẫu kéo dài không tạo một bước tích phân khổng lồ.
         const float fusion_dt = clampf(s_fusion_dt_accum_s, CONTROL_DT_MIN_S, CONTROL_DT_MAX_S);
-        if (imu_updated) {
+        // gcal_running -> KHÔNG tích phân (mục 21). Vẫn xả s_fusion_dt_accum_s
+        // để khi calib xong, bước tích phân đầu tiên không mang theo cả vài
+        // giây dt dồn lại — clamp CONTROL_DT_MAX_S sẽ chặn phần lớn nhưng ý
+        // định phải rõ ràng ở đây, không dựa vào clamp ở chỗ khác.
+        if (imu_updated && !gcal_running && s_calib.gyro_valid) {
             mahony_update(&s_mahony, imu.gyro_dps, imu.accel_g, mag.mag_body, mag_usable, fusion_dt);
             s_fusion_dt_accum_s = 0.0f;
 
             if (s_mahony.status.mag_used)     s_mag_used_count++;
             if (s_mahony.status.mag_rejected) s_mag_rejected_count++;
+        } else if (imu_updated) {
+            // Đang calib HOẶC calib đã FAIL: bỏ mẫu khỏi tích phân và xả dt.
+            // Không bao giờ tạo attitude "flight-ready" từ gyro chưa validate.
+            // Không xả thì s_fusion_dt_accum_s lớn dần suốt ~5s calib, và bước
+            // tích phân đầu tiên sau đó nhận một dt khổng lồ (bị clamp, nhưng
+            // vẫn sai) — Mahony sẽ giật một nhịp đúng lúc vừa reset xong.
+            s_fusion_dt_accum_s = 0.0f;
         }
         // Không có mẫu mới -> quaternion GIỮ NGUYÊN giá trị lần cập nhật cuối.
         // KHÔNG reset, KHÔNG suy diễn tiếp: Commander thấy imu_stale ở bước 6
@@ -2460,8 +2800,10 @@ static void stabilize_task(void *arg) {
             // mơ hồ (một caller khác truyền nhầm "baro còn khoẻ" vào đó sẽ
             // làm correction chạy 250Hz mà không có gì báo lỗi).
             alt_estimator_update(&s_alt_est, imu.accel_g, mahony_quaternion(&s_mahony),
+#if FC_FEATURE_BARO
                                   baro_healthy_for_alt, snap.baro_h.seq,
                                   snap.baro_h.timestamp_us, baro.alt_m,
+#endif
                                   tof_healthy_for_alt, snap.tof_h.seq,
                                   snap.tof_h.timestamp_us, tof.distance_m,
                                   stationary_for_alt, liftoff_candidate_for_alt,
@@ -2479,17 +2821,13 @@ static void stabilize_task(void *arg) {
         if (s_alt_est.active_source != s_alt_source_prev) {
             const char *from = alt_source_name(s_alt_source_prev);
             const char *to   = alt_source_name(s_alt_est.active_source);
-            if (s_alt_est.active_source == ALT_SRC_NONE) {
-                ESP_LOGE(TAG, "DO CAO: MAT HET nguon correction (%s -> NONE) tai Z=%.2fm "
-                              "-> Z dang dead-reckon thuan accel, sai so tang BAC HAI. "
-                              "Sau %dms se trip degraded -> Commander soft fault.",
-                          from, (double)s_alt_est.alt_m, ALT_EST_NO_CORRECTION_DEGRADED_MS);
-            } else if (s_alt_est.active_source == ALT_SRC_BARO) {
-                ESP_LOGW(TAG, "DO CAO: chuyen sang BARO (%s -> BARO) tai Z=%.2fm. "
-                              "ToF khong con mau nao duoc chap nhan (chet, ngoai tam ~%.1fm, "
-                              "hoac bi innovation gate loai). Baro KHONG co tham chieu mat san "
-                              "-> do cao so voi san co the troi.",
-                          from, (double)s_alt_est.alt_m, (double)ALT_EST_TOF_MAX_RANGE_M);
+            if (s_alt_est.active_source == ALT_SRC_TOF_LOST) {
+                ESP_LOGE(TAG, "DO CAO: %s -> TOF_LOST tai Z=%.2fm; Commander se ha canh",
+                          from, (double)s_alt_est.alt_m);
+            } else if (s_alt_est.active_source == ALT_SRC_TOF_SHORT_BRIDGE ||
+                       s_alt_est.active_source == ALT_SRC_IMU_PREDICT_ONLY) {
+                ESP_LOGW(TAG, "DO CAO: %s -> %s tai Z=%.2fm (bridge IMU ngan)",
+                          from, to, (double)s_alt_est.alt_m);
             } else {
                 ESP_LOGI(TAG, "DO CAO: nguon correction %s -> %s tai Z=%.2fm",
                           from, to, (double)s_alt_est.alt_m);
@@ -2522,17 +2860,8 @@ static void stabilize_task(void *arg) {
         hover_vbat_push(&s_vbat_ring, snap.battery.voltage_v,
                          snap.battery_h.seq, snap.battery_h.valid);
 #endif
-#if FC_FEATURE_BARO
-        s_prearm.baro_ready = baro_driver_ground_ready();
-        s_prearm.baro_healthy = baro_driver_ground_healthy();
-#else
-        // Không có baro trong firmware = KHÔNG BAO GIỜ có mốc 0m. Đây đúng là
-        // giá trị mà hai getter kia trả về khi driver chưa từng init (biến
-        // static của baro_driver.c ở mặc định false) -> hành vi không đổi.
-        s_prearm.baro_ready = false;
-        s_prearm.baro_healthy = false;
-#endif
         s_prearm.alt_estimator_valid = s_alt_est.valid;
+        s_prearm.tof_floor_ready = alt_estimator_floor_ready(&s_alt_est);
         s_prearm.loop_healthy = (s_deadline_miss_streak < COMMANDER_DEADLINE_MISS_HARD);
         s_prearm_yaw_deg = yaw_deg;
 
@@ -2596,11 +2925,45 @@ static void stabilize_task(void *arg) {
         s_telemetry.tof_surface_state = (int32_t)s_alt_est.tof_surface_state;
         s_telemetry.tof_correction_enabled = s_alt_est.tof_correction_enabled;
         s_telemetry.tof_ground_range_m = s_alt_est.tof_ground_range_m;
+        s_telemetry.tof_z_m = s_alt_est.tof_z_m;
+        s_telemetry.tof_vz_ms = s_alt_est.tof_vz_lpf_ms;
+        s_telemetry.tof_vz_valid = s_alt_est.tof_vz_valid;
+        s_telemetry.tof_fusable = s_alt_est.tof_fusable;
+        s_telemetry.tof_track_state = (int)s_alt_est.tof_track_state;
+        s_telemetry.floor_locked = s_alt_est.floor_locked;
+        s_telemetry.floor_ready = alt_estimator_floor_ready(&s_alt_est);
+        s_telemetry.floor_sample_count = s_alt_est.floor_sample_count;
+        s_telemetry.floor_std_m = s_alt_est.floor_std_m;
+        s_telemetry.baro_used_by_flight_control = false;
+        s_telemetry.az_body_z_g = s_alt_est.az_body_z_g;
+        s_telemetry.az_earth_raw_ms2 = s_alt_est.az_earth_raw_ms2;
+        s_telemetry.az_after_gravity_ms2 = s_alt_est.az_after_gravity_ms2;
+        s_telemetry.az_after_bias_ms2 = s_alt_est.az_after_bias_ms2;
         s_telemetry.tof_accept_count = s_alt_est.tof_accept_count;
         s_telemetry.tof_reject_count = s_alt_est.tof_reject_count;
         s_telemetry.floor_plane_z_m = s_alt_est.floor_plane_z_m;
         s_telemetry.landing_surface_z_m = s_alt_est.landing_surface_z_m;
         s_telemetry.landing_surface_valid = s_alt_est.landing_surface_valid;
+        // ---- Telemetry baro ----
+        // ⚠ NGOẠI LỆ CÓ CHỦ ĐÍCH của việc compile-out baro: các FIELD baro trong
+        // telemetry_snapshot_t và các token BALT=/BFILT=/BINNOV=/BACC=/BREJ=/
+        // BDT=/BCREJ=/BREACQ=/BSEQ=/BFI=/BAROCORRZ=... trong STATUS VẪN ĐƯỢC
+        // GIỮ khi FC_FEATURE_BARO=0, chỉ phát ra 0.
+        //
+        // VÌ SAO KHÔNG bỏ luôn cho nhẹ: mấy token đó nằm RẢI RÁC GIỮA dòng
+        // STATUS, không phải ở cuối. STATUS_RE bên tools/uav_udp_console.py bắt
+        // theo GROUP INDEX cố định, nên bỏ một token ở giữa sẽ DỊCH toàn bộ
+        // index phía sau -> GUI đọc sai field mà KHÔNG báo lỗi. Chính
+        // telemetry_format.c đã cảnh báo đúng chuyện này hai lần ("them field
+        // vao GIUA se lam DICH moi group index... da mot lan suyt lam GUI hong
+        // IM LANG").
+        //
+        // GIÁ PHẢI TRẢ, đo được chứ không đoán: ~15 field trong telemetry_t
+        // (~60 B RAM) + phần chuỗi format (~200 B flash). Đổi lại: wire format
+        // BẤT BIẾN giữa hai cấu hình, cùng một GUI/log parser dùng được cho cả
+        // hai. Toàn bộ phần ĐẮT (driver BMP280, state trong alt_estimator,
+        // nhánh CORRECT #2, giao dịch I2C) thì ĐÃ biến mất thật.
+#if FC_FEATURE_BARO
         s_telemetry.baro_alt_m = baro.alt_m;
         s_telemetry.baro_pressure_pa = baro.pressure_pa;
         s_telemetry.baro_filtered_alt_m = s_alt_est.baro_lpf_alt_m;
@@ -2612,6 +2975,19 @@ static void stabilize_task(void *arg) {
         s_telemetry.baro_reacquire_active = s_alt_est.baro_reacquire_active;
         s_telemetry.baro_fusion_initialized = s_alt_est.baro_fusion_initialized;
         s_telemetry.baro_seq = snap.baro_h.seq;
+#else
+        s_telemetry.baro_alt_m = 0.0f;
+        s_telemetry.baro_pressure_pa = 0.0f;
+        s_telemetry.baro_filtered_alt_m = 0.0f;
+        s_telemetry.baro_innovation_m = 0.0f;
+        s_telemetry.baro_dt_s = 0.0f;
+        s_telemetry.baro_accept_count = 0;
+        s_telemetry.baro_reject_count = 0;
+        s_telemetry.baro_reject_consecutive = 0;
+        s_telemetry.baro_reacquire_active = false;
+        s_telemetry.baro_fusion_initialized = false;
+        s_telemetry.baro_seq = 0;
+#endif
         s_telemetry.alt_airborne = airborne_for_alt;
         s_telemetry.alt_liftoff_candidate = liftoff_candidate_for_alt;
         s_telemetry.alt_degraded = s_alt_est.degraded;
@@ -2619,8 +2995,13 @@ static void stabilize_task(void *arg) {
         s_telemetry.alt_source = (uint8_t)s_alt_est.active_source;
         s_telemetry.tof_corr_z_m = s_alt_est.tof_corr_z_m;
         s_telemetry.tof_corr_vz_ms = s_alt_est.tof_corr_vz_ms;
+#if FC_FEATURE_BARO
         s_telemetry.baro_corr_z_m = s_alt_est.baro_corr_z_m;
         s_telemetry.baro_corr_vz_ms = s_alt_est.baro_corr_vz_ms;
+#else
+        s_telemetry.baro_corr_z_m = 0.0f;
+        s_telemetry.baro_corr_vz_ms = 0.0f;
+#endif
         s_telemetry.bias_residual_m = s_alt_est.bias_residual_m;
         s_telemetry.bias_adapt_count = s_alt_est.bias_adapt_count;
 #if FC_FEATURE_TOF
@@ -2687,9 +3068,8 @@ static void stabilize_task(void *arg) {
 
         // ---- 4) rút HẾT command queue (Python chậm, xử lý ngay trong tick) ----
         //
-        // ĐO THỜI GIAN quanh cả khối: vài lệnh chạy công việc CHẶN dài NGAY
-        // TRONG task này — nặng nhất là CMD_ARM -> baro_driver_calibrate_ground()
-        // (~970ms: 300ms settle + 32 mẫu x 20ms). Trong lúc đó không lệnh nào
+        // ĐO THỜI GIAN quanh cả khối: vài lệnh debug chạy công việc CHẶN dài
+        // NGAY TRONG task này (vd CMD_CALIB_BARO_GROUND ~970ms). Trong lúc đó không lệnh nào
         // được rút và commander_evaluate() không chạy, nên mọi đồng hồ watchdog
         // già đi bằng đúng khoảng chặn đó DÙ trạm mặt đất vẫn gửi đều.
         //
@@ -2778,7 +3158,15 @@ static void stabilize_task(void *arg) {
                 // fc.control() thr -> SLEW target altitude (KHÔNG step), chỉ khi
                 // alt_hold thực sự đang chạy. Freeze (không slew) ngoài
                 // HOLDING/FLYING — vd TAKING_OFF/LANDING tự quản lý target riêng.
-                s_alt_target_m += (s_ctrl_thr_pct * 0.01f) * CONTROL_ALT_SLEW_MPS * dt;
+                s_alt_request_m += (s_ctrl_thr_pct * 0.01f) * CONTROL_ALT_SLEW_MPS * dt;
+                s_alt_request_m = commander_clamp_altitude(&s_cmd_cfg, s_alt_request_m);
+            }
+            if (s_fsm.state == FSM_HOLDING || s_fsm.state == FSM_FLYING) {
+                const float step = CONTROL_ALT_SLEW_MPS * dt;
+                const float rem = s_alt_request_m - s_alt_target_m;
+                if (rem > step) s_alt_target_m += step;
+                else if (rem < -step) s_alt_target_m -= step;
+                else s_alt_target_m = s_alt_request_m;
                 s_alt_target_m = commander_clamp_altitude(&s_cmd_cfg, s_alt_target_m);
             }
             s_sp_stale_prev = sp_stale;
@@ -2900,6 +3288,7 @@ static void stabilize_task(void *arg) {
                 // của người dùng mới bay lại, không tự phục hồi.
                 enter_kill_latch("EMERGENCY khong kiem soat duoc -> DISARMED");
                 reset_all_controllers();
+                alt_estimator_unlock_floor(&s_alt_est);
                 publish_kill_tick_telemetry(now_us);
                 continue;   // END TICK
             }
@@ -2924,6 +3313,18 @@ static void stabilize_task(void *arg) {
         // sang HOLDING, telemetry vẫn báo score/evidence/z_sp của lần cất cánh
         // trước như thể chuỗi đang chạy.
         s_tko_result = (takeoff_result_t){0};
+
+        // Rời FLYING (về HOLDING vì thả phím nghiêng, hoặc sang LANDING/
+        // EMERGENCY/DISARMED vì bất kỳ lý do gì) -> XOÁ latch ga. Đặt ở ĐÂY,
+        // ngay trước switch, thay vì rải ở từng fsm_transition(): có hơn 20 chỗ
+        // chuyển state và chỉ cần bỏ sót MỘT chỗ là lần vào FLYING sau sẽ dùng
+        // lại con số của chuyến bay trước — đúng loại lỗi im lặng khó lần nhất.
+        // Một điều kiện duy nhất, kiểm mỗi tick, không thể bỏ sót.
+        if (s_fsm.state != FSM_FLYING && s_flying_throttle_latch >= 0) {
+            ESP_LOGI(TAG, "roi FLYING -> xoa latch ga (%d duty), alt_hold nhan lai quyen giu do cao",
+                      s_flying_throttle_latch);
+            s_flying_throttle_latch = -1;
+        }
 
         switch (s_fsm.state) {
             case FSM_DISARMED:
@@ -2962,11 +3363,13 @@ static void stabilize_task(void *arg) {
                 // tick đầu của CLIMB => TKO_ABORT_TOF_LOST sau 300ms, MỖI LẦN.
                 // Nó cũng abort giữa chừng khi leo quá tầm ToF (~1.8m) dù cảm
                 // biến hoàn toàn lành. Xem takeoff_land.h phần alt_source_ok.
-                const bool alt_source_ok = tof_healthy_for_alt || baro_healthy_for_alt;
                 takeoff_run(&s_tko_state, &s_tko_tune, &s_hold_state, &s_hold_tune,
                             s_alt_est.valid, s_alt_est.alt_m, s_alt_est.vz_ms,
-                            alt_source_ok, tko_tilt_deg,
+                            s_alt_est.tof_fusable && tof_healthy_for_alt,
+                            s_alt_est.tof_z_m, s_alt_est.tof_vz_lpf_ms,
+                            tko_tilt_deg,
                             dt, now_us, MOTOR_SAFE_MAX_DUTY, &tr);
+                if (tr.liftoff_edge) alt_estimator_confirm_liftoff(&s_alt_est);
                 throttle_cmd = tr.throttle_duty;
                 takeoff_phase = tr.phase;
                 takeoff_prime_done = (tr.phase != TKO_PRIME);
@@ -3000,10 +3403,43 @@ static void stabilize_task(void *arg) {
                                                                     "pin con bao nhieu (xem BATV) -> khoi luong co vuot suc nang "
                                                                     "khong -> hover_ff (ALT_HOLD_HOVER_NOMINAL) co dat qua thap "
                                                                     "so voi hover THAT khong)" :
+                        (tr.abort_reason == TKO_ABORT_NO_LIFT_EVIDENCE)
+                                                                  ? "NO_LIFT (het NO_LIFT_TIMEOUT trong CLIMB ma ToF van doc "
+                                                                    "duoi nguong do cao). Chuoi KHONG he bi ket, PID van chay "
+                                                                    "suot — drone that su khong di len. Kiem: canh quat vuong/lap "
+                                                                    "nguoc -> pin (BATV) -> tai trong -> hover_ff qua thap" :
                                                                     "TIMEOUT (qua han toan chuoi — chuoi bi ket, khong tien pha)";
                     ESP_LOGE(TAG, "TAKEOFF ABORT: %s (liftoff=%d, Z=%.2f, t=%.1fs) -> EMERGENCY",
                               why, (int)tr.liftoff_flag, (double)s_alt_est.alt_m,
                               (double)tr.elapsed_s);
+                    if (tr.abort_reason == TKO_ABORT_TIMEOUT) {
+                        // Deadline tong chuoi. Gan nhu LUON LUON nghia la
+                        // hold_ready khong dong duoc cua so, chu KHONG phai
+                        // "chuoi bi ket" — in TUNG VE de phan biet ngay.
+                        ESP_LOGE(TAG, "  hold_ready: lift=%d | zsp=%.3f==tgt=%.3f ? %d | "
+                                      "|Z-tgt|=%.3f<=%.3f ? %d | |Vz|=%.3f<=%.3f ? %d",
+                                  (int)tr.liftoff_flag,
+                                  (double)tr.target_z_m, (double)tr.final_target_m,
+                                  (int)(tr.target_z_m == tr.final_target_m),
+                                  (double)fabsf(s_alt_est.alt_m - tr.final_target_m),
+                                  (double)TAKEOFF_HOLD_Z_TOL_M,
+                                  (int)(fabsf(s_alt_est.alt_m - tr.final_target_m) <= TAKEOFF_HOLD_Z_TOL_M),
+                                  (double)fabsf(s_alt_est.vz_ms), (double)TAKEOFF_HOLD_VZ_TOL_MS,
+                                  (int)(fabsf(s_alt_est.vz_ms) <= TAKEOFF_HOLD_VZ_TOL_MS));
+                    }
+                    if (tr.abort_reason == TKO_ABORT_NO_LIFT_EVIDENCE) {
+                        // In SO DO THAT kem NGUONG DA AP DUNG. Nguong co theo
+                        // target (min voi target*FRAC) nen phai in ra ca hai,
+                        // khong the bat nguoi doc tu nhan lai.
+                        const float nl_thr = fminf(TAKEOFF_NO_LIFT_ALT_M,
+                                                    tr.final_target_m * TAKEOFF_NO_LIFT_TARGET_FRAC);
+                        ESP_LOGE(TAG, "  ToF doc %.3fm < nguong %.3fm sau %dms (target=%.2fm, "
+                                      "collective=%d, hover_ff=%.0f, I=%+.0f, fusable=%d)",
+                                  (double)s_alt_est.tof_z_m, (double)nl_thr,
+                                  TAKEOFF_NO_LIFT_TIMEOUT_MS, (double)tr.final_target_m,
+                                  tr.throttle_duty, (double)tr.hover_ff, (double)tr.vz_i_term,
+                                  (int)(s_alt_est.tof_fusable && tof_healthy_for_alt));
+                    }
                     s_last_fault_class = FAULT_HARD;
                     fsm_transition(&s_fsm, fsm_on_hard_fault(s_fsm.state), now_us);
                     break;
@@ -3016,6 +3452,7 @@ static void stabilize_task(void *arg) {
                     // alt_hold_run() ở tick sau tiếp tục trên CÙNG cascade từ
                     // CHÍNH state đó — KHÔNG preload/reset/đổi throttle gì thêm.
                     s_alt_target_m = tr.final_target_m;
+                    s_alt_request_m = tr.final_target_m;
                     ESP_LOGI(TAG, "TAKEOFF XONG -> HOLDING giu %.2fm (Z=%.2f Vz=%.2f, "
                                   "collective=%d, hover_ff=%.0f I=%+.0f)",
                               (double)tr.final_target_m, (double)s_alt_est.alt_m,
@@ -3028,79 +3465,264 @@ static void stabilize_task(void *arg) {
 
             case FSM_HOLDING:
             case FSM_FLYING: {
-                alt_hold_result_t hr;
+                alt_hold_result_t hr = (alt_hold_result_t){0};
                 const bool tilt_ok = fabsf(roll_deg) <= ALT_HOLD_TILT_GATE_DEG &&
                                       fabsf(pitch_deg) <= ALT_HOLD_TILT_GATE_DEG;
-                // Chụp I TRƯỚC khi gọi: nếu người dùng đang giữ W/S ta phải trả
-                // I về đúng giá trị này (xem khối ghi đè ngay dưới).
+
+                // ---- B7: ĐẠI LƯỢNG ĐO đưa vào tầng alt phụ thuộc FRAME ----
+                // DATUM -> alt_m (độ cao trên sàn cất cánh, hành vi cũ)
+                // AGL   -> alt_m - terrain_off_m (độ cao trên bề mặt đang nhìn)
+                // Chỉ đổi ĐẦU VÀO ĐO, KHÔNG đổi cascade/target/integral — nên
+                // chuyển frame giữa chừng không gây bước nhảy ga.
+                const float agl_now_m = alt_estimator_agl_m(&s_alt_est);
+                const float alt_meas_m = (s_alt_frame == ALT_FRAME_AGL)
+                                          ? agl_now_m : s_alt_est.alt_m;
+
+                // ---- D4: MẤT NGUỒN Z GIỮA LÚC HOLD -> DEGRADE, KHÔNG CHẾT ----
+                // Bản trước: mẫu đầu tiên mất validity là alt_hold trả
+                // engage_lost -> Commander soft fault -> LANDING ngay. Một cú
+                // nhấp nháy ToF 200ms cũng đủ kết thúc chuyến bay.
+                // Giờ: giữ điều khiển bằng accel trong ALT_HOLD_TOF_DEGRADE_MS
+                // (vz_target = 0, I FREEZE — không sạc I bằng số liệu chết),
+                // quá cửa sổ mới nhả cho Commander -> LANDING (nhánh BLIND).
+                bool alt_degraded_hold = false;
+                if (!s_alt_est.valid) {
+                    if (!s_alt_degrade_active) {
+                        s_alt_degrade_active = true;
+                        s_alt_degrade_since_us = now_us;
+                        ESP_LOGW(TAG, "HOLD: mat nguon Z -> degrade accel-hold (vz=0, I freeze) "
+                                      "trong toi da %dms roi moi ha canh", ALT_HOLD_TOF_DEGRADE_MS);
+                    }
+                    alt_degraded_hold =
+                        (now_us - s_alt_degrade_since_us) < (int64_t)ALT_HOLD_TOF_DEGRADE_MS * 1000;
+                } else {
+                    s_alt_degrade_active = false;
+                }
+
+                // ---- B6: TRONG lúc terrain đang PENDING ----
+                // FREEZE I của vòng Vz (không sạc khi số liệu đang loạn),
+                // alt_m COAST bằng dự đoán từ accel (estimator đã không ăn
+                // range), P/D VẪN CHẠY trên giá trị coast. KHÔNG tắt hẳn PID:
+                // tắt thì drone trôi dọc tự do vài trăm ms — nguy hiểm hơn hẳn
+                // so với mất tham chiếu ~100ms.
+                const bool terr_freeze = s_alt_est.terr_pending;
+
+                // Chụp I TRƯỚC khi gọi: nếu người dùng đang giữ W/S, hoặc guard
+                // khoảng hở bắn, ta phải trả I về đúng giá trị này trước khi
+                // chạy lại tầng trong (xem các khối ghi đè bên dưới).
                 const float vz_i_before = s_hold_state.vz_integral;
-                alt_hold_run(&s_hold_state, &s_hold_tune, s_alt_target_m,
-                             s_alt_est.valid, s_alt_est.alt_m, s_alt_est.vz_ms,
-                             tilt_ok, 0, dt, MOTOR_SAFE_MAX_DUTY, &hr);
-                throttle_cmd = hr.throttle_duty;
-                alt_target_vz_ms = hr.vz_target_ms;
+
+                // ---- FLYING: TẮT PID ĐỘ CAO, GIỮ NGUYÊN MỌI THỨ KHÁC ----
+                // Xem s_flying_throttle_latch (đầu file) để biết lý do đầy đủ.
+                //
+                // Latch được CHỐT ở tick ĐẦU TIÊN vào FLYING, lấy đúng duty mà
+                // alt_hold đang xuất — nên chuyển HOLDING->FLYING không có bước
+                // nhảy ga nào. Từ đó throttle đứng yên; chỉ W/S mới đổi được.
+                //
+                // I-term của vòng Vz được GIỮ NGUYÊN (không reset, không chạy):
+                // nó chứa lượng ga hover đã học được: khi thả phím nghiêng về
+                // HOLDING, alt_hold nhận lại với đúng I đó nên không phải học
+                // lại từ đầu. Reset ở đây sẽ gây tụt ga ngay lúc vừa về HOLD.
+                const bool flying_no_alt_pid = (s_fsm.state == FSM_FLYING);
+                if (flying_no_alt_pid) {
+                    if (s_flying_throttle_latch < 0) {
+                        // Tick ĐẦU vào FLYING: chốt duty mà alt_hold đang xuất.
+                        //
+                        // KHÔNG lấy từ throttle_cmd: biến đó được gán 0 ở đầu
+                        // bước 9 mỗi tick nên tại đây nó luôn là 0, latch sẽ
+                        // rơi thẳng xuống sàn ALT_HOLD_MIN_THROTTLE_DUTY và
+                        // drone tụt ngay khi bắt đầu bay ngang.
+                        //
+                        // s_last_hold_throttle được bước HOLDING ghi lại ở tick
+                        // trước (xem cuối nhánh này) — đó mới là ga hover THẬT
+                        // mà alt_hold đã học được.
+                        s_flying_throttle_latch = clampi(
+                            (s_last_hold_throttle > 0) ? s_last_hold_throttle
+                                                        : (int)s_hold_tune.hover,
+                            ALT_HOLD_MIN_THROTTLE_DUTY, MOTOR_SAFE_MAX_DUTY);
+                        ESP_LOGI(TAG, "FLYING: TAT PID do cao, chot ga = %d duty "
+                                      "(attitude PID/mixer/estimator/failsafe VAN chay)",
+                                  s_flying_throttle_latch);
+                    }
+                    throttle_cmd = s_flying_throttle_latch;
+                    // hr phải phản ánh đúng những gì đang xảy ra: alt_hold KHÔNG
+                    // lái throttle nữa. hold_driving=false chặn khối W/S bên dưới
+                    // đi vào nhánh "hoàn tác I" (không có gì để hoàn tác) — W/S
+                    // được xử lý riêng ngay sau đây.
+                    hr.throttle_duty = throttle_cmd;
+                    hr.hold_driving = false;
+                    hr.engage_lost = false;
+                    hr.vz_target_ms = 0.0f;
+                    alt_target_vz_ms = 0.0f;
+
+                    // W/S vẫn phải ăn khi đang bay ngang. Cộng thẳng vào latch
+                    // (KHÔNG chỉ vào throttle_cmd của tick này) để giữ phím có
+                    // tác dụng CỘNG DỒN đúng như cảm giác "đẩy ga lên rồi giữ".
+                    if (s_bench_throttle_offset != 0) {
+                        int ws_duty = s_bench_throttle_offset;
+                        const float fly_alt_max = commander_clamp_altitude(&s_cmd_cfg, s_cmd_cfg.alt_max_m);
+                        if (ws_duty > 0 && s_alt_est.alt_m >= fly_alt_max) ws_duty = 0;
+                        if (ws_duty < 0 && s_alt_est.alt_m <= s_cmd_cfg.alt_min_m) ws_duty = 0;
+                        s_flying_throttle_latch = clampi(s_flying_throttle_latch + ws_duty,
+                                                          ALT_HOLD_MIN_THROTTLE_DUTY,
+                                                          MOTOR_SAFE_MAX_DUTY);
+                        throttle_cmd = s_flying_throttle_latch;
+                        hr.throttle_duty = throttle_cmd;
+                    }
+                    // NEO target theo độ cao hiện tại mỗi tick: thả phím nghiêng
+                    // -> về HOLDING và giữ NGAY tại chỗ đang ở, không giật về
+                    // độ cao trước khi bay ngang.
+                    s_alt_target_m = commander_clamp_altitude(&s_cmd_cfg, s_alt_est.alt_m);
+                    s_alt_request_m = s_alt_target_m;
+                } else if (s_hold_state.engaged && (alt_degraded_hold || terr_freeze)) {
+                    // Mất nguồn Z -> alt_meas_m là rác, KHÔNG cho vào tầng alt:
+                    // ép vz_target = 0. Terrain pending -> alt_m vẫn là số coast
+                    // dùng được nên tầng alt chạy bình thường.
+                    const float vz_t = alt_degraded_hold
+                        ? 0.0f
+                        : clampf(s_hold_tune.alt_kp * (s_alt_target_m - alt_meas_m),
+                                  -ALT_HOLD_VZ_LIMIT_MS, ALT_HOLD_VZ_LIMIT_MS);
+                    throttle_cmd = alt_hold_vz_cascade(&s_hold_state, &s_hold_tune,
+                                                        vz_t, s_alt_est.vz_ms, dt,
+                                                        true /* FREEZE I */,
+                                                        s_hold_tune.vz_ilimit,
+                                                        ALT_HOLD_MIN_THROTTLE_DUTY,
+                                                        MOTOR_SAFE_MAX_DUTY);
+                    hr.throttle_duty = throttle_cmd;
+                    hr.hold_driving = true;
+                    hr.engage_lost = false;
+                    hr.vz_target_ms = vz_t;
+                    alt_target_vz_ms = vz_t;
+                } else {
+                    alt_hold_run(&s_hold_state, &s_hold_tune, s_alt_target_m,
+                                 s_alt_est.valid, alt_meas_m, s_alt_est.vz_ms,
+                                 tilt_ok, 0, dt, MOTOR_SAFE_MAX_DUTY, &hr);
+                    throttle_cmd = hr.throttle_duty;
+                    alt_target_vz_ms = hr.vz_target_ms;
+                }
                 hold_integral_freeze = false;   // ngoài takeoff, prime_done luôn true
 
-                // ---- W/S = LỆNH VẬN TỐC Vz (không phải cộng duty, không phải
-                //      đổi độ cao theo nấc) — xem ALT_HOLD_WS_VZ_MS (tuning.h) ----
+                // ---- W/S = CỘNG THẲNG ±offset DUTY vào throttle ----
+                // (THEO YÊU CẦU NGƯỜI DÙNG — trước đây chỗ này dịch offset
+                //  thành lệnh vận tốc ALT_HOLD_WS_VZ_MS; xem tuning.h mục
+                //  "W/S" để biết đánh đổi.)
+                //
+                // Ý nghĩa giờ ĐỒNG NHẤT ở mọi state: giá trị trên dây LÀ duty.
+                // BENCH_RAMP đã luôn hiểu vậy (bước 9 case FSM_BENCH_RAMP), giờ
+                // HOLDING/FLYING cũng vậy — một con số, một nghĩa.
+                //
+                // ⚠ ĐÁNH ĐỔI ĐÃ BIẾT VÀ CHẤP NHẬN:
+                //   - "+100 duty" KHÔNG có đơn vị vật lý: cùng phím cho tốc độ
+                //     leo khác nhau tuỳ pin (hover ~900 duty @4.2V so với ~1350
+                //     @3.6V). Pin cạn thì cùng +100 sẽ leo chậm hơn rõ rệt.
+                //   - Người lái phải TỰ điều tiết bằng mắt, không còn được vòng
+                //     Vz bù giúp.
                 //
                 // Chỉ can thiệp khi alt_hold ĐANG thật sự lái throttle
                 // (hold_driving). Mất estimator/nghiêng quá thì alt_hold đã trả
                 // manual throttle và Commander đang xử lý soft fault — chồng
-                // thêm lệnh của người dùng vào lúc đó là làm nhiễu một quy
-                // trình an toàn đang chạy.
-                //
-                // Ở ĐÂY s_bench_throttle_offset CHỈ MANG DẤU (hướng lên/xuống),
-                // KHÔNG phải một lượng duty. Cùng một giá trị trên dây, mỗi
-                // state dịch một nghĩa — đúng quy ước sẵn có (BENCH_RAMP vẫn
-                // dịch nó là duty thật, xem bước 9 case FSM_BENCH_RAMP).
+                // thêm lệnh người dùng vào lúc đó là làm nhiễu một quy trình an
+                // toàn đang chạy.
                 if (s_bench_throttle_offset != 0 && hr.hold_driving) {
-                    // (1) HOÀN TÁC integral mà alt_hold_run() vừa cộng. Ta sắp
-                    //     chạy LẠI tầng trong với vz_target của người lái —
-                    //     không hoàn tác thì cùng một dt bị tích phân HAI LẦN.
-                    //     KHÁC HẲN bản ±duty trước đây: bản đó ĐÓNG BĂNG I vĩnh
-                    //     viễn trong lúc giữ phím (bắt buộc, nếu không I tự trừ
-                    //     dần đúng bằng offset và phím "hết ăn" sau vài giây).
-                    //     Ở chế độ Vz thì I PHẢI ĐƯỢC CHẠY — chính nó là thứ
-                    //     học ra lượng ga cần để giữ đúng 0.3 m/s bất kể pin.
+                    // (1) ĐÓNG BĂNG I — BẮT BUỘC, không phải tuỳ chọn.
+                    //     alt_hold giữ độ cao bằng I-term. Cộng +100 duty vào
+                    //     output mà vẫn để I chạy thì I nhìn thấy drone đang
+                    //     leo "sai" so với target và tự TRỪ dần đúng bằng +100
+                    //     — sau vài giây phím "hết ăn" hoàn toàn dù vẫn đang
+                    //     giữ. Khôi phục I về giá trị TRƯỚC khi alt_hold_run()
+                    //     cộng ở tick này là cách đóng băng chính xác nhất.
                     s_hold_state.vz_integral = vz_i_before;
 
-                    float ws_vz = (s_bench_throttle_offset > 0)
-                                   ? ALT_HOLD_WS_VZ_MS : -ALT_HOLD_WS_VZ_MS;
+                    int ws_duty = s_bench_throttle_offset;
 
-                    // (2) GEOFENCE phải chặn được LỆNH, không chỉ chặn target.
-                    //     Bản ±duty cũ cộng thẳng vào duty nên trần/sàn độ cao
-                    //     KHÔNG có đường nào tác động trong lúc giữ phím —
-                    //     clamp chỉ có tác dụng SAU khi nhả. Giờ lệnh là vận
-                    //     tốc, nên chặn đúng chỗ: tới biên thì cắt lệnh theo
-                    //     CHIỀU ĐANG VI PHẠM, chiều ngược lại vẫn cho đi (luôn
-                    //     phải thoát ra được khỏi biên).
-                    if (ws_vz > 0.0f && s_alt_est.alt_m >= s_cmd_cfg.alt_max_m) ws_vz = 0.0f;
-                    if (ws_vz < 0.0f && s_alt_est.alt_m <= s_cmd_cfg.alt_min_m) ws_vz = 0.0f;
+                    // (2) GEOFENCE — chặn LỆNH theo chiều đang vi phạm.
+                    //     Với ±duty thì trần/sàn không tự chặn được như lệnh
+                    //     vận tốc (duty đi thẳng ra motor, không qua tầng Z),
+                    //     nên phải chặn TƯỜNG MINH ở đây. Chiều ngược lại vẫn
+                    //     cho đi — luôn phải thoát ra được khỏi biên.
+                    const float tof_alt_max = commander_clamp_altitude(&s_cmd_cfg, s_cmd_cfg.alt_max_m);
+                    if (ws_duty > 0 && s_alt_est.alt_m >= tof_alt_max) ws_duty = 0;
+                    if (ws_duty < 0 && s_alt_est.alt_m <= s_cmd_cfg.alt_min_m) ws_duty = 0;
 
-                    // (3) Chạy tầng trong với vz_target của người lái. Dùng
-                    //     CHÍNH alt_hold_vz_cascade() mà takeoff/landing đang
-                    //     dùng -> tái dùng nguyên anti-windup 3 lớp, vz_ilimit
-                    //     và cờ vz_saturated. Sàn ALT_HOLD_MIN_THROTTLE_DUTY
-                    //     giữ nguyên: giữ S không được phép cắt motor về 0 khi
-                    //     đang bay.
-                    throttle_cmd = alt_hold_vz_cascade(
-                        &s_hold_state, &s_hold_tune, ws_vz, s_alt_est.vz_ms, dt,
-                        false /* KHÔNG freeze: I phải học ga giữ vận tốc */,
-                        s_hold_tune.vz_ilimit,
-                        ALT_HOLD_MIN_THROTTLE_DUTY, MOTOR_SAFE_MAX_DUTY);
-                    alt_target_vz_ms = ws_vz;   // telemetry VZTGT phản ánh lệnh THẬT
+                    // (3) CỘNG THẲNG vào duty mà alt_hold vừa tính. Sàn
+                    //     ALT_HOLD_MIN_THROTTLE_DUTY giữ nguyên: giữ S không
+                    //     được phép cắt motor về 0 khi đang bay.
+                    throttle_cmd = clampi(throttle_cmd + ws_duty,
+                                           ALT_HOLD_MIN_THROTTLE_DUTY, MOTOR_SAFE_MAX_DUTY);
 
                     // (4) NEO target theo độ cao HIỆN TẠI mỗi tick. Nhả phím là
                     //     giữ ngay tại chỗ đang ở, không giật về độ cao cũ.
                     s_alt_target_m = commander_clamp_altitude(&s_cmd_cfg, s_alt_est.alt_m);
+                    s_alt_request_m = s_alt_target_m;
                 }
+#if FC_FEATURE_TERRAIN_OFFSET
+                // ---- B8: GUARD KHOẢNG HỞ TỐI THIỂU — LƯỚI AN TOÀN CUỐI ----
+                // Chạy SAU mọi đường tính throttle ở trên (kể cả W/S) vì nó
+                // phải THẮNG tất cả: dù logic offset có sai, dù người lái đang
+                // giữ S, drone vẫn không được cắm xuống mặt bàn.
+                //
+                // Hai việc, và thứ tự KHÔNG đổi được:
+                //   1. ÉP LEO: vz_target = max(lệnh hiện tại, TERR_ESCAPE_VZ)
+                //      — bất kể frame nào đang chọn.
+                //   2. REBASE terrain_off_m theo range thật -> AGL khớp lại với
+                //      cái đang thật sự ở dưới, thay vì để controller đánh nhau
+                //      với một model terrain đã sai. Chỉ rebase ở CẠNH LÊN của
+                //      guard: rebase mỗi tick sẽ làm terr_commit_count chạy
+                //      loạn và landing tưởng có bậc địa hình mới liên tục.
+                // hold_driving HOẶC flying_no_alt_pid: ở FLYING ta cố ý đặt
+                // hold_driving=false (alt_hold không lái throttle nữa), nhưng
+                // guard khoảng hở PHẢI VẪN CHẠY. Nó là lưới an toàn chống cắm
+                // xuống đất — thứ cần nhất ĐÚNG LÚC đang bay ngang về phía một
+                // vật cản, chứ không phải lúc treo yên một chỗ. Chỉ kiểm
+                // hold_driving thôi là vô hiệu hoá guard trong toàn bộ FLYING.
+                const bool clearance_low = (hr.hold_driving || flying_no_alt_pid) &&
+                                            s_alt_est.tof_fusable &&
+                                            agl_now_m < TERR_MIN_CLEARANCE_M;
+                if (clearance_low) {
+                    s_hold_state.vz_integral = vz_i_before;   // xem khối W/S: tránh tích phân 2 lần
+                    const float esc_vz = fmaxf(alt_target_vz_ms, TERR_ESCAPE_VZ_MS);
+                    throttle_cmd = alt_hold_vz_cascade(
+                        &s_hold_state, &s_hold_tune, esc_vz, s_alt_est.vz_ms, dt,
+                        false, s_hold_tune.vz_ilimit,
+                        ALT_HOLD_MIN_THROTTLE_DUTY, MOTOR_SAFE_MAX_DUTY);
+                    alt_target_vz_ms = esc_vz;
+                    // Đang FLYING: guard vừa tính một duty CAO HƠN để thoát lên.
+                    // Phải đẩy vào LATCH, không chỉ vào throttle_cmd của tick
+                    // này — nếu không thì tick sau latch cũ (thấp) ghi đè lại và
+                    // guard chỉ có tác dụng đúng một tick, drone vẫn cắm xuống.
+                    if (flying_no_alt_pid) {
+                        s_flying_throttle_latch = clampi(throttle_cmd,
+                                                          ALT_HOLD_MIN_THROTTLE_DUTY,
+                                                          MOTOR_SAFE_MAX_DUTY);
+                    }
+                    if (!s_terr_guard_active) {
+                        s_terr_guard_active = true;
+                        const bool rebased = alt_estimator_terrain_rebase(&s_alt_est);
+                        ESP_LOGW(TAG, "KHOANG HO %.2fm < %.2fm -> EP LEO %.2f m/s%s "
+                                      "(be mat duoi bung cao hon model terrain)",
+                                  (double)agl_now_m, (double)TERR_MIN_CLEARANCE_M,
+                                  (double)esc_vz,
+                                  rebased ? " + rebase terrain" : " (khong rebase duoc: ToF khong dung duoc)");
+                    }
+                } else {
+                    s_terr_guard_active = false;
+                }
+#endif  // FC_FEATURE_TERRAIN_OFFSET
+
                 // KHÔNG tự chuyển FSM ở đây nữa. Commander là nơi DUY NHẤT
                 // quyết định soft fault (đúng như docstring commander.h vẫn
                 // luôn nói) — trước đây alt_hold có đường tắt riêng, tạo ra
                 // hai nguồn quyết định cho cùng một sự kiện. Giờ chỉ báo cáo,
                 // Commander đọc ở tick sau (xem s_alt_hold_engage_lost_prev).
                 s_alt_hold_engage_lost_prev = hr.engage_lost;
+
+                // Ghi lại ga của tick HOLDING này để lần vào FLYING kế tiếp có
+                // cái mà chốt (xem s_last_hold_throttle). CHỈ ghi khi đang thật
+                // sự ở HOLDING: ghi cả lúc FLYING thì latch sẽ tự "đuổi theo"
+                // chính nó và mất hẳn ý nghĩa đóng băng.
+                if (s_fsm.state == FSM_HOLDING) {
+                    s_last_hold_throttle = throttle_cmd;
+                }
                 break;
             }
 
@@ -3114,14 +3736,24 @@ static void stabilize_task(void *arg) {
                 // hỏng) hàm trả về alt_m -> hành vi y hệt bản cũ.
                 const float land_height_m =
                     alt_estimator_height_above_landing_surface(&s_alt_est);
+                // BẰNG CHỨNG CHẠM ĐẤT cũng phải là AGL: tof_z_m là độ cao trên
+                // SÀN CẤT CÁNH, dùng nó khi đang hạ xuống mặt bàn thì ngưỡng
+                // touchdown 3.5cm không bao giờ đạt được (nó còn cách sàn 0.75m
+                // dù đã nằm trên bàn) -> motor quay mãi.
+                const float land_tof_agl_m = alt_estimator_tof_agl_m(&s_alt_est);
                 landing_run(&s_land_state, &s_land_tune, &s_hold_state, &s_hold_tune,
                             was_engaged, s_alt_est.valid, land_height_m, s_alt_est.vz_ms,
-                            0, dt, now_us, MOTOR_SAFE_MAX_DUTY, &lr);
+                            0, s_alt_est.tof_fusable, land_tof_agl_m,
+                            s_alt_est.tof_vz_lpf_ms,
+                            s_alt_est.terr_pending, s_alt_est.terr_commit_count,
+                            s_alt_est.az_after_bias_ms2,
+                            dt, now_us, MOTOR_SAFE_MAX_DUTY, &lr);
                 throttle_cmd = lr.throttle_duty;
                 hold_integral_freeze = false;
                 if (lr.touchdown_done) {
                     motor_driver_disarm();
                     reset_all_controllers();
+                    alt_estimator_unlock_floor(&s_alt_est);
                     fsm_transition(&s_fsm, fsm_on_landing_touchdown(s_fsm.state), now_us);
                 }
                 break;
@@ -3272,9 +3904,24 @@ static void stabilize_task(void *arg) {
         xSemaphoreTake(s_telemetry_mtx, portMAX_DELAY);
         s_telemetry.state = s_fsm.state;
         s_telemetry.armed = (s_fsm.state != FSM_DISARMED);
+        s_telemetry.terrain_off_m      = s_alt_est.terrain_off_m;
+        s_telemetry.terrain_pending    = s_alt_est.terr_pending;
+        s_telemetry.terrain_commits    = s_alt_est.terr_commit_count;
+        s_telemetry.terrain_residual_m = s_alt_est.terr_residual_m;
+        s_telemetry.clearance_m        = alt_estimator_agl_m(&s_alt_est);
+        s_telemetry.alt_frame          = (int32_t)s_alt_frame;
         s_telemetry.alt_target_m = s_alt_target_m;
+        s_telemetry.alt_request_m = s_alt_request_m;
+        s_telemetry.z_error_m = s_alt_target_m - s_alt_est.alt_m;
+        s_telemetry.vz_error_ms = s_hold_state.last_vz_error;
+        s_telemetry.vz_p_term = s_hold_state.last_p_term;
+        s_telemetry.vz_i_term = s_hold_state.last_i_term;
+        s_telemetry.vz_d_term = s_hold_state.last_d_term;
+        s_telemetry.vz_output_duty = s_hold_state.last_output_duty;
+        s_telemetry.hover_throttle_duty = s_hold_tune.hover;
         s_telemetry.alt_target_vz_ms = alt_target_vz_ms;
         s_telemetry.throttle_duty = throttle_cmd;
+        s_telemetry.throttle_correction_duty = (float)throttle_cmd - s_hold_tune.hover;
         s_telemetry.battery_comp = battery_comp;
         s_telemetry.m1 = att_out.m1; s_telemetry.m2 = att_out.m2;
         s_telemetry.m3 = att_out.m3; s_telemetry.m4 = att_out.m4;
@@ -3324,6 +3971,46 @@ static void stabilize_task(void *arg) {
         s_telemetry.calib_gyro_valid = s_calib.gyro_valid;
         s_telemetry.calib_accel_valid = s_calib.accel_valid;
         s_telemetry.calib_mag_valid = s_calib.mag_valid;
+
+        // ---- Gyro bias diagnostics (xem telemetry.h, tuning.h muc 8b) ----
+        // Quan he BAT BUOC giua ba dong nay: corr == raw - bias. Publish ca ba
+        // de nguoi doc TU KIEM CHUNG duoc, khong phai tin loi firmware.
+        // Lay tu imu.* cua CHINH tick nay (cung mau Mahony/PID vua dung).
+        s_telemetry.gyro_raw_dps  = imu.gyro_raw_dps;
+        s_telemetry.gyro_bias_dps = s_imu_calib.gyro_bias_dps;
+        s_telemetry.gyro_corr_dps = imu.gyro_corrected_sensor_dps;
+        s_telemetry.gyro_std_dps  = s_gcal_last_corr_std;
+        s_telemetry.gyro_raw_mean_dps = s_gcal_last_raw_mean;
+        s_telemetry.gyro_corr_mean_dps = s_gcal_last_corr_mean;
+        s_telemetry.gyro_raw_std_dps = s_gcal_last_raw_std;
+        s_telemetry.gyro_corr_std_dps = s_gcal_last_corr_std;
+        s_telemetry.accel_raw_g   = imu.accel_raw_g;
+        s_telemetry.accel_corr_g  = imu.accel_g;   // sau buoc 1c (bias/scale accel)
+        s_telemetry.accel_norm_g  = sqrtf(imu.accel_g.x * imu.accel_g.x +
+                                           imu.accel_g.y * imu.accel_g.y +
+                                           imu.accel_g.z * imu.accel_g.z);
+
+        s_telemetry.gyro_cal_bad_samples = s_gcal_bad_samples;
+        s_telemetry.gyro_cal_state   = (int)s_gcal_state;
+        s_telemetry.gyro_cal_fail    = (int)s_gcal_fail;
+        s_telemetry.gyro_cal_temp_c  = s_gcal_temp_c;
+        // Canh bao lech nhiet do (muc 9) — CHI canh bao, KHONG chan ARM va
+        // KHONG tu sua bias. Chi co nghia khi da calib xong.
+        s_telemetry.gyro_cal_temp_warn = s_calib.gyro_valid &&
+            (fabsf(s_last_imu_temp_c - s_gcal_temp_c) > CALIB_TEMP_WARN_DELTA_C);
+        s_telemetry.gyro_valid_from_nvs = s_calib.gyro_valid_from_nvs;
+
+        {
+            imu_cfg_readback_t cfg;
+            imu_driver_get_config(&cfg);
+            s_telemetry.imu_cfg_valid          = cfg.valid;
+            s_telemetry.imu_gyro_config        = cfg.gyro_config;
+            s_telemetry.imu_accel_config       = cfg.accel_config;
+            s_telemetry.imu_fs_sel             = cfg.fs_sel;
+            s_telemetry.imu_afs_sel            = cfg.afs_sel;
+            s_telemetry.imu_gyro_lsb_per_dps   = cfg.gyro_lsb_per_dps;
+            s_telemetry.imu_accel_lsb_per_g    = cfg.accel_lsb_per_g;
+        }
         s_telemetry.calib_mag_seconds_left = s_calib_mag_active ? (s_calib_mag_ticks_left / CONTROL_TASK_HZ) : 0;
         // range = 0 khi chưa có mẫu nào (extrema chưa init) — KHÔNG đọc
         // s_calib_mag_min/max lúc đó vì chúng chưa được gán giá trị nào.
@@ -3333,9 +4020,9 @@ static void stabilize_task(void *arg) {
         s_telemetry.calib_mag_read_err_count = s_calib_mag_read_err_count;
         s_telemetry.calib_mag_notready_count = s_calib_mag_notready_count;
         s_telemetry.imu_temp_c = s_last_imu_temp_c;
-        s_telemetry.gyro_calib_std_x_dps = s_last_gyro_calib_std.x;
-        s_telemetry.gyro_calib_std_y_dps = s_last_gyro_calib_std.y;
-        s_telemetry.gyro_calib_std_z_dps = s_last_gyro_calib_std.z;
+        s_telemetry.gyro_calib_std_x_dps = s_gcal_last_corr_std.x;
+        s_telemetry.gyro_calib_std_y_dps = s_gcal_last_corr_std.y;
+        s_telemetry.gyro_calib_std_z_dps = s_gcal_last_corr_std.z;
         s_telemetry.accel_calib_residual_g = s_last_accel_calib_residual_g;
         s_telemetry.stamp_us = now_us;
         xSemaphoreGive(s_telemetry_mtx);
@@ -3450,8 +4137,9 @@ int flight_core_tof_reinit(void) {
     sensor_hub_set_tof_present(false);
     s_tof_ok_driver = false;
 
-    ESP_LOGW(TAG, "tof_reinit: bat dau bring-up lai VL53L0X (addr 0x%02X, XSHUT=%d, SCL %lu Hz)",
-              s_board.tof_addr, s_board.tof_xshut_gpio, (unsigned long)s_tof_scl_hz);
+    ESP_LOGW(TAG, "tof_reinit: bat dau bring-up lai %s (addr 0x%02X, XSHUT=%d, SCL %lu Hz)",
+              tof_driver_chip_name(), s_board.tof_addr, s_board.tof_xshut_gpio,
+              (unsigned long)s_tof_scl_hz);
 
     const esp_err_t err = tof_driver_init(s_i2c_bus, s_board.tof_xshut_gpio,
                                            s_board.tof_addr, s_tof_scl_hz);
@@ -3592,20 +4280,46 @@ esp_err_t flight_core_start(const flight_core_board_config_t *board_cfg) {
     s_cmd_cfg = commander_default_config();
     memset(&s_imu_calib, 0, sizeof(s_imu_calib));
 
-    // ---- Calibration: nạp NVS TRƯỚC khi init driver (xem calibration.h).
-    // gyro_valid -> nạp ngay vào s_imu_calib (dùng cho imu_driver_read() từ
-    // sample ĐẦU TIÊN). KHÔNG có bước tự đo lại gyro nào ở boot — CHỈ nạp
-    // đúng những gì NVS đã có, đo lại (nếu muốn) là lệnh serial riêng
-    // (CMD_CALIB_GYRO) người dùng tự gọi khi cần. accel/mag valid=false
-    // (chưa từng calib) -> s_uncalibrated=true, CMD_ARM sẽ bị từ chối tới khi
-    // chạy CMD_CALIB_ACCEL_FACE x6 (+ CMD_CALIB_MAG_* nếu board có mag) — xem
-    // apply_command().
+    // Nạp NVS trước init. Accel/mag/trim/gyro ĐỀU là persistent authoritative.
+    //
+    // ============================================================================
+    // GYRO: CALIB MỘT LẦN, SAU ĐÓ CHỈ NẠP — theo yêu cầu người dùng
+    // ============================================================================
+    // NVS có bias hợp lệ  -> nạp, ÁP DỤNG runtime, bay luôn. KHÔNG calib lại.
+    // NVS trống           -> calib LẦN ĐẦU (xem cuối hàm), lưu lại, từ đó thôi.
+    //
+    // ⚠ ĐÂY LÀ CHỦ Ý, NGƯỢC với "fresh calibration mỗi boot" của PX4 mà bản
+    // trước làm theo. Đánh đổi phải biết rõ:
+    //   ĐƯỢC: cấp nguồn là bay được ngay; không cần giữ drone đứng yên vài giây
+    //         mỗi lần boot; không bao giờ bị chặn ARM chỉ vì lúc khởi động drone
+    //         đang được cầm trên tay.
+    //   MẤT:  bias KHÔNG theo được trôi nhiệt. Bias đo ở 25°C dùng lại ở 40°C sẽ
+    //         lệch, và yaw sẽ trôi trở lại.
+    //   BÙ:   telemetry có gyro_cal_temp_warn (bật khi |temp hiện tại - temp lúc
+    //         calib| > CALIB_TEMP_WARN_DELTA_C). Thấy cờ đó thì gõ 'calib_gyro'.
+    //         Đó là đường DUY NHẤT còn lại để đo lại, và nó do người dùng chủ
+    //         động gọi — không có luồng tự động nào ép calib lại nữa.
     memset(&s_calib, 0, sizeof(s_calib));
     if (calibration_load(&s_calib) != ESP_OK) {
         ESP_LOGE(TAG, "calibration_load() loi -> coi nhu CHUA calib gi (an toan mac dinh, se khong ARM duoc)");
     }
-    if (s_calib.gyro_valid) {
+    if (s_calib.gyro_valid_from_nvs) {
+        // Gán THẲNG vào s_imu_calib thay vì gọi gyro_cal_set_runtime_bias():
+        // hàm đó đi qua sensor_hub_set_imu_calib(), mà hub CHƯA start ở đây
+        // (sensor_hub_start() nằm cuối hàm này và nhận &s_imu_calib làm tham
+        // số). Gán trực tiếp là đủ và không có hazard thứ tự nào.
         s_imu_calib.gyro_bias_dps = s_calib.gyro_bias_dps;
+        s_calib.gyro_valid = true;
+        ESP_LOGW(TAG, "GYRO: NAP BIAS TU NVS =(%.3f,%.3f,%.3f)dps (calib luc %s%.1fC) "
+                      "-> AP DUNG NGAY, BO QUA calib. Go 'calib_gyro' neu muon do lai.",
+                  (double)s_calib.gyro_bias_dps.x, (double)s_calib.gyro_bias_dps.y,
+                  (double)s_calib.gyro_bias_dps.z,
+                  s_calib.gyro_cal_temp_valid_from_nvs ? "" : "unknown/",
+                  (double)s_calib.gyro_cal_temp_c);
+    } else {
+        s_calib.gyro_valid = false;
+        ESP_LOGW(TAG, "GYRO: NVS CHUA co bias -> chay calib LAN DAU. DAT DRONE YEN "
+                      "TREN MAT PHANG. Ket qua se duoc luu; cac lan boot sau chi nap tu NVS.");
     }
     // Trim nạp lại từ NVS — HOÁN TRỤC Y HỆT case CMD_SET_TRIM (NVS lưu theo quy
     // ước NGOÀI). Quên hoán ở đây thì trim đã dò đúng sẽ quay 90° sau khi reboot
@@ -3684,13 +4398,6 @@ esp_err_t flight_core_start(const flight_core_board_config_t *board_cfg) {
             ESP_LOGW(TAG, "IMU init THAT BAI -> attitude se khong bao gio valid "
                           "-> KHONG THE ARM, an toan mac dinh. Xem log imu_driver.c o tren de biet ly do.");
         }
-        // KHÔNG tự động đo lại gyro bias lúc boot (đã bỏ theo yêu cầu: MỌI
-        // calib — gyro/accel/mag — CHỈ chạy khi có lệnh serial tường minh,
-        // không có đường tự động nào). Boot CHỈ nạp bias đã lưu NVS (xem
-        // s_calib.gyro_valid ở trên) — muốn đo lại: gọi CMD_CALIB_GYRO
-        // (console `calib_gyro` / `fc.calibrate_gyro()`) bất kỳ lúc nào khi
-        // DISARMED, xem apply_command().
-
         // Cờ *_enabled đến từ SENSOR_*_ENABLED trong main/app_config.h (caller
         // set trước khi gọi flight_core_start()) — =false thì BỎ QUA HẲN việc
         // init, không dò I2C, không log warning "not found". Mỗi driver chỉ
@@ -3735,27 +4442,20 @@ esp_err_t flight_core_start(const flight_core_board_config_t *board_cfg) {
                                                 board_cfg->tof_addr,
                                                 tof_hz) == ESP_OK);
         } else {
-            ESP_LOGI(TAG, "ToF (huong xuong) TAT theo app_config -> bo qua init, "
-                          "alt_estimator se KHONG co du lieu ToF (chi con accel dead-reckon + baro)");
+            ESP_LOGE(TAG, "ToF TAT theo app_config -> altitude takeoff/hold khong san sang");
         }
 #else
-        ESP_LOGI(TAG, "ToF (huong xuong) TAT theo app_config -> bo qua init, "
-                      "alt_estimator se KHONG co du lieu ToF (chi con accel dead-reckon + baro)");
+        ESP_LOGE(TAG, "ToF bi cat khoi build -> altitude takeoff/hold khong san sang");
 #endif
 
 #if FC_FEATURE_BARO
         if (board_cfg->baro_enabled) {
             s_baro_ok_driver = (baro_driver_init(s_i2c_bus, board_cfg->baro_addr, i2c_scl_hz) == ESP_OK);
             if (s_baro_ok_driver) {
-                // Lấy mốc 0m NGAY SAU init (drone đứng yên trên đất lúc boot
-                // — giả định hợp lý cho firmware này, xem baro_driver.h). Nếu
-                // drone bị di chuyển GIỮA lúc boot và lúc arm thật, mốc này
-                // lệch — gọi lại baro_driver_calibrate_ground() ngay trước arm
-                // là cải tiến khả dĩ sau này (cần hook vào CMD_ARM, ngoài
-                // phạm vi thay đổi lần này).
+                // Calibrate chi de BALT/debug co moc tuong doi. Ket qua nay
+                // khong di vao estimator, ARM, takeoff, landing hay PID do cao.
                 if (baro_driver_calibrate_ground() != ESP_OK) {
-                    ESP_LOGW(TAG, "baro calibrate_ground that bai -> baro_driver_read() se luon ok=false "
-                                  "(alt_estimator rot ve chi con ToF/accel dead-reckon)");
+                    ESP_LOGW(TAG, "baro calibrate_ground that bai -> chi mat BALT debug; flight control khong doi");
                 }
             }
         } else {
@@ -3784,34 +4484,35 @@ esp_err_t flight_core_start(const flight_core_board_config_t *board_cfg) {
     ESP_LOGI(TAG, "battery ADC TAT theo app_config -> bo qua init, telemetry.battery_v luon 0");
 #endif  // FC_FEATURE_BATTERY
 
-    // ---- KIEM TRA DU PHONG NGUON DO CAO ----
-    // Estimator co HAI nguon correction cho world-Z: ToF va baro. Mat ca hai ->
-    // Z chi con dead-reckon tu accel, sai so tang BAC HAI (~0.14m sau 3s,
-    // ~1.5m sau 10s) -> degraded -> Commander soft fault -> LANDING.
-    //
-    // Vi vay CAU HINH chi co MOT nguon la mot quyet dinh co hau qua, khong phai
-    // chi tiet cai dat: bat ky su co nao cua nguon do (chip chet, ngoai tam,
-    // gate loai het mau) deu la mat HET, khong co gi do lai. Bao ngay luc boot
-    // thay vi de phat hien giua lucbay.
-#if FC_FEATURE_TOF && FC_FEATURE_BARO
-    ESP_LOGI(TAG, "do cao: CO CA HAI nguon (ToF + baro) -> mat mot cai van con cai kia. "
-                  "Xem log 'DO CAO: chuyen sang ...' de biet luc nao doi nguon.");
-#elif FC_FEATURE_BARO
-    ESP_LOGW(TAG, "!!! do cao CHI CO BARO (SENSOR_TOF_ENABLED=0) -- KHONG co du phong. "
-                  "Baro do AP SUAT nen KHONG co tham chieu toi mat san: no troi theo thoi "
-                  "tiet, bi propwash, va moc 0m chi dung neu calib ngay truoc khi bay. "
-                  "Do cao so voi san co the sai vai chuc cm ma moi co van xanh.");
-#elif FC_FEATURE_TOF
-    ESP_LOGW(TAG, "!!! do cao CHI CO ToF (SENSOR_BARO_ENABLED=0) -- KHONG co du phong. "
-                  "ToF chet/ngoai tam ~%.1fm la mat HET nguon correction -> degraded sau "
-                  "%dms -> soft fault. Bat SENSOR_BARO_ENABLED=1 de co du phong.",
-              (double)ALT_EST_TOF_MAX_RANGE_M, ALT_EST_NO_CORRECTION_DEGRADED_MS);
+    // Flight-control altitude co dung MOT external correction: VL53L0X.
+#if FC_FEATURE_TOF
+    ESP_LOGI(TAG, "do cao flight-control = IMU + VL53L0X (max target %.2fm). "
+                  "Barometer neu co chi DEBUG/telemetry, BAROFC luon 0.",
+              (double)ALT_EST_MAX_FLIGHT_Z_M);
 #else
-    ESP_LOGE(TAG, "!!! KHONG co nguon correction do cao nao (ToF va baro deu TAT) -- "
-                  "Z se dead-reckon thuan accel va trip degraded sau %dms. "
-                  "alt_hold/takeoff KHONG dung duoc o cau hinh nay.",
-              ALT_EST_NO_CORRECTION_DEGRADED_MS);
+    ESP_LOGE(TAG, "KHONG co VL53L0X trong build -> takeoff/alt_hold khong dung duoc");
 #endif
+
+    // Calib gyro CHỈ chạy khi NVS chưa có bias — tức đúng MỘT LẦN trong đời bo
+    // (hoặc sau 'calib_erase'). Boot sau nạp thẳng từ NVS ở đầu hàm này và
+    // KHÔNG vào đây nữa.
+    //
+    // ⚠ KHÔNG được gọi gyro_calibration_start() vô điều kiện: việc đầu tiên nó
+    // làm là gyro_cal_set_runtime_bias(vec3f_zero()) — tức XOÁ SẠCH bias vừa nạp
+    // từ NVS. Chính vì thế điều kiện phải nằm ở ĐÂY chứ không phải bên trong
+    // hàm đó.
+    //
+    // FSM chỉ consume snapshot của sensor_hub; không có task calibration nào gọi
+    // imu_driver_read() song song.
+    if (!s_calib.gyro_valid) {
+        gyro_calibration_start();
+    } else {
+        // Đã có bias dùng được -> không có bước calib nào chạy -> Mahony không
+        // cần reset (nó khởi tạo sạch ngay bên dưới với bias đã đúng từ tick
+        // đầu tiên). Không set cờ này thì vòng điều khiển sẽ chờ một lần reset
+        // không bao giờ tới.
+        s_gcal_reset_done = true;
+    }
 
     BaseType_t ok = xTaskCreatePinnedToCore(
         stabilize_task, "stabilize", STABILIZE_TASK_STACK_BYTES, NULL,

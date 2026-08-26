@@ -76,6 +76,50 @@
 #  endif
 #endif
 
+// Terrain offset (alt_estimator.h mục TERRAIN). Cùng cơ chế, cùng lý do: đổi
+// cờ ở app_config.h là đủ, tắt thì code không được biên dịch vào.
+#ifndef FC_FEATURE_TERRAIN_OFFSET
+#  ifdef TERRAIN_OFFSET_ENABLED
+#    define FC_FEATURE_TERRAIN_OFFSET  TERRAIN_OFFSET_ENABLED
+#  else
+#    define FC_FEATURE_TERRAIN_OFFSET  1
+#  endif
+#endif
+
+// Terrain offset ĐỌC ToF để phát hiện bậc — không có ToF thì không có gì để
+// phát hiện. Bắt tại đây thay vì để nó chạy trên một range luôn bằng 0.
+#if FC_FEATURE_TERRAIN_OFFSET && !FC_FEATURE_TOF
+#error "TERRAIN_OFFSET_ENABLED=1 can SENSOR_TOF_ENABLED=1 -- terrain offset do bac dia hinh bang range ToF"
+#endif
+
+// ============================================================================
+// FC_FEATURE_FLOOR_GATE — CỔNG CHẶN theo "đã chốt được mặt sàn ToF"
+// ============================================================================
+// =1 (mặc định): ARM và TAKEOFF đòi alt_estimator_floor_ready() — tức ToF phải
+//                gom đủ ALT_EST_FLOOR_MIN_SAMPLES mẫu ổn định (std nhỏ) khi
+//                drone nằm yên, mới cho cất cánh.
+// =0 (TẠM TẮT theo yêu cầu người dùng): bỏ hai cổng chặn đó. Việc THU mẫu sàn
+//                và khoá sàn VẪN CHẠY bình thường — chỉ không dùng nó để TỪ
+//                CHỐI lệnh nữa.
+//
+// ⚠ ĐÁNH ĐỔI KHI =0 — phải biết trước khi bay:
+//   Mốc sàn (tof_ground_range_m) là gốc toạ độ của alt_m. Chưa chốt được mốc
+//   mà cất cánh thì alt_m tính từ một gốc CHƯA ỔN ĐỊNH: độ cao báo về có thể
+//   lệch, và alt_hold sẽ giữ sai đúng bằng lượng lệch đó. Cổng này sinh ra để
+//   chặn đúng chuyện đó.
+//   Các lớp an toàn KHÁC vẫn nguyên: estimator vẫn báo valid/degraded, ToF
+//   lost vẫn -> Commander soft-fault -> auto-land, terrain guard vẫn chạy.
+//
+// Bật lại: đổi về 1 ở đây (hoặc định nghĩa FLOOR_GATE_ENABLED trong
+// app_config.h) rồi build lại. KHÔNG có code nào bị xoá.
+#ifndef FC_FEATURE_FLOOR_GATE
+#  ifdef FLOOR_GATE_ENABLED
+#    define FC_FEATURE_FLOOR_GATE  FLOOR_GATE_ENABLED
+#  else
+#    define FC_FEATURE_FLOOR_GATE  0
+#  endif
+#endif
+
 // Latch đọc điện áp pin -> KHÔNG có ADC pin thì không có gì để latch. Bắt tại
 // đây thay vì để nó âm thầm chốt hover từ một giá trị 0.0f không tồn tại.
 #if FC_FEATURE_HOVER_LATCH && !FC_FEATURE_BATTERY
@@ -87,6 +131,7 @@
     (FC_FEATURE_BARO != 0 && FC_FEATURE_BARO != 1) || \
     (FC_FEATURE_TOF != 0 && FC_FEATURE_TOF != 1) || \
     (FC_FEATURE_BATTERY != 0 && FC_FEATURE_BATTERY != 1) || \
-    (FC_FEATURE_HOVER_LATCH != 0 && FC_FEATURE_HOVER_LATCH != 1)
+    (FC_FEATURE_HOVER_LATCH != 0 && FC_FEATURE_HOVER_LATCH != 1) || \
+    (FC_FEATURE_FLOOR_GATE != 0 && FC_FEATURE_FLOOR_GATE != 1) ||     (FC_FEATURE_TERRAIN_OFFSET != 0 && FC_FEATURE_TERRAIN_OFFSET != 1)
 #error "FC_FEATURE_* (tu SENSOR_*_ENABLED trong app_config.h) chi duoc la 0 hoac 1"
 #endif

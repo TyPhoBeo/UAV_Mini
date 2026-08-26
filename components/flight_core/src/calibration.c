@@ -2,6 +2,7 @@
 // cho nguyên tắc tổng thể (KHÔNG có phép toán ước lượng calib ở đây).
 #include "flight_core/calibration.h"
 
+#include <math.h>
 #include <string.h>
 
 #include "esp_log.h"
@@ -14,6 +15,7 @@ static const char *TAG = "calibration";
 #define CALIB_KEY_VERSION     "ver"
 #define CALIB_KEY_GYRO        "gyro"
 #define CALIB_KEY_GYRO_CRC    "gyro_crc"
+#define CALIB_KEY_GYRO_TEMP   "gyro_temp"
 #define CALIB_KEY_ACCEL_BIAS  "accel_b"
 #define CALIB_KEY_ACCEL_SCALE "accel_s"
 #define CALIB_KEY_ACCEL_CRC   "accel_crc"
@@ -93,8 +95,8 @@ static bool crc_matches(nvs_handle_t h, const char *crc_key, const void *payload
 }
 
 esp_err_t calibration_load(calibration_params_t *out) {
-    memset(out, 0, sizeof(*out));
     if (out == NULL) return ESP_ERR_INVALID_ARG;
+    memset(out, 0, sizeof(*out));
 
     esp_err_t init_err = calibration_nvs_init();
     if (init_err != ESP_OK) {
@@ -130,7 +132,19 @@ esp_err_t calibration_load(calibration_params_t *out) {
     if (read_blob_vec3(h, CALIB_KEY_GYRO, &gyro) == ESP_OK) {
         if (crc_matches(h, CALIB_KEY_GYRO_CRC, &gyro, sizeof(gyro))) {
             out->gyro_bias_dps = gyro;
-            out->gyro_valid = true;
+            // gyro_valid_from_nvs: NVS co du lieu hop le. gyro_valid (bias
+            // DUNG DE BAY) do startup calibration quyet dinh, KHONG phai NVS —
+            // xem tuning.h muc 8b. Dat true o day thi bias cu se duoc dung de
+            // bay ma khong qua validate nao, dung cai bay ma refactor nay sinh
+            // ra de loai bo.
+            out->gyro_valid_from_nvs = true;
+            size_t temp_len = sizeof(out->gyro_cal_temp_c);
+            if (nvs_get_blob(h, CALIB_KEY_GYRO_TEMP, &out->gyro_cal_temp_c,
+                             &temp_len) == ESP_OK &&
+                temp_len == sizeof(out->gyro_cal_temp_c) &&
+                isfinite(out->gyro_cal_temp_c)) {
+                out->gyro_cal_temp_valid_from_nvs = true;
+            }
         } else {
             ESP_LOGW(TAG, "gyro calib CRC KHONG KHOP -> coi nhu HONG (mat dien giua luc ghi? bit-rot flash?), can calib lai");
         }
@@ -185,18 +199,23 @@ esp_err_t calibration_load(calibration_params_t *out) {
     }
 
     nvs_close(h);
-    ESP_LOGI(TAG, "calib load: gyro=%d accel=%d mag=%d trim=%d(%.2f/%.2f)",
-             (int)out->gyro_valid, (int)out->accel_valid, (int)out->mag_valid,
+    ESP_LOGI(TAG, "calib load: gyro_nvs=%d accel=%d mag=%d trim=%d(%.2f/%.2f)",
+             (int)out->gyro_valid_from_nvs, (int)out->accel_valid, (int)out->mag_valid,
              (int)out->trim_valid, (double)out->trim_roll_deg, (double)out->trim_pitch_deg);
     return ESP_OK;
 }
 
-esp_err_t calibration_save_gyro(const vec3f_t *bias_dps) {
+esp_err_t calibration_save_gyro(const vec3f_t *bias_dps, float temperature_c) {
+    if (bias_dps == NULL || !isfinite(bias_dps->x) || !isfinite(bias_dps->y) ||
+        !isfinite(bias_dps->z) || !isfinite(temperature_c)) {
+        return ESP_ERR_INVALID_ARG;
+    }
     nvs_handle_t h;
     esp_err_t err = nvs_open(CALIB_NVS_NAMESPACE, NVS_READWRITE, &h);
     if (err != ESP_OK) { ESP_LOGE(TAG, "nvs_open ghi gyro that bai: %s", esp_err_to_name(err)); return err; }
     err = write_blob_vec3(h, CALIB_KEY_GYRO, bias_dps);
     if (err == ESP_OK) err = nvs_set_u32(h, CALIB_KEY_GYRO_CRC, crc32_compute(bias_dps, sizeof(*bias_dps)));
+    if (err == ESP_OK) err = nvs_set_blob(h, CALIB_KEY_GYRO_TEMP, &temperature_c, sizeof(temperature_c));
     if (err == ESP_OK) err = nvs_set_u32(h, CALIB_KEY_VERSION, CALIB_NVS_FORMAT_VERSION);
     if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);

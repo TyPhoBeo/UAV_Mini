@@ -10,6 +10,8 @@
 // LƯU Ý nếu remap sau này: accel và gyro PHẢI dùng CÙNG MỘT rotation mapping.
 #include "flight_core/drivers/imu_driver.h"
 
+#include <string.h>
+
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "flight_core/tuning.h"
@@ -45,18 +47,12 @@ static const char *TAG = "imu_driver";
 // AFS_SEL=3 (±16g, 2048 LSB/g) khớp IMU_ACCEL_RAW_PER_G.
 #define MPU6050_ACCEL_CONFIG_FS16G 0x18
 // Khi DLPF bật, gyro output rate gốc là 1kHz (KHÔNG phải 8kHz) ->
-// sample_rate = 1000/(1+SMPLRT_DIV). Đặt ĐÚNG BẰNG IMU_SAMPLE_RATE_HZ
-// (= CONTROL_TASK_HZ, có _Static_assert bên flight_core.c).
+// sample_rate = 1000/(1+SMPLRT_DIV). sensor_hub đọc ở đúng nhịp này, gom
+// IMU_SAMPLES_PER_CONTROL mẫu rồi mới đánh thức stabilize_task 250Hz. Quan hệ
+// hai nhịp được _Static_assert trong flight_core.c.
 //
-// Vì sao KHÔNG để 1kHz như trước: chân INT đánh thức stabilize_task theo NHỊP
-// SAMPLE của chip. Để 1kHz thì task bị đánh thức 1000 lần/giây trong khi vòng
-// điều khiển chỉ được phép chạy 250Hz — sai cả tải CPU lẫn hằng số dt của PID.
-// Khớp 2 tần số là điều kiện BẮT BUỘC của kiến trúc interrupt-driven, không
-// phải tùy chọn.
-//
-// Tác dụng phụ khi rơi về polling (INT hỏng): chip đổi mẫu ở 250Hz và task
-// cũng chạy ~250Hz nhưng KHÔNG đồng bộ pha -> thỉnh thoảng đọc trùng 1 mẫu.
-// Chấp nhận được cho đường dự phòng; đường chính (INT) không bao giờ bị.
+// Khi rơi về polling (INT hỏng), hub vẫn đọc 1kHz theo FreeRTOS tick 1ms và áp
+// dụng cùng batch; timestamp/stale watchdog vẫn hoạt động như đường ngắt.
 #define MPU6050_SMPLRT_DIV_VALUE   ((uint8_t)((1000 / IMU_SAMPLE_RATE_HZ) - 1))
 
 // INT_PIN_CFG: INT_LEVEL=0 (active high), INT_OPEN=0 (push-pull),
@@ -96,6 +92,24 @@ static i2c_master_dev_handle_t s_dev = NULL;
 static bool                     s_ready = false;
 // Đổi sang RUNTIME ở CUỐI imu_driver_init() (sau khi mọi ghi/verify đã xong).
 static int                      s_io_timeout_ms = IMU_I2C_INIT_TIMEOUT_MS;
+
+// Cấu hình ĐỌC LẠI từ chip + scale suy ra từ chính nó. imu_driver_read() dùng
+// s_cfg.gyro_lsb_per_dps / s_cfg.accel_lsb_per_g, KHÔNG dùng hằng số biên dịch.
+static imu_cfg_readback_t       s_cfg;
+
+// Bảng tra scale theo datasheet MPU6050 (Register Map mục 4.4 / 4.5).
+// Index = FS_SEL / AFS_SEL (2 bit).
+static const float k_gyro_lsb_per_dps[4]  = { 131.0f, 65.5f, 32.8f, 16.4f };
+static const float k_accel_lsb_per_g[4]   = { 16384.0f, 8192.0f, 4096.0f, 2048.0f };
+static const int   k_gyro_fs_dps[4]       = { 250, 500, 1000, 2000 };
+static const int   k_accel_fs_g[4]        = { 2, 4, 8, 16 };
+
+// Một transform dùng chung cho CẢ gyro lẫn accel. Hướng lắp hiện chưa được
+// xác nhận nên giữ identity; khi có dữ liệu bench chỉ sửa helper này, không
+// chạm calibration (bias vẫn luôn được đo/trừ trong SENSOR frame).
+static vec3f_t sensor_to_body(vec3f_t sensor) {
+    return sensor;
+}
 
 static esp_err_t write_reg(uint8_t reg, uint8_t val) {
     uint8_t buf[2] = {reg, val};
@@ -203,16 +217,113 @@ esp_err_t imu_driver_init(i2c_master_bus_handle_t bus, uint8_t i2c_addr,
     if ((err = write_verify_reg(MPU6050_REG_ACCEL_CONFIG, MPU6050_ACCEL_CONFIG_FS16G, "ACCEL_CONFIG")) != ESP_OK) return err;
     if ((err = write_verify_reg(MPU6050_REG_SMPLRT_DIV, MPU6050_SMPLRT_DIV_VALUE, "SMPLRT_DIV")) != ESP_OK) return err;
 
+    // ================= READ-BACK TOÀN BỘ CONFIG + SUY RA SCALE =================
+    // write_verify_reg() ở trên đã so từng thanh ghi ngay lúc ghi, nhưng đó là
+    // "ghi có dính không". Bước này trả lời câu KHÁC: "chip ĐANG chạy ở scale
+    // nào" — và scale đó (không phải hằng số biên dịch) mới là thứ
+    // imu_driver_read() dùng để convert. Đọc LẠI một lượt cuối, sau khi mọi
+    // thanh ghi đã ổn định, rồi decode từ chính các bit vừa đọc.
+    memset(&s_cfg, 0, sizeof(s_cfg));
+    s_cfg.who_am_i = who;
+
+    struct { uint8_t reg; uint8_t *dst; const char *name; } rb[] = {
+        { MPU6050_REG_CONFIG,       &s_cfg.config,       "CONFIG"       },
+        { MPU6050_REG_GYRO_CONFIG,  &s_cfg.gyro_config,  "GYRO_CONFIG"  },
+        { MPU6050_REG_ACCEL_CONFIG, &s_cfg.accel_config, "ACCEL_CONFIG" },
+        { MPU6050_REG_SMPLRT_DIV,   &s_cfg.smplrt_div,   "SMPLRT_DIV"   },
+        { MPU6050_REG_PWR_MGMT_1,   &s_cfg.pwr_mgmt_1,   "PWR_MGMT_1"   },
+    };
+    for (size_t i = 0; i < sizeof(rb) / sizeof(rb[0]); i++) {
+        err = read_regs(rb[i].reg, rb[i].dst, 1);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "read-back cuoi %s (reg 0x%02X) that bai: %s -> config KHONG TIN DUOC",
+                      rb[i].name, rb[i].reg, esp_err_to_name(err));
+            return err;
+        }
+    }
+
+    // Decode bit -> scale. FS_SEL = GYRO_CONFIG[4:3], AFS_SEL = ACCEL_CONFIG[4:3],
+    // DLPF_CFG = CONFIG[2:0]. Mask 0x03 sau khi dịch nên index luôn trong [0,3]
+    // -> không thể tràn bảng tra dù thanh ghi đọc về giá trị lạ.
+    s_cfg.fs_sel   = (uint8_t)((s_cfg.gyro_config  >> 3) & 0x03);
+    s_cfg.afs_sel  = (uint8_t)((s_cfg.accel_config >> 3) & 0x03);
+    s_cfg.dlpf_cfg = (uint8_t)(s_cfg.config & 0x07);
+    s_cfg.gyro_lsb_per_dps = k_gyro_lsb_per_dps[s_cfg.fs_sel];
+    s_cfg.accel_lsb_per_g  = k_accel_lsb_per_g[s_cfg.afs_sel];
+    s_cfg.sample_rate_hz   = 1000 / (1 + (int)s_cfg.smplrt_div);
+
+    ESP_LOGI(TAG, "MPU6050 CFG (READ-BACK tu chip, KHONG phai hang so bien dich):");
+    ESP_LOGI(TAG, "  WHO_AM_I=0x%02X  PWR_MGMT_1=0x%02X", s_cfg.who_am_i, s_cfg.pwr_mgmt_1);
+    ESP_LOGI(TAG, "  GYRO_CONFIG =0x%02X  FS_SEL=%u  -> +/-%ddps  scale=%.1f LSB/dps",
+              s_cfg.gyro_config, (unsigned)s_cfg.fs_sel,
+              k_gyro_fs_dps[s_cfg.fs_sel], (double)s_cfg.gyro_lsb_per_dps);
+    ESP_LOGI(TAG, "  ACCEL_CONFIG=0x%02X  AFS_SEL=%u -> +/-%dg    scale=%.0f LSB/g",
+              s_cfg.accel_config, (unsigned)s_cfg.afs_sel,
+              k_accel_fs_g[s_cfg.afs_sel], (double)s_cfg.accel_lsb_per_g);
+    ESP_LOGI(TAG, "  CONFIG      =0x%02X  DLPF_CFG=%u", s_cfg.config, (unsigned)s_cfg.dlpf_cfg);
+    ESP_LOGI(TAG, "  SMPLRT_DIV  =0x%02X  -> RATE=%dHz", s_cfg.smplrt_div, s_cfg.sample_rate_hz);
+
+    // So với cấu hình DỰ ĐỊNH. Lệch = KHÔNG set valid -> flight_core chặn ARM.
+    // Không "tự thích nghi" theo scale lạ: nếu chip không nhận đúng cấu hình ta
+    // yêu cầu thì có gì đó sai ở tầng dưới, và bay với chip ở trạng thái không
+    // hiểu được nguy hiểm hơn hẳn việc từ chối cất cánh.
+    bool cfg_ok = true;
+    if (s_cfg.gyro_config != MPU6050_GYRO_CONFIG_FS2000) {
+        ESP_LOGE(TAG, "GYRO_CONFIG doc lai 0x%02X != du dinh 0x%02X", s_cfg.gyro_config, MPU6050_GYRO_CONFIG_FS2000);
+        cfg_ok = false;
+    }
+    if (s_cfg.accel_config != MPU6050_ACCEL_CONFIG_FS16G) {
+        ESP_LOGE(TAG, "ACCEL_CONFIG doc lai 0x%02X != du dinh 0x%02X", s_cfg.accel_config, MPU6050_ACCEL_CONFIG_FS16G);
+        cfg_ok = false;
+    }
+    if (s_cfg.dlpf_cfg != MPU6050_CONFIG_DLPF_CFG_VALUE) {
+        ESP_LOGE(TAG, "DLPF_CFG doc lai %u != du dinh %u", (unsigned)s_cfg.dlpf_cfg, (unsigned)MPU6050_CONFIG_DLPF_CFG_VALUE);
+        cfg_ok = false;
+    }
+    if (s_cfg.smplrt_div != MPU6050_SMPLRT_DIV_VALUE) {
+        ESP_LOGE(TAG, "SMPLRT_DIV doc lai %u != du dinh %u", (unsigned)s_cfg.smplrt_div, (unsigned)MPU6050_SMPLRT_DIV_VALUE);
+        cfg_ok = false;
+    }
+    if (s_cfg.pwr_mgmt_1 != MPU6050_PWR1_WAKE_PLL_XGYRO) {
+        ESP_LOGE(TAG, "PWR_MGMT_1 doc lai 0x%02X != du dinh 0x%02X (chip ngu lai? clock source doi?)",
+                  s_cfg.pwr_mgmt_1, MPU6050_PWR1_WAKE_PLL_XGYRO);
+        cfg_ok = false;
+    }
+    // Bảo hiểm cuối: scale suy ra phải khớp hằng số mà phần còn lại của
+    // firmware giả định (tuning/telemetry). Lệch nghĩa là ai đó đã đổi
+    // MPU6050_*_CONFIG_* mà quên đổi IMU_*_RAW_PER_* — bắt tại đây thay vì để
+    // mọi số liệu sai lặng lẽ theo tỷ lệ.
+    if (s_cfg.gyro_lsb_per_dps != IMU_GYRO_RAW_PER_DPS) {
+        ESP_LOGE(TAG, "scale gyro suy ra %.1f != IMU_GYRO_RAW_PER_DPS %.1f (imu_driver.h) -> SUA HANG SO CHO KHOP",
+                  (double)s_cfg.gyro_lsb_per_dps, (double)IMU_GYRO_RAW_PER_DPS);
+        cfg_ok = false;
+    }
+    if (s_cfg.accel_lsb_per_g != IMU_ACCEL_RAW_PER_G) {
+        ESP_LOGE(TAG, "scale accel suy ra %.0f != IMU_ACCEL_RAW_PER_G %.0f (imu_driver.h) -> SUA HANG SO CHO KHOP",
+                  (double)s_cfg.accel_lsb_per_g, (double)IMU_ACCEL_RAW_PER_G);
+        cfg_ok = false;
+    }
+
+    s_cfg.valid = cfg_ok;
+    if (!cfg_ok) {
+        ESP_LOGE(TAG, "MPU6050 CONFIG KHONG HOP LE -> imu_cfg valid=false, ARM se bi CHAN. "
+                      "Khong tin scale nao ca cho toi khi sua xong.");
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+
     s_ready = true;
     // TỪ ĐÂY TRỞ ĐI mọi transaction là runtime (imu_driver_read() trong
     // sensor_hub, 250Hz) -> siết timeout xuống, xem IMU_I2C_RUNTIME_TIMEOUT_MS.
     s_io_timeout_ms = IMU_I2C_RUNTIME_TIMEOUT_MS;
-    ESP_LOGI(TAG, "MPU6050 init OK tai 0x%02X (DLPF_CFG=%u, gyro +/-2000dps, accel +/-16g, "
-                  "sample_rate=%dHz (SMPLRT_DIV=%u), toan bo config da read-back verify, "
-                  "I2C timeout runtime=%dms)",
-              i2c_addr, (unsigned)MPU6050_CONFIG_DLPF_CFG_VALUE, IMU_SAMPLE_RATE_HZ,
-              (unsigned)MPU6050_SMPLRT_DIV_VALUE, IMU_I2C_RUNTIME_TIMEOUT_MS);
+    ESP_LOGI(TAG, "MPU6050 init OK tai 0x%02X (toan bo config da read-back verify + scale suy ra "
+                  "tu thanh ghi that, I2C timeout runtime=%dms)",
+              i2c_addr, IMU_I2C_RUNTIME_TIMEOUT_MS);
     return ESP_OK;
+}
+
+void imu_driver_get_config(imu_cfg_readback_t *out) {
+    if (out == NULL) return;
+    *out = s_cfg;
 }
 
 // ================= data-ready interrupt =================
@@ -303,9 +414,7 @@ esp_err_t imu_driver_read(const imu_calib_t *calib, imu_sample_t *out) {
     }
 
     if (!s_ready) {
-        out->gyro_dps = vec3f_zero();
-        out->accel_g = vec3f_zero();
-        out->temp_c = 0.0f;
+        memset(out, 0, sizeof(*out));
         out->ok = false;
         return ESP_ERR_INVALID_STATE;
     }
@@ -317,9 +426,7 @@ esp_err_t imu_driver_read(const imu_calib_t *calib, imu_sample_t *out) {
     uint8_t raw[14];
     esp_err_t err = read_regs(MPU6050_REG_ACCEL_XOUT_H, raw, sizeof(raw));
     if (err != ESP_OK) {
-        out->gyro_dps = vec3f_zero();
-        out->accel_g = vec3f_zero();
-        out->temp_c = 0.0f;
+        memset(out, 0, sizeof(*out));
         out->ok = false;
         return err;
     }
@@ -332,14 +439,43 @@ esp_err_t imu_driver_read(const imu_calib_t *calib, imu_sample_t *out) {
     const int16_t gy = (int16_t)((raw[10] << 8) | raw[11]);
     const int16_t gz = (int16_t)((raw[12] << 8) | raw[13]);
 
-    // TODO remap trục: map THẲNG x/y/z (chưa xác nhận hướng lắp IMU thật).
-    out->accel_g.x = (float)ax / IMU_ACCEL_RAW_PER_G;
-    out->accel_g.y = (float)ay / IMU_ACCEL_RAW_PER_G;
-    out->accel_g.z = (float)az / IMU_ACCEL_RAW_PER_G;
+    // ================= CHUỖI BIẾN ĐỔI, TỪNG TẦNG MỘT =================
+    //   int16 LSB
+    //     -> chia scale ĐỌC LẠI TỪ THANH GHI  -> *_raw_dps / *_raw_g
+    //     -> trừ gyro_bias_dps (CÙNG frame)   -> gyro_dps (corrected)
+    //     -> remap sensor->body               -> (hiện là IDENTITY, xem dưới)
+    //
+    // Scale lấy từ s_cfg (suy ra từ FS_SEL/AFS_SEL thật) chứ KHÔNG phải hằng số
+    // biên dịch — init đã bảo đảm hai thứ khớp nhau, nhưng đường nóng đọc từ
+    // nguồn sự thật để việc "đổi cấu hình mà quên đổi hằng số" không thể tạo ra
+    // dữ liệu sai lặng lẽ.
+    const float gyro_lsb_per_dps = s_cfg.gyro_lsb_per_dps;
+    const float accel_lsb_per_g  = s_cfg.accel_lsb_per_g;
 
-    out->gyro_dps.x = (float)gx / IMU_GYRO_RAW_PER_DPS - calib->gyro_bias_dps.x;
-    out->gyro_dps.y = (float)gy / IMU_GYRO_RAW_PER_DPS - calib->gyro_bias_dps.y;
-    out->gyro_dps.z = (float)gz / IMU_GYRO_RAW_PER_DPS - calib->gyro_bias_dps.z;
+    // ---- tầng 1: RAW (chưa hiệu chỉnh gì) ----
+    out->accel_raw_g.x = (float)ax / accel_lsb_per_g;
+    out->accel_raw_g.y = (float)ay / accel_lsb_per_g;
+    out->accel_raw_g.z = (float)az / accel_lsb_per_g;
+
+    out->gyro_raw_dps.x = (float)gx / gyro_lsb_per_dps;
+    out->gyro_raw_dps.y = (float)gy / gyro_lsb_per_dps;
+    out->gyro_raw_dps.z = (float)gz / gyro_lsb_per_dps;
+
+    // ---- tầng 2: CORRECTED ----
+    // Gyro bias được ĐO và được TRỪ trong CÙNG MỘT FRAME (sensor frame), đúng
+    // yêu cầu "không calib ở frame này rồi trừ ở frame khác". Remap sensor->body
+    // hiện là IDENTITY (hướng lắp IMU chưa xác nhận — xem đầu file), nên
+    // sensor frame == body frame. NẾU sau này thêm remap thật: đặt nó SAU phép
+    // trừ bias này, và bias vẫn phải được đo ở sensor frame.
+    out->gyro_corrected_sensor_dps.x = out->gyro_raw_dps.x - calib->gyro_bias_dps.x;
+    out->gyro_corrected_sensor_dps.y = out->gyro_raw_dps.y - calib->gyro_bias_dps.y;
+    out->gyro_corrected_sensor_dps.z = out->gyro_raw_dps.z - calib->gyro_bias_dps.z;
+    out->gyro_dps = sensor_to_body(out->gyro_corrected_sensor_dps);
+
+    // Accel: driver KHÔNG áp bias/scale. Việc đó ở tầng fusion (flight_core.c
+    // bước 1c) để một chỗ duy nhất phục vụ mọi consumer. Giữ nguyên kiến trúc
+    // cũ — chỉ đổi TÊN cho rõ đây là bản chưa hiệu chỉnh.
+    out->accel_g = sensor_to_body(out->accel_raw_g);
 
     out->temp_c = (float)temp_raw / IMU_TEMP_LSB_PER_DEGC + IMU_TEMP_OFFSET_DEGC;
 
