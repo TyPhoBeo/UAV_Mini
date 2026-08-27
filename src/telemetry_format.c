@@ -1,8 +1,21 @@
 #include "telemetry_format.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include "flight_core/flight_core.h"
+
+// TELEMETRY_LEVEL đến từ main/app_config.h (xem giải thích 3 mức ở đó). Dùng
+// __has_include giống fc_features.h: component build độc lập (không có main/
+// trên include path) vẫn dịch được, mặc định FULL = hành vi cũ.
+#if defined(__has_include)
+#  if __has_include("app_config.h")
+#    include "app_config.h"
+#  endif
+#endif
+#ifndef TELEMETRY_LEVEL
+#define TELEMETRY_LEVEL 2
+#endif
 
 // alt_mode_from_state() - UAV-S3 KHONG co "alt_mode" doc lap nhu UAV-Mini
 // (alt_hold LUON chay khi HOLDING/FLYING, do FSM quyet dinh - khong phai 1
@@ -33,6 +46,13 @@ int telemetry_format_alt_mode(fsm_state_t s) {
 }
 
 void telemetry_format_status_line(char *out, size_t out_size) {
+#if TELEMETRY_LEVEL == 0
+    // OFF: khong doc snapshot, khong format gi. Tra chuoi RONG chu khong phai
+    // bo qua -- caller (net_task) lam strlen() roi net_link_write() ngay sau,
+    // nen 'out' PHAI luon la chuoi hop le, neu khong se doc bo nho rac.
+    (void)out_size;
+    if (out && out_size > 0) out[0] = '\0';
+#else
     telemetry_snapshot_t t;
     flight_core_read_telemetry(&t);
 
@@ -130,9 +150,20 @@ void telemetry_format_status_line(char *out, size_t out_size) {
         //   HOVLV  = vbat trung vi luc chot (V, KHONG TAI)
         //   HOVLD  = hover_ff suy ra tu model (duty)
         " HOVLK=%d HOVLV=%.2f HOVLD=%.0f"
+#if TELEMETRY_LEVEL >= 2
+        // ================= TU DAY TRO XUONG CHI CO O MUC FULL =================
+        // GUI (STATUS_RE) khong parse bat ky field nao duoi day -- no ket thuc
+        // o HOVLD roi nuot phan con lai bang r"(?:\s.*)?$". Cat chung o muc
+        // MINIMAL KHONG lam mat gi tren man hinh, chi bot format float.
         // IMU+ToF altitude debug; append-only de GUI cu van parse duoc.
         " TOFZ=%.3f TOFVZ=%.3f TOFVZV=%d TOFFUSE=%d TOFTRACK=%d"
-        " FLOORLOCK=%d FLOORREADY=%d FLOORN=%u FLOORSTD=%.4f BAROFC=%d"
+        // ---- FLOOR/BARO: DA CAT (5 field) ----
+        // FLOORLOCK/FLOORREADY/FLOORN/FLOORSTD: nhan dien mat san da bi TAT
+        // (FC_FEATURE_FLOOR_GATE=0) va innovation gate cung da bo, nen 4 so nay
+        // khong con anh huong toi bat ky quyet dinh nao — giu lai la 4 con so
+        // luon dung yen ma nguoi doc log tuong la co y nghia.
+        // BAROFC: baro khong con la nguon correction (SENSOR_BARO_ENABLED=0), no
+        // luon = 0. Da co dong chu "BAROFC luon 0" trong log boot noi dieu do.
         " AZBZ=%.4f AZERAW=%.4f AZGRAV=%.4f AZBIAS=%.4f AZLPF2=%.4f"
         " ZREQ=%.3f ZERR=%.3f VZERR=%.3f VZP=%.2f VZI=%.2f VZD=%.2f"
         " VZOUT=%.1f HOVTHR=%.1f THRCORR=%.1f"
@@ -150,7 +181,9 @@ void telemetry_format_status_line(char *out, size_t out_size) {
         " GCORRX=%.3f GCORRY=%.3f GCORRZ=%.3f"
         " GSTDRAWX=%.3f GSTDRAWY=%.3f GSTDRAWZ=%.3f"
         " GSTDCORRX=%.3f GSTDCORRY=%.3f GSTDCORRZ=%.3f"
-        " GCAL=%d GCALSTATE=%d GCALFAIL=%d GTEMP=%.1f GCALTEMP=%.1f\n",
+        " GCAL=%d GCALSTATE=%d GCALFAIL=%d GTEMP=%.1f GCALTEMP=%.1f"
+#endif  // TELEMETRY_LEVEL >= 2
+        "\n",
         t.armed ? 1 : 0,
         t.throttle_duty,
         t.roll_deg, t.pitch_deg, t.yaw_deg,
@@ -215,12 +248,13 @@ void telemetry_format_status_line(char *out, size_t out_size) {
         (double)t.tof_corr_z_m, (double)t.tof_corr_vz_ms,
         (double)t.baro_corr_z_m, (double)t.baro_corr_vz_ms,
         (double)t.bias_residual_m, (unsigned)t.bias_adapt_count,
-        t.hover_latched ? 1 : 0, (double)t.hover_latch_v, (double)t.hover_latch_duty,
+        t.hover_latched ? 1 : 0, (double)t.hover_latch_v, (double)t.hover_latch_duty
+#if TELEMETRY_LEVEL >= 2
+        // ---- doi so cua phan FULL: PHAI khop 1-1 voi khoi #if o format string ----
+        ,
         (double)t.tof_z_m, (double)t.tof_vz_ms, t.tof_vz_valid ? 1 : 0,
         t.tof_fusable ? 1 : 0, t.tof_track_state,
-        t.floor_locked ? 1 : 0, t.floor_ready ? 1 : 0,
-        (unsigned)t.floor_sample_count, (double)t.floor_std_m,
-        t.baro_used_by_flight_control ? 1 : 0,
+        // (5 doi so FLOOR*/BAROFC da cat cung luc voi format string o tren)
         (double)t.az_body_z_g, (double)t.az_earth_raw_ms2,
         (double)t.az_after_gravity_ms2, (double)t.az_after_bias_ms2,
         (double)t.az_corrected_ms2,
@@ -240,5 +274,7 @@ void telemetry_format_status_line(char *out, size_t out_size) {
         (double)t.gyro_corr_std_dps.z,
         t.calib_gyro_valid ? 1 : 0, t.gyro_cal_state, t.gyro_cal_fail,
         (double)t.imu_temp_c, (double)t.gyro_cal_temp_c
+#endif  // TELEMETRY_LEVEL >= 2
     );
+#endif  // TELEMETRY_LEVEL == 0
 }

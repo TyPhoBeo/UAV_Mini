@@ -46,6 +46,7 @@
 // bench-ramp của MỘT con drone, đổi motor/cánh/khung là phải đo lại.
 #define HOVER_LATCH_ENABLED      1
 
+
 // ---- Terrain offset (bay qua bàn/ghế mà KHÔNG mất tham chiếu ToF) ----
 // 1 = alt_estimator theo dõi BẬC TERRAIN dưới bụng drone: phát hiện bằng
 //     RESIDUAL (thay đổi range KHÔNG giải thích được bằng vz), xác nhận N mẫu
@@ -53,9 +54,62 @@
 //     không thấy gì bất thường, ToF không bị gate mất vĩnh viễn.
 //     Mở thêm frame AGL (giữ khoảng cách so với BỀ MẶT) + guard khoảng hở tối
 //     thiểu, và cho landing chạy trên AGL thay vì datum.
-// 0 = HÀNH VI CŨ Y NGUYÊN: terrain_off_m luôn 0, alt = độ cao trên sàn đã
-//     khoá, bay qua bàn -> innovation vượt gate -> ToF OTHER -> mất correction.
-#define TERRAIN_OFFSET_ENABLED   1
+// 0 = terrain_off_m LUÔN 0, alt = độ cao trên sàn đã khoá.
+//
+// ============================================================================
+// ĐÃ TẮT (=0) — theo yêu cầu người dùng: "bỏ nhận diện floor hay vật thể"
+// ============================================================================
+// ⚠ CÂU MÔ TẢ CŨ CỦA NHÁNH "=0" ĐÃ SAI và t sửa luôn: nó nói tắt terrain thì
+// "bay qua bàn -> innovation vượt gate -> mất correction". Innovation gate ĐÃ
+// BỊ BỎ (alt_estimator.c), nên vế đó không còn đúng nữa.
+//
+// LÝ DO TẮT — lỗi THẬT, đo được trên bo:
+//   TOFF=-0.315  TPEND=1  TCMT=1  TOFST=2  TOFFUSE=0  TOFTRACK=0
+//   TOFR 83->95 (tang deu)   TOFA=177..178 (DUNG YEN)
+// Bay qua vật thể -> terrain commit offset -0.315m -> sau đó ToF đo mặt sàn
+// THẬT nhưng estimator vẫn trừ đi -0.315 -> mọi mẫu lệch 31cm -> bị loại hết.
+//
+// Và terr_pending KẸT Ở 1 VĨNH VIỄN: đang nghi có bậc thì tof_fusable=false
+// (đúng thiết kế), nhưng vì fusable=false nên KHÔNG BAO GIỜ thu đủ mẫu để
+// confirm hay huỷ nghi ngờ. Vòng luẩn quẩn — không tự thoát được.
+// Kết quả: ALTSRC=4 (TOF_LOST) -> soft-fault -> LANDING giữa chuyến.
+//
+// ⚠ MẤT GÌ KHI TẮT:
+//   - frame AGL (giữ khoảng cách so với BỀ MẶT đang nhìn) không dùng được nữa
+//   - guard khoảng hở tối thiểu TERR_MIN_CLEARANCE_M không chạy -> KHÔNG còn
+//     tự ép leo khi sắp cắm vào mặt bàn/vật cao
+//   - landing chạy trên datum thay vì AGL: hạ xuống một cái bàn cao 0.4m thì
+//     firmware vẫn nghĩ còn 0.4m nữa mới chạm
+// Ba thứ đó giờ là việc của NGƯỜI LÁI. Đổi lại: bay qua vật thể không còn tự
+// hạ cánh giữa chừng.
+#define TERRAIN_OFFSET_ENABLED   0
+
+// ================= MỨC CHI TIẾT DÒNG STATUS (telemetry_format.c) =================
+// Dòng STATUS có 157 field. Phần lớn là số debug của các giai đoạn đã xong
+// (gyro calib, terrain offset, floor gate...) — vẫn được format mỗi 50ms dù
+// không ai đọc. Cờ này CẮT BỚT phần đuôi đó, KHÔNG đổi phần đầu.
+//
+//   0 = OFF     — không gửi STATUS (chỉ reply lệnh trực tiếp)
+//   1 = MINIMAL — tới HOVLD. Đây là TOÀN BỘ phần GUI thật sự parse
+//                 (tools/uav_udp_console.py::STATUS_RE kết thúc ở HOVLK/HOVLV/
+//                 HOVLD, sau đó là r"(?:\s.*)?$" nuốt mọi thứ dư). Nên MINIMAL
+//                 KHÔNG làm mất bất kỳ thứ gì GUI đang hiển thị.
+//   2 = FULL    — thêm đuôi chẩn đoán: az/PID nội bộ, terrain, gyro calib.
+//
+// VÌ SAO ranh giới đúng ở HOVLD: mọi field sau nó (TOFZ AZBZ ZREQ VZOUT TOFF
+// CLR FRAME GRAWX GCAL...) đã được kiểm tra là KHÔNG xuất hiện trong bất kỳ
+// regex nào của GUI — chúng chỉ hiện ở khung log text. Cắt chúng không làm
+// hỏng đồ thị hay ô số nào.
+//
+// KHÔNG ảnh hưởng điều khiển: telemetry_format_status_line() chạy trong
+// net_task (prio 5, core 0), tách hẳn stabilize_task (prio 23, core 1).
+#ifndef TELEMETRY_LEVEL
+#define TELEMETRY_LEVEL          2   // 2=FULL (giữ nguyên hành vi cũ)
+#endif
+
+#if (TELEMETRY_LEVEL != 0) && (TELEMETRY_LEVEL != 1) && (TELEMETRY_LEVEL != 2)
+#error "TELEMETRY_LEVEL chi duoc la 0 (OFF), 1 (MINIMAL) hoac 2 (FULL)"
+#endif
 
 #if SENSOR_IMU_ENABLED == 0
 #error "SENSOR_IMU_ENABLED phai = 1 -- khong IMU thi attitude khong bao gio valid, khong the arm, tat co dinh khong ich gi ma con che dau loi neu vo tinh tat nham"

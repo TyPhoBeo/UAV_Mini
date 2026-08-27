@@ -235,6 +235,29 @@ if m_nolatch is not None:
     check("hovlk=0 g[114]", m_nolatch.groups()[114], "0")
 check("tong so group", len(g), 117)
 
+# --- TELEMETRY_LEVEL=1 (MINIMAL): dong cat NGAY SAU HOVLD ---------------------
+# Phase 2 refactor gate phan duoi HOVLD sau #if TELEMETRY_LEVEL >= 2. Test nay
+# la BANG CHUNG cho tuyen bo "MINIMAL khong lam mat gi tren GUI": neu ranh gioi
+# cat sai (cat nham vao giua mot cum ma GUI dang doc), so group co gia tri se
+# TUT XUONG va check duoi day fail.
+#
+# Dung split(" TOFZ=") vi TOFZ la field DAU TIEN cua khoi FULL trong
+# src/telemetry_format.c (ngay sau HOVLK/HOVLV/HOVLD).
+minimal_line = line.split(" TOFZ=")[0]
+m_min = mod.STATUS_RE.match(minimal_line)
+check("MINIMAL parse duoc", m_min is not None, True)
+if m_min is not None:
+    g_min = m_min.groups()
+    # Toan bo 117 group van co mat -> khong mat gi so voi FULL.
+    check("MINIMAL: van du 117 group", len(g_min), 117)
+    check("MINIMAL: hovlk g[114]", g_min[114], "1")
+    check("MINIMAL: hovlv g[115]", g_min[115], "3.87")
+    check("MINIMAL: hovld g[116]", g_min[116], "1085")
+    # Khong mot group nao bi None hoa so voi FULL: chung minh phan bi cat
+    # KHONG nam trong vung STATUS_RE doc.
+    lost = [i for i in range(117) if g[i] is not None and g_min[i] is None]
+    check("MINIMAL: khong group nao bi mat", lost, [])
+
 if fails:
     print("FAIL:")
     print("\n".join(fails))
