@@ -1,0 +1,25 @@
+# Bang phan vung UAV-S3 — chip ESP32-S3-WROOM-1 N16R8 (16MB flash THAT).
+#
+# VI SAO CO FILE NAY: truoc day khong co, nen build roi ve bang mac dinh cua
+# ESP-IDF (partitions_singleapp.csv) voi "factory = 1M" HARDCODE. Ket qua:
+# 15MB flash bo khong, con app thi cham tran 93.3% (chi con ~68KB) — them mot
+# tinh nang vua phai la link fail. Board JSON co khai "partitions":
+# "default_16MB.csv" nhung dong do nam trong khoi "arduino", build ESP-IDF
+# KHONG doc -> khong cuu duoc gi.
+#
+# nvs + phy_init GIU NGUYEN offset va kich thuoc nhu bang cu, chi rieng
+# factory no ra. Nho vay du lieu NVS dang co (namespace "fc_calib" — bias gyro
+# da calib, xem components/flight_core/src/calibration.c) KHONG bi dich cho va
+# khong mat khi nap ban moi.
+#
+# Vi sao 4M ma khong lay het 15M: app that ~1MB, 4M la du 4 lan; phan con lai
+# de danh cho OTA/coredump/SPIFFS sau nay ma khong phai sap xep lai bang lan nua.
+#
+# Nap: KHONG can thao tac gi khac. PlatformIO von da nap ca 3 phan moi lan
+# upload (xem .pio/build/*/flash_args): bootloader @0x0, bang nay @0x8000,
+# app @0x10000. Giu BOOT + RESET roi `pio run -t upload` nhu binh thuong.
+#
+# Name,   Type, SubType, Offset,   Size, Flags
+nvs,      data, nvs,     0x9000,   0x6000,
+phy_init, data, phy,     0xf000,   0x1000,
+factory,  app,  factory, 0x10000,  4M,

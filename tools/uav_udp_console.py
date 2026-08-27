@@ -488,6 +488,8 @@ TAKEOFF_REJECT_NAMES = {
     "2": ("Chua chot duoc mau FLOOR ToF hop le; hien firmware dung mau hop le dau tien. "
           "Kiem tra TOFFUSE/FLOORREADY/FLOORN, i2c_scan va tof_test."),
     "3": "alt_estimator KHONG hop le (state khong huu han) -> ARM lai de reset",
+    # Ma 4 KHONG con duoc gan: latch ga hover da tra ve luc ARM, nen ly do tu
+    # choi tuong ung nam o ARM_REJECT_NAMES. Giu cho de khong dich so.
 }
 
 # Tên pha cất cánh — khớp takeoff_phase_t (takeoff_land.h), kiến trúc PID +
@@ -1079,12 +1081,14 @@ class TakeoffGroup:
                      for i, (key, lbl, rng) in enumerate(specs)}
         r = len(specs)
 
-        # Target độ cao cho LỆNH takeoff (không phải @TKO tune). Mặc định 0.30m
-        # — thấp, an toàn cho lần thử đầu; người dùng tự nâng.
+        # Target độ cao cho LỆNH takeoff (không phải @TKO tune). Mặc định 1.00m
+        # theo yêu cầu người dùng (trước là 0.30m).
+        # 1.00m nằm trong tầm tin cậy của VL53L1X LONG (~2.6m trong nhà) và dưới
+        # trần ALT_EST_MAX_FLIGHT_Z_M, nên không chạm giới hạn nào.
         tgtf = ttk.Frame(self.frame)
         tgtf.grid(row=r, column=0, columnspan=3, sticky="w", padx=4, pady=(4, 0))
         ttk.Label(tgtf, text="tgt(m):").pack(side=tk.LEFT)
-        self.target_var = tk.StringVar(value="0.30")
+        self.target_var = tk.StringVar(value="1.00")
         ttk.Spinbox(tgtf, from_=0.05, to=3.0, increment=0.05, width=6,
                     textvariable=self.target_var).pack(side=tk.LEFT, padx=(2, 6))
         ttk.Label(tgtf, text="do cao SE LEO TOI roi HOLD", foreground="gray").pack(side=tk.LEFT)
@@ -1924,7 +1928,15 @@ class PidTunerApp:
         steps = ttk.LabelFrame(outer, text="Steps")
         steps.pack(side=tk.TOP, anchor="w", pady=(0, 10))
         self.tilt_step_var = tk.DoubleVar(value=4.0)
-        self.yaw_step_var = tk.DoubleVar(value=30.0)
+        # NANG 30 -> 90 deg/s (yeu cau nguoi dung). Nam trong tran firmware
+        # SP_YAW_RATE_MAX_DPS = 180 (tuning.h muc 6) nen KHONG bi clamp am tham.
+        #
+        # ⚠ 90 deg/s la nhanh: giu A/D mot giay la drone quay 1/4 vong. Yaw
+        # nhanh cung an vao bien ga cua mixer (yaw_correction cong/tru vao ca 4
+        # motor), nen o ga cao co the cham tran collective va mat mot phan tham
+        # quyen roll/pitch. Neu thay drone kem on dinh khi vua yaw vua bay ngang
+        # thi ha so nay xuong ~45-60.
+        self.yaw_step_var = tk.DoubleVar(value=90.0)
         ttk.Label(steps, text="TILT (deg):").grid(row=0, column=0, padx=4, pady=3, sticky="e")
         tk.Spinbox(steps, from_=1.0, to=10.0, increment=0.5, width=6,
                    textvariable=self.tilt_step_var).grid(row=0, column=1, padx=(0, 14))
@@ -1972,20 +1984,36 @@ class PidTunerApp:
         self._mk_dir_btn(rpf, "down",  "v\nlui").grid(row=1, column=1, padx=2, pady=2)
         self._mk_dir_btn(rpf, "right", ">\nphai").grid(row=1, column=2, padx=2, pady=2)
 
-        # NHAN phai noi ro: CLICK nut = buoc do cao +/-10cm; GIU phim W/S =
-        # lenh VAN TOC +/-0.3 m/s (hai viec KHAC NHAU tren cung mot phim).
-        altf = ttk.LabelFrame(pad, text="Do cao - CLICK = +/-10cm  (GIU W/S = +/-0.3 m/s)")
+        # ====================================================================
+        # W/S — nhan va hanh vi PHU THUOC MODE, cap nhat tu STATUS
+        # ====================================================================
+        # ⚠ NUT BAM PHAI DI QUA CUNG DUONG VOI PHIM (_ws_press/_stop_ws_repeat).
+        # Truoc day nut goi THANG self._alt_step(), bo qua toan bo logic re nhanh
+        # theo mode -> bam nut o FLYING van gui buoc do cao (vo tac dung vi FLYING
+        # khong dung target), trong khi giu phim W lai gui offset ga. Cung mot
+        # thao tac, hai ket qua khac nhau, khong co gi tren man hinh giai thich.
+        #
+        # Nhan cung KHONG duoc hard-code: no phai noi dung cai dang xay ra o mode
+        # HIEN TAI, neu khong thi no la mot lop noi doi thu hai chong len lop dau.
+        self.alt_frame = ttk.LabelFrame(pad, text="Do cao / Ga")
+        altf = self.alt_frame
         altf.grid(row=0, column=2, padx=6, pady=4, sticky="n")
-        b_w = tk.Button(altf, text="W\nlen +10cm", width=10, height=3,
-                        command=lambda: self._alt_step(+1))
-        b_w.grid(row=0, column=0, padx=2, pady=2)
-        b_s = tk.Button(altf, text="S\nxuong -10cm", width=10, height=3,
-                        command=lambda: self._alt_step(-1))
-        b_s.grid(row=1, column=0, padx=2, pady=2)
-        # W/S chet o tab khac (xem _ws_press) -- noi thang tren man hinh, dung
-        # de nguoi dung phai doan vi sao phim khong an.
-        ttk.Label(altf, text="GIU W/S chi an o tab Manual",
+        # <ButtonPress>/<ButtonRelease> chu khong phai command=: o FLYING, W/S la
+        # lenh GIU (momentary) nen phai biet luc nha nut, ma command= chi bao
+        # "da click xong".
+        self.btn_w = tk.Button(altf, text="W", width=10, height=3)
+        self.btn_w.grid(row=0, column=0, padx=2, pady=2)
+        self.btn_w.bind("<ButtonPress-1>",   lambda e: self._ws_press(+1))
+        self.btn_w.bind("<ButtonRelease-1>", lambda e: self._stop_ws_repeat())
+        self.btn_s = tk.Button(altf, text="S", width=10, height=3)
+        self.btn_s.grid(row=1, column=0, padx=2, pady=2)
+        self.btn_s.bind("<ButtonPress-1>",   lambda e: self._ws_press(-1))
+        self.btn_s.bind("<ButtonRelease-1>", lambda e: self._stop_ws_repeat())
+        # Dong nhan dong: _update_ws_labels() ghi de moi khi STATUS doi mode.
+        self.ws_hint_var = tk.StringVar(value="cho STATUS...")
+        ttk.Label(altf, textvariable=self.ws_hint_var,
                   foreground="gray").grid(row=2, column=0, padx=2, pady=(2, 2))
+        self._update_ws_labels(None)
 
         tlf = ttk.LabelFrame(pad, text="Takeoff / Land")
         tlf.grid(row=0, column=3, padx=6, pady=4, sticky="n")
@@ -2012,23 +2040,43 @@ class PidTunerApp:
         # ---- Trim live (@TRIM): dò bias roll/pitch ngay khi bay, mỗi bước 0.02 deg ----
         # Dùng CHUNG state trim_roll/trim_pitch (panel Config) làm nguồn -> Config &
         # Manual luôn đồng bộ. Mỗi nút nudge -> gửi @TRIM SET ngay.
-        trimf = ttk.LabelFrame(pad, text="Trim live (@TRIM) - do bias")
+        # ====================================================================
+        # TRIM — KHOA KHI DANG BAY (yeu cau nguoi dung)
+        # ====================================================================
+        # Trim la phep do BIAS CO KHI (drone lech ve mot huong khi le ra phai
+        # dung yen). Do no khi DANG BAY la sai ban chat: luc do drone dang chiu
+        # gio, hieu ung mat dat, va chinh lenh nghieng cua nguoi lai — khong
+        # phan biet duoc "lech do lap dat" voi "lech do dang bay".
+        #
+        # Te hon: moi lan bam la mot buoc nhay setpoint goc. O tren khong, mot
+        # buoc 0.02deg khong sao, nhung giu nut / bam nham nhieu lan se dich
+        # setpoint di dang ke ma khong co gi keo lai.
+        #
+        # Giu lai nut (KHONG xoa) vi luc DISARMED / dat tren ban chung van la
+        # cach dung de do bias. Chi khoa khi ARM.
+        self.trim_frame = ttk.LabelFrame(pad, text="Trim live (@TRIM) - do bias")
+        trimf = self.trim_frame
         trimf.grid(row=0, column=4, padx=6, pady=4, sticky="n")
+        self._trim_widgets = []
         self.trim_step_var = tk.DoubleVar(value=0.02)
         self.manual_trim_var = tk.StringVar(value="roll=?  pitch=?")
         ttk.Label(trimf, textvariable=self.manual_trim_var,
                   font=("Consolas", 10)).grid(row=0, column=0, columnspan=3,
                                               sticky="w", padx=2, pady=(2, 4))
         ttk.Label(trimf, text="roll (q/e)").grid(row=1, column=0, padx=2, sticky="e")
-        tk.Button(trimf, text="-", width=3,
-                  command=lambda: self._trim_nudge("roll", -1)).grid(row=1, column=1, padx=1)
-        tk.Button(trimf, text="+", width=3,
-                  command=lambda: self._trim_nudge("roll", +1)).grid(row=1, column=2, padx=1)
+        _b = tk.Button(trimf, text="-", width=3,
+                       command=lambda: self._trim_nudge("roll", -1))
+        _b.grid(row=1, column=1, padx=1); self._trim_widgets.append(_b)
+        _b = tk.Button(trimf, text="+", width=3,
+                       command=lambda: self._trim_nudge("roll", +1))
+        _b.grid(row=1, column=2, padx=1); self._trim_widgets.append(_b)
         ttk.Label(trimf, text="pitch (1/3)").grid(row=2, column=0, padx=2, sticky="e")
-        tk.Button(trimf, text="-", width=3,
-                  command=lambda: self._trim_nudge("pitch", -1)).grid(row=2, column=1, padx=1)
-        tk.Button(trimf, text="+", width=3,
-                  command=lambda: self._trim_nudge("pitch", +1)).grid(row=2, column=2, padx=1)
+        _b = tk.Button(trimf, text="-", width=3,
+                       command=lambda: self._trim_nudge("pitch", -1))
+        _b.grid(row=2, column=1, padx=1); self._trim_widgets.append(_b)
+        _b = tk.Button(trimf, text="+", width=3,
+                       command=lambda: self._trim_nudge("pitch", +1))
+        _b.grid(row=2, column=2, padx=1); self._trim_widgets.append(_b)
         ttk.Label(trimf, text="step").grid(row=3, column=0, padx=2, pady=(4, 0), sticky="e")
         tk.Spinbox(trimf, from_=0.01, to=0.50, increment=0.01, width=5,
                    textvariable=self.trim_step_var).grid(row=3, column=1, columnspan=2,
@@ -2085,7 +2133,7 @@ class PidTunerApp:
 
     def _recompute_cmd(self):
         tilt = self._get_step(self.tilt_step_var, 4.0)
-        yaw = self._get_step(self.yaw_step_var, 30.0)
+        yaw = self._get_step(self.yaw_step_var, 90.0)
         h = self._held
         roll_held = (tilt if "roll+" in h else 0.0) - (tilt if "roll-" in h else 0.0)
         pitch_held = (tilt if "pitch+" in h else 0.0) - (tilt if "pitch-" in h else 0.0)
@@ -2490,12 +2538,101 @@ class PidTunerApp:
     #
     # Gio GUI luon gui @THR OFFSET; viec dich sang y nghia dung cua tung state
     # do FIRMWARE lam, la noi DUY NHAT biet chac minh dang o state nao.
-    WS_THROTTLE_OFFSET_DUTY = 100
+    # ⚠ NANG 100 -> 200 duty theo yeu cau nguoi dung (chi ap dung o FLYING).
+    WS_THROTTLE_OFFSET_DUTY = 200
     WS_OFFSET_KEEPALIVE_MS = 100     # < BENCH_OFFSET_STALE_US(400ms) nhieu lan
+    # Buoc do cao moi lan bam W/S o HOLD. Phai KHOP voi buoc ma firmware ap dung
+    # cho '>'/'<' (command_parser.c: +-0.10m) — GUI chi gui phim, khong gui so.
+    WS_ALT_STEP_M = 0.10
+
+    # ========================================================================
+    # W/S RE NHANH THEO STATE (yeu cau nguoi dung)
+    # ========================================================================
+    #   HOLD (mode 2)   -> MOT buoc do cao +-0.10m moi lan BAM. Khong lap lai
+    #                      khi giu; muon len 30cm thi bam 3 lan.
+    #   FLYING (mode 5) -> +-200 duty, CHI CO TAC DUNG KHI DANG GIU. Nha phim la
+    #                      ve 0 ngay (momentary), giong ga tay.
+    #   con lai         -> giu nguyen duong offset cu (bench/manual throttle).
+    #
+    # VI SAO GUI phai re nhanh chu khong de firmware lam: hai hanh vi nay khac
+    # nhau ve BAN CHAT — mot cai la su kien roi rac (bam = +10cm), mot cai la
+    # trang thai lien tuc (giu = +200). Firmware chi nhan duoc "offset = N", no
+    # KHONG phan biet duoc "vua bam" voi "dang giu", nen khong the tu suy ra.
+    #
+    # ⚠ Doc mode tu STATUS gan nhat. Mat goi STATUS -> mode cu -> co the gui nham
+    # loai lenh mot lan. Chap nhan duoc vi: gui nham '>' o FLYING chi doi target
+    # (ma FLYING khong dung target de lai ga), va gui nham offset o HOLD thi
+    # firmware cong vao throttle cua alt_hold roi tu neo lai target — ca hai deu
+    # khong nguy hiem, chi la mot nhip khong nhu y.
+    def _set_trim_enabled(self, allow):
+        """Khoa/mo nut TRIM. allow=False khi drone DANG BAY.
+
+        Chan o GUI la lop DAU, khong phai lop duy nhat — nguoi dung van co the
+        go '@TRIM SET' qua console. Day chi la bo mot cach bam nham de dang.
+        """
+        if not hasattr(self, "_trim_widgets"):
+            return
+        state = "normal" if allow else "disabled"
+        for w in self._trim_widgets:
+            try:
+                w.configure(state=state)
+            except tk.TclError:
+                pass
+        if hasattr(self, "trim_frame"):
+            self.trim_frame.configure(
+                text="Trim live (@TRIM) - do bias" if allow
+                else "Trim - KHOA khi dang bay")
+
+    def _update_ws_labels(self, amode):
+        """Nhan nut W/S + dong goi y phai khop MODE HIEN TAI.
+
+        Goi moi khi STATUS doi mode. amode=None -> chua co STATUS.
+
+        VI SAO nhan phai dong: cung mot nut lam hai viec khac han nhau tuy state
+        (HOLD = mot buoc do cao roi rac; FLYING = ga giu-nut). Nhan tinh se dung
+        cho MOT trong hai va sai cho cai con lai — va nguoi lai chi phat hien ra
+        khi drone da o tren khong.
+        """
+        if not hasattr(self, "btn_w"):
+            return
+        if amode == "2":        # HOLD — PID do cao dang lai throttle
+            self.btn_w.configure(text=f"W\nlen +{self.WS_ALT_STEP_M*100:.0f}cm")
+            self.btn_s.configure(text=f"S\nxuong -{self.WS_ALT_STEP_M*100:.0f}cm")
+            self.ws_hint_var.set(f"HOLD: BAM = +/-{self.WS_ALT_STEP_M*100:.0f}cm")
+            if hasattr(self, "alt_frame"):
+                self.alt_frame.configure(text="Do cao (HOLD)")
+        elif amode == "5":      # FLYING — PID do cao TAT, ga tay
+            self.btn_w.configure(text=f"W\nga +{self.WS_THROTTLE_OFFSET_DUTY}")
+            self.btn_s.configure(text=f"S\nga -{self.WS_THROTTLE_OFFSET_DUTY}")
+            self.ws_hint_var.set(f"FLYING: GIU = +/-{self.WS_THROTTLE_OFFSET_DUTY} ga")
+            if hasattr(self, "alt_frame"):
+                self.alt_frame.configure(text="Ga tay (FLYING)")
+        else:
+            # Cac state con lai (DISARMED/ARMED/TAKEOFF/LANDING): W/S van gui
+            # offset ga nhu truoc, nhung firmware phan lon se bo qua. Noi ro
+            # thay vi de nhan cua state truoc dinh lai.
+            self.btn_w.configure(text="W\nga +")
+            self.btn_s.configure(text="S\nga -")
+            self.ws_hint_var.set("W/S chi an o tab Manual")
+            if hasattr(self, "alt_frame"):
+                self.alt_frame.configure(text="Do cao / Ga")
+
+    def _ws_mode(self):
+        """Mode alt gan nhat tu STATUS ('2'=HOLD, '5'=FLYING, ...) hoac None."""
+        return getattr(self, "_last_alt_mode", None)
 
     def _ws_press(self, sign):
-        """Bat dau giu W/S -> offset momentary, gui lai dinh ky lam keepalive."""
+        """Bat dau giu W/S. Hanh vi phu thuoc state — xem khoi comment tren."""
         self._stop_ws_repeat()
+
+        if self._ws_mode() == "2":
+            # HOLD: mot buoc do cao roi rac. KHONG dat _ws_repeat_key -> khong co
+            # keepalive, khong lap lai khi giu phim.
+            self._alt_step(sign)
+            self._log(f"[GUI] HOLD: W/S -> alt target {sign:+d} x {self.WS_ALT_STEP_M:.2f}m")
+            return
+
+        # FLYING (va cac state con lai): offset momentary + keepalive.
         self._ws_repeat_key = sign
         self._send_thr_offset(sign * self.WS_THROTTLE_OFFSET_DUTY)
         self._ws_repeat_after = self.root.after(
@@ -2726,6 +2863,12 @@ class PidTunerApp:
         ks = e.keysym.lower()
         spec = self._TRIM_KEYS.get(ks)
         if spec is None:
+            return
+        # PHIM TAT phai chiu CUNG mot khoa voi NUT (xem _set_trim_enabled).
+        # Khoa nut ma de phim an la khoa nua voi: nguoi dung thay nut xam roi
+        # tuong minh khong the chinh, trong khi q/e/1/3 van dich setpoint.
+        if getattr(self, "_trim_locked_state", False):
+            self._log("[GUI] TRIM bi khoa khi dang bay -- LAND truoc roi chinh")
             return
         if ks in self._trim_keys_down:      # auto-repeat -> bỏ, 1 nhấn = 1 bước
             return
@@ -3586,6 +3729,23 @@ class PidTunerApp:
             # ---- Nuôi tab Manual Control ----
             if altm is not None:
                 self._last_alt_target = atgt
+            # Mode alt gan nhat — _ws_press() doc de re nhanh W/S (HOLD = buoc do
+            # cao, FLYING = offset ga giu-nut). Luu O DAY, NGOAI khoi
+            # `if hasattr(manual_status_var)`: neu de ben trong thi khi tab Manual
+            # chua duoc dung, mode ket o None va W/S se im lang chay nhanh sai.
+            self._last_alt_mode = amode
+            # Nhan nut W/S bam theo mode. Chi ve lai khi mode THAT SU doi —
+            # configure() moi frame la lang phi va lam nut nhap nhay.
+            if amode != getattr(self, "_ws_labels_mode", "__init__"):
+                self._ws_labels_mode = amode
+                self._update_ws_labels(amode)
+            # TRIM chi cho chinh khi KHONG bay. "Dang bay" = ARM va mode alt la
+            # mot trong TAKEOFF/HOLD/LANDING/FLYING (2..5). ARM ma van nam dat
+            # (mode 0/1) thi van cho chinh — do la luc do bias hop le nhat.
+            _flying = (armed == "1") and (amode in ("2", "3", "4", "5"))
+            if _flying != getattr(self, "_trim_locked_state", None):
+                self._trim_locked_state = _flying
+                self._set_trim_enabled(not _flying)
             if hasattr(self, "manual_status_var"):
                 # Khop telemetry_format_alt_mode() (src/telemetry_format.c).
                 # 5=FLYING tach rieng khoi 2=HOLD: truoc day firmware tra CUNG
@@ -3598,12 +3758,14 @@ class PidTunerApp:
                 # nó là output PID giữ độ cao (hover+dthr); còn lại là throttle tay.
                 # CHI de hien thi nhan "(PID)" canh THR=. KHONG con dieu khien
                 # hanh vi phim W/S nua (xem khoi comment tren _ws_press).
-                # PID giu do cao dang lai throttle o HOLD/TAKEOFF/LANDING/FLYING.
-                # FLYING (5) PHAI co trong danh sach: no van chay alt_hold y het
-                # HOLDING, chi khac la dang co lenh nghieng. Bo sot 5 thi nhan
-                # "(PID)" bien mat ngay khi bat dau bay tien - trong nhu vua
-                # chuyen sang throttle tay, trong khi khong he.
-                thr_pid = amode in ("2", "3", "4", "5")
+                # ⚠ FLYING (5) DA BI LOAI khoi danh sach nay.
+                # Comment cu noi "FLYING van chay alt_hold y het HOLDING" — dieu
+                # do TUNG dung, nhung KHONG con dung: firmware gio TAT HAN PID do
+                # cao trong FLYING (hold_driving=false, throttle den tu
+                # s_flying_throttle_latch). Giu 5 o day se dan nhan "(PID)" trong
+                # khi khong co PID nao chay — telemetry noi doi dung luc nguoi lai
+                # can biet ai dang cam ga.
+                thr_pid = amode in ("2", "3", "4")
                 thr_txt = f"{thr}{' (PID)' if thr_pid else ''}" if thr is not None else "?"
                 mode_txt = mnames.get(amode, amode) if amode is not None else "?"
                 # alt: hien ca do cao HIEN TAI va TARGET. Chi mot so thi khong
@@ -3617,11 +3779,22 @@ class PidTunerApp:
                         alt_txt += f"  vz={vz}"
                 else:
                     alt_txt = "?"
+                # W/S DANG LAM GI — hien ngay canh mode, vi cung mot phim co hai
+                # y nghia khac han nhau tuy state (xem khoi comment tren
+                # _ws_press). Khong hien thi thi nguoi lai phai tu nho, va bam
+                # nham o do cao that la mot cach hong chuyen bay.
+                if amode == "2":
+                    ws_hint = f"W/S=alt +-{self.WS_ALT_STEP_M:.2f}m (bam)"
+                elif amode == "5":
+                    ws_hint = f"W/S=thr +-{self.WS_THROTTLE_OFFSET_DUTY} (GIU)"
+                else:
+                    ws_hint = "W/S=thr (giu)"
                 self.manual_status_var.set(
                     f"ARM={'YES' if armed_yes else 'no'}   "
                     f"mode={mode_txt}   "
                     f"alt={alt_txt}   "
-                    f"THR={thr_txt}")
+                    f"THR={thr_txt}   "
+                    f"[{ws_hint}]")
                 self._update_manual_cmd_label()
                 # Takeoff chỉ enable khi đã ARM; Land luôn enable.
                 if hasattr(self, "manual_takeoff_btn"):

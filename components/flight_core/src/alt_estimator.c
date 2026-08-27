@@ -308,6 +308,29 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
                 // thuc cu.
                 float zt = raw_agl + e->terrain_off_m;
                 if (zt < ALT_EST_GROUND_ZERO_BAND_M) zt = 0.0f;
+
+                // ---- BO LOC NHE: SLEW-RATE LIMIT (thay cho innovation gate) ----
+                // Gioi han zt duoc phep doi bao nhieu MOI GIAY, thay vi LOAI BO
+                // mau khi no nhay. Khac biet cot loi:
+                //   gate cu  -> mau bi vut  -> mat nguon do cao -> auto-land
+                //   slew moi -> mau duoc dung nhung DI TU TU -> khong bao gio
+                //               mat nguon, chi cham hon vai tram ms
+                //
+                // Chay tren THOI GIAN THAT (tof_dt_s) chu khong theo so mau: nhip
+                // ToF thay doi theo cau hinh chip (L0X 33ms vs L1X 40ms) va co
+                // the truot mau. Tinh theo mau se cho toc do gioi han khac nhau
+                // giua hai chip voi CUNG mot hang so — dung loai bug im lang.
+                //
+                // Bo qua o mau DAU TIEN (prev chua co) va khi dt vo ly: luc do
+                // khong co moc nao de gioi han, ep vao se khoa zt o 0 mai mai.
+                if (e->prev_tof_z_valid && e->tof_dt_s > 0.0f &&
+                    e->tof_dt_s <= ALT_EST_TOF_GAP_DERIV_MAX_MS / 1000.0f) {
+                    const float max_step = ALT_EST_TOF_MAX_SLEW_MS * e->tof_dt_s;
+                    const float d = zt - e->prev_tof_z_m;
+                    if (d >  max_step) zt = e->prev_tof_z_m + max_step;
+                    if (d < -max_step) zt = e->prev_tof_z_m - max_step;
+                }
+
                 e->tof_z_m = e->tof_surface_z_m = zt;
                 const bool deriv_ok = e->prev_tof_z_valid && e->tof_dt_s > 0.005f &&
                     e->tof_dt_s <= ALT_EST_TOF_GAP_DERIV_MAX_MS/1000.0f &&
@@ -322,7 +345,33 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
                 e->prev_tof_z_timestamp_us = tof_timestamp_us;
                 e->prev_tof_z_valid = true;
                 e->tof_innovation_m = zt - e->alt_m;
-                e->tof_surface_gate_ok = !airborne || fabsf(e->tof_innovation_m) <= ALT_EST_TOF_INNOV_GATE_M;
+
+                // ============================================================
+                // INNOVATION GATE: DA BO (yeu cau nguoi dung)
+                // ============================================================
+                // TRUOC DAY:
+                //     tof_surface_gate_ok = |innovation| <= 0.25m
+                // Bay qua vat cao 0.5m -> range tut 0.5m trong MOT mau ->
+                // innovation vuot nguong -> surface=OTHER -> tof_fusable=false
+                // -> sau ALT_EST_TOF_LOST_MS thi valid=false -> Commander
+                // soft-fault "altitude estimator lost mid-flight" -> LANDING.
+                //
+                // Tuc la "bay qua vat the" == "tu dong ha canh". Da quan sat
+                // duoc tren bo, va chinh comment o alt_estimator.h muc TERRAIN
+                // cung da mo ta dung kich ban nay.
+                //
+                // GIO: moi mau hop le ve HINH HOC deu duoc fuse. Bo loc chong
+                // nhay dot ngot chuyen sang SLEW-RATE LIMIT ngay tren zt (xem
+                // ALT_EST_TOF_MAX_STEP_M ben duoi) — no lam so do doi MUOT thay
+                // vi LOAI BO mau, nen khong bao gio dan toi "mat nguon do cao".
+                //
+                // ⚠ HE QUA PHAI BIET: alt_hold gio BAM THEO be mat ben duoi.
+                // Bay qua ban cao 0.5m thi drone tu nang len ~0.5m roi ha lai
+                // khi qua khoi. Do la danh doi da chon: tha bam theo dia hinh
+                // con hon tu ha canh giua chung.
+                e->tof_surface_gate_ok = true;
+                e->tof_surface_state = ALT_EST_TOF_SURFACE_FLOOR;
+
 #if FC_FEATURE_TERRAIN_OFFSET
                 if (e->terr_pending) {
                     // ---- B6: TRONG luc nghi ngo ----
@@ -334,15 +383,14 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
                     e->tof_surface_state = ALT_EST_TOF_SURFACE_OTHER;
                 } else
 #endif
-                if (e->tof_surface_gate_ok) {
+                {
+                    // Reacquire chi con y nghia sau mot lan MAT HAN ToF (het
+                    // tam, mat mau) — khong con lien quan toi "nhin thay be mat
+                    // khac" nua vi gate do da bo.
                     if (e->tof_track_state == ALT_TOF_LOST && airborne) {
                         if (e->tof_reacquire_count < UINT8_MAX) e->tof_reacquire_count++;
                     } else e->tof_reacquire_count = ALT_EST_TOF_REACQUIRE_SAMPLES;
                     e->tof_fusable = e->tof_reacquire_count >= ALT_EST_TOF_REACQUIRE_SAMPLES;
-                    e->tof_surface_state = ALT_EST_TOF_SURFACE_FLOOR;
-                } else {
-                    e->tof_reacquire_count = 0; e->tof_fusable = false;
-                    e->tof_surface_state = ALT_EST_TOF_SURFACE_OTHER;
                 }
             }
         } else {

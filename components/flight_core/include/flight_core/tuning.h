@@ -116,7 +116,7 @@ extern "C" {
 // 2) ALT HOLD (alt_hold.h) — cascade giữ độ cao: alt -> vz_target -> vz-PI
 // ============================================================================
 
-#define ALT_HOLD_ALT_KP             1.0f     // alt_err -> vz_target [1/s]
+#define ALT_HOLD_ALT_KP             0.5f     // alt_err -> vz_target [1/s]
 // VZ_KP/KI/ILIMIT map vz_err(m/s) -> DUTY -> đã nhân đôi theo thang 2000.
 //
 // ---- VÌ SAO KHÔNG CÓ Kd Ở VÒNG NÀY (câu trả lời cho "đề xuất PID cho Vz") ----
@@ -158,18 +158,33 @@ extern "C" {
 #define ALT_HOLD_VZ_KP              50.0f
 #define ALT_HOLD_VZ_KI              100.0f
 #define ALT_HOLD_VZ_ILIMIT          500.0f
-// hover_ff DANH NGHĨA — giá trị KHỞI TẠO của s_hold_tune.hover.
+// ============================================================================
+// hover_ff DÙNG TỪ HOLDING TRỞ ĐI — feed-forward của cascade độ cao
+// ============================================================================
+// Cascade là:  output = hover + I   (alt_hold.c). PID KHÔNG tạo ra toàn bộ ga
+// hover — nó chỉ sửa phần SAI LỆCH quanh số này. Đặt sai thì I-term phải gánh
+// phần chênh, và với ALT_HOLD_VZ_KI hiện tại (~10 duty/s hiệu dụng) mỗi 100
+// duty lệch là ~10 GIÂY drone bò lên tới đúng ga.
 //
-// ⚠ KHÔNG còn là hover thật dùng lúc bay. ARM thành công sẽ GHI ĐÈ
-// s_hold_tune.hover bằng hover ĐO THEO ĐIỆN ÁP PIN (hover_model.h) — vì hover
-// thật của con drone này phụ thuộc pin rất mạnh (900 duty @4.2V so với ~1350
-// @3.6V), nên một hằng số biên dịch KHÔNG THỂ đúng cho cả dải pin.
+// VÒNG ĐỜI CỦA s_hold_tune.hover TRONG MỘT CHUYẾN BAY:
+//   ARM      -> latch theo pin (hover_model.h), vd 1219 @3.74V
+//   TAKEOFF  -> vẫn dùng latch (PRIME/CLIMB chưa có sai số Z để I học)
+//   HANDOFF  -> TRẢ VỀ hằng số này, ĐÚNG MỘT LẦN, có bù ngược vào I
+//   HOLDING/FLYING/LANDING -> ĐỨNG YÊN, không đường nào đọc pin nữa
+// Pin tụt trong lúc bay do I-term bù, KHÔNG phải do đổi hover.
 //
-// Số này chỉ còn tác dụng ở 3 chỗ: (1) HOVER_LATCH_ENABLED=0, (2) trước lần
-// ARM đầu tiên, (3) làm mốc cho TAKEOFF_PRIME_DUTY khởi tạo.
+// NÂNG 1000 -> 1200 (yêu cầu người dùng), và đây là con số ĐO ĐƯỢC chứ không
+// phải đoán: log bay thật cho ga giữ độ cao ~1170-1227 duty. Đặt hằng số gần
+// đúng ga hover thật làm `delta` lúc bàn giao gần 0, nên I-term không phải
+// gánh phần feed-forward và không có nguy cơ chạm ALT_HOLD_VZ_ILIMIT (500).
+//
+// ⚠ 1200 GẮN VỚI VIÊN PIN + KHUNG HIỆN TẠI. Đổi pin/cánh/khối lượng thì đo lại:
+// bay HOLDING ổn định rồi đọc HOVTHR trong telemetry — đó là ga hover thật.
+// Nếu I-term khi hover luôn lệch xa 0 thì số này đang sai đúng bằng lượng đó.
+//
 // Đây KHÔNG phải bản sao của HOVER_MODEL_REF_DUTY (=900, hover đo tại ĐÚNG
 // 4.2V) — hai đại lượng khác nhau, đừng "đồng bộ" chúng.
-#define ALT_HOLD_HOVER_NOMINAL      1000.0f
+#define ALT_HOLD_HOVER_NOMINAL      1200.0f
 #define ALT_HOLD_VZ_LIMIT_MS        0.50f   // trần |vz_target| (m/s)
 
 // ---- W/S (GIU phim o GUI) = LỆNH VẬN TỐC LÊN/XUỐNG, không phải cộng duty ----
@@ -226,13 +241,25 @@ extern "C" {
 // thứ DUY NHẤT nhấc drone. Giờ việc nhấc do Z/Vz controller làm, nên số này
 // phải TỤT XUỐNG dưới hover.
 //
-// 70% hover = đủ trên dead-zone của motor brushed, còn xa mức nâng được.
+// ĐANG DÙNG 0.90 (yêu cầu người dùng). Trước đó bị đặt 1.2 — VI PHẠM ràng buộc
+// ở trên: 1.2 nghĩa là PRIME mạnh HƠN hover, tức drone bay lên bằng ga hở trong
+// suốt TAKEOFF_PRIME_MS. Test C1/C2/C3 trong test_hover_model_offline.py bắt
+// đúng chuyện đó (ở 3.4V: prime=1870 >= hover=1559).
+//
+// ⚠ 0.90 LÀ MỨC SÁT BIÊN, không phải mức an toàn rộng rãi:
+//   - 0.70 (mặc định cũ) chừa 30% biên, chắc chắn không nhấc nổi.
+//   - 0.90 chỉ chừa 10%. Nếu hover thật bị ước lượng THẤP hơn thực tế >10%
+//     (pin đầy hơn dự đoán, drone nhẹ hơn model) thì PRIME vẫn có thể nhấc
+//     drone lên — đúng thứ kiến trúc này nói phải tránh.
+//   - Bù lại: PRIME gần hover thì lúc chuyển sang CLIMB ít bị hụt ga, nên
+//     cất cánh mượt hơn và Vz controller không phải kéo I từ quá xa.
+// Nếu thấy drone nhúc nhích/nhấc trong pha PRIME thì hạ về 0.80 hoặc 0.70.
 //
 // ⚠ ĐÂY LÀ NGUỒN DUY NHẤT của tỷ lệ PRIME/hover. hover_model.c dùng CHÍNH hằng
 // số này (hover_model_prime_duty()) để tính ga PRIME từ hover đã latch theo
-// pin. Đừng gõ lại 0.70 ở chỗ khác: lúc chưa latch và sau khi latch phải theo
+// pin. Đừng gõ lại 0.90 ở chỗ khác: lúc chưa latch và sau khi latch phải theo
 // CÙNG một tỷ lệ, nếu không ga PRIME sẽ đổi giữa hai lần bay mà không ai biết.
-#define TAKEOFF_PRIME_HOVER_FRAC    1.2f
+#define TAKEOFF_PRIME_HOVER_FRAC    0.90f
 
 // Giá trị KHỞI TẠO của prime_duty (takeoff_default_tune()). Chỉ có tác dụng
 // khi latch theo pin KHÔNG chạy (HOVER_LATCH_ENABLED=0, hoặc trước lần ARM đầu
@@ -376,6 +403,13 @@ extern "C" {
 // hội tụ, ground effect) và HOLD sẽ tự kéo về sau khi bàn giao — nó KHÔNG phải
 // lý do để hủy chuyến bay. Dung sai bàn giao chỉ cần đủ chặt để biết drone
 // "đang ở gần đích và không còn lao đi", không phải để ép độ chính xác cuối.
+// ⚠ HAI HẰNG SỐ DƯỚI ĐÂY GIỜ KHÔNG CÒN AI ĐỌC (yêu cầu người dùng).
+// hold_ready đã rút còn HAI vế: rời đất + rate-limiter trượt hết. Hai dung sai
+// này từng là vế thứ ba/tư, và chúng chính là nguyên nhân một lần cất cánh thật
+// bị kẹt ở CLIMB 21.6s rồi TKO_ABORT_TIMEOUT: drone leo tới 1.45m trong khi
+// target 1.00m nên |Z-tgt| KHÔNG BAO GIỜ <= 0.08.
+// GIỮ LẠI định nghĩa (không xoá) để lịch sử tune còn đọc được và để bật lại
+// bằng một dòng nếu sau này muốn siết bàn giao. Xem takeoff_land.c `hold_ready`.
 #define TAKEOFF_HOLD_Z_TOL_M        0.08f
 // Dung sai Vz. NỚI 0.08 -> 0.20: Vz ước lượng dao động ±0.25 m/s ngay cả khi
 // drone treo ổn định (ToF 30Hz + propwash), nên 0.08 là dưới mức nhiễu nền —
@@ -464,10 +498,34 @@ extern "C" {
 // 4) LANDING (takeoff_land.h) — descend -> flare -> touchdown (+ blind nếu mất ToF)
 // ============================================================================
 
-#define LAND_DESCENT_VZ             0.25f    // m/s, tốc độ hạ pha DESCEND
-#define LAND_FLARE_ALT_M            0.15f    // m, ngưỡng vào FLARE
-#define LAND_FLARE_VZ                0.10f   // m/s, tốc độ hạ lúc gần chạm
-#define LAND_TOUCHDOWN_ALT_M        0.035f   // m, ToF height tren floor
+// ============================================================================
+// LANDING 3 PHA — ĐÃ CHỈNH LẠI CHO TRẦN BAY ~2.5m
+// ============================================================================
+// Bản cũ: DESCEND 0.25 m/s tới tận 0.15m rồi mới chậm lại. Từ 2.5m nghĩa là
+// 9.4 GIÂY rơi đều rồi phanh gấp trong 15cm cuối — vừa lâu vừa giật.
+//
+// Bản mới, ba pha theo ĐỘ CAO (không theo thời gian):
+//   > 0.50m          : DESCEND, vz = -0.35 m/s cố định
+//   0.50m -> 0.08m   : FLARE, vz nội suy TUYẾN TÍNH theo độ cao còn lại,
+//                      -0.35 -> -0.12 m/s. Càng gần đất càng chậm, LIÊN TỤC,
+//                      không có bước nhảy tốc độ nào.
+//   < 0.08m          : TOUCHDOWN, cắt ga theo dốc + phát hiện chạm đất
+//
+// Từ 2.5m: ~5.7s ở pha 1, ~2.9s ở pha 2 -> tổng ~8.6s, và 0.5m cuối được trải
+// ra gần 3 giây thay vì lao tới rồi phanh.
+//
+// VÌ SAO nội suy theo ĐỘ CAO chứ không theo thời gian: tốc độ hạ luôn tỉ lệ với
+// khoảng cách còn lại, nên sai số độ cao (ToF nhiễu, nền không phẳng) chỉ làm
+// tốc độ lệch một chút, KHÔNG làm drone chạm đất ở tốc độ sai. Theo thời gian
+// thì một lần ToF trễ là drone tiếp đất nhanh gấp đôi.
+#define LAND_DESCENT_VZ             0.35f    // m/s, tốc độ hạ pha DESCEND
+#define LAND_FLARE_ALT_M            0.50f    // m, ngưỡng vào FLARE
+#define LAND_FLARE_VZ                0.12f   // m/s, tốc độ hạ lúc gần chạm
+#define LAND_TOUCHDOWN_ALT_M        0.080f   // m, ToF height tren floor
+// NÂNG 0.035 -> 0.080: ở 3.5cm, VL53L1X đã nằm sát cận dưới đáng tin của nó
+// (crosstalk cửa sổ kính, min-range-fail) nên số đo bắt đầu nhảy đúng lúc cần
+// nó ổn định nhất. 8cm vẫn đủ thấp để cú tiếp đất còn lại là rơi tự do vài cm,
+// mà nằm hẳn trong vùng ToF đọc tin cậy.
 
 // ---- TOUCHDOWN DETECTOR ĐA ĐIỀU KIỆN (xem landing_run()) ----
 // Board KHÔNG có ToF, Z đến từ baro với nhiễu ±0.3-1m sát đất — lớn gấp nhiều
@@ -562,14 +620,14 @@ extern "C" {
 //
 // Hai số dưới đây là giá trị đã dò trên khung thật (trước đây nằm chôn trong
 // flight_core.c dưới dạng số ma thuật, không ai sửa được từ tuning.h).
-#define TRIM_ROLL_DEG_DEFAULT    (-0.68f)
-#define TRIM_PITCH_DEG_DEFAULT   (-0.8f)
+#define TRIM_ROLL_DEG_DEFAULT    (-0.5f)
+#define TRIM_PITCH_DEG_DEFAULT   (-0.2f)
 
 // Canh lúc BIÊN DỊCH: mặc định phải nằm trong dải mà runtime chấp nhận. Đường
 // CMD_SET_TRIM có clampf(), còn khởi tạo tĩnh thì KHÔNG — thiếu dòng này thì
 // một giá trị mặc định ngoài dải sẽ lọt thẳng vào target mà không ai chặn.
 _Static_assert(TRIM_ROLL_DEG_DEFAULT >= -TRIM_MAX_DEG &&
-               TRIM_ROLL_DEG_DEFAULT <= TRIM_MAX_DEG,
+               TRIM_ROLL_DEG_DEFAULT <= TRIM_MAX_DEG,   
                "TRIM_ROLL_DEG_DEFAULT vuot TRIM_MAX_DEG");
 _Static_assert(TRIM_PITCH_DEG_DEFAULT >= -TRIM_MAX_DEG &&
                TRIM_PITCH_DEG_DEFAULT <= TRIM_MAX_DEG,
@@ -748,9 +806,24 @@ _Static_assert(TRIM_PITCH_DEG_DEFAULT >= -TRIM_MAX_DEG &&
 // ngưỡng trong một cửa sổ đủ dài -> chặn ARM. Lỏng hơn ngưỡng validate vì
 // drone lúc chờ arm có thể bị chạm nhẹ; đây là lưới an toàn cuối, không phải
 // phép đo chính xác.
-#define PREARM_GYRO_MAX_MEAN_DPS        0.30f
+// NỚI 0.30 -> 1.00 dps theo yêu cầu người dùng.
+//
+// ⚠ ĐÂY LÀ LƯỚI AN TOÀN DUY NHẤT CÒN LẠI cho gyro bias, sau khi pha VALIDATE
+// bị bỏ và bias NVS trở thành authoritative (calib một lần, boot sau chỉ nạp).
+// Không còn phép thử tự động nào khác chứng minh "trừ bias xong thì còn ~0" ở
+// THỜI ĐIỂM cất cánh — calib PASS chỉ chứng minh điều đó cho quá khứ.
+//
+// 1.0 dps bắt được cái gì:
+//   - Bias chưa từng được áp (Gz = -1.94 dps như đã gặp)  -> BẮT ĐƯỢC
+//   - Bias NVS trôi nhiệt độ nặng (>1 dps)                -> BẮT ĐƯỢC
+//   - Drone bị cầm/chạm lúc chờ ARM                       -> BẮT ĐƯỢC
+// Cái gì LỌT: trôi nhẹ 0.3-1.0 dps. Ở 1.0 dps, yaw trôi ~3.6°/phút — chấp nhận
+// được cho chuyến bay ngắn trong nhà, KHÔNG chấp nhận được nếu bay lâu.
+// Muốn chặt lại thì hạ về 0.30f; muốn biết mình đang ở đâu thì gõ 'cal_status'
+// và đọc GCORR.
+#define PREARM_GYRO_MAX_MEAN_DPS        1.00f
 // Cửa sổ trung bình trượt — đủ dài để một mẫu nhiễu đơn lẻ không gây từ chối
-// (mục 18: "Do not fail based on one noisy sample").
+// (mục 18: "Do not fail based on one noisy sample"). 100ms @250Hz = 25 mẫu.
 #define PREARM_GYRO_WINDOW_MS           100
 
 // ---- Cảnh báo lệch nhiệt độ so với lúc calib (mục 9) ----

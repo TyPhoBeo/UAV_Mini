@@ -126,12 +126,14 @@
 #error "HOVER_LATCH_ENABLED=1 can SENSOR_BATTERY_ENABLED=1 -- latch hover doc dien ap pin, khong co ADC pin thi khong the do"
 #endif
 
+
 // Bắt lỗi đánh máy (vd SENSOR_MAG_ENABLED để trống hoặc = 2) ngay lúc biên dịch.
 #if (FC_FEATURE_MAG != 0 && FC_FEATURE_MAG != 1) || \
     (FC_FEATURE_BARO != 0 && FC_FEATURE_BARO != 1) || \
     (FC_FEATURE_TOF != 0 && FC_FEATURE_TOF != 1) || \
     (FC_FEATURE_BATTERY != 0 && FC_FEATURE_BATTERY != 1) || \
     (FC_FEATURE_HOVER_LATCH != 0 && FC_FEATURE_HOVER_LATCH != 1) || \
-    (FC_FEATURE_FLOOR_GATE != 0 && FC_FEATURE_FLOOR_GATE != 1) ||     (FC_FEATURE_TERRAIN_OFFSET != 0 && FC_FEATURE_TERRAIN_OFFSET != 1)
+    (FC_FEATURE_FLOOR_GATE != 0 && FC_FEATURE_FLOOR_GATE != 1) || \
+    (FC_FEATURE_TERRAIN_OFFSET != 0 && FC_FEATURE_TERRAIN_OFFSET != 1)
 #error "FC_FEATURE_* (tu SENSOR_*_ENABLED trong app_config.h) chi duoc la 0 hoac 1"
 #endif

@@ -78,6 +78,12 @@ typedef enum {
     TAKEOFF_REJECT_STATE,            // FSM không ở ARMED (fsm_on_takeoff_request)
     TAKEOFF_REJECT_NO_CORRECTION,    // floor ToF chua gom du/on dinh (wire value giu tuong thich)
     TAKEOFF_REJECT_ALT_EST_INVALID,  // alt_estimator state không hữu hạn
+    // ĐÃ THỬ rồi GỠ: latch ga hover từng được chuyển sang CMD_TAKEOFF, nay đã
+    // trả về CMD_ARM (đo được điện áp KHÔNG TẢI ở đó). Hai lý do từ chối tương
+    // ứng quay lại ARM_REJECT_HOVER_LATCH_*. GIỮ CHỖ trong enum thay vì xoá:
+    // xoá sẽ dịch số của mọi mã thêm về sau, mà GUI ánh xạ số -> chuỗi theo
+    // đúng thứ tự này.
+    TAKEOFF_REJECT_HOVER_LATCH_UNUSED,
 } takeoff_reject_t;
 
 typedef struct {

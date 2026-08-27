@@ -135,19 +135,26 @@ static takeoff_tune_t    s_tko_tune;
 static takeoff_result_t  s_tko_result;
 static landing_state_t   s_land_state;
 static landing_tune_t    s_land_tune;
-#if FC_FEATURE_HOVER_LATCH
-// ---- Latch ga hover theo pin (hover_model.h) ----
 // s_vbat_ring: lịch sử ~500ms điện áp pin, nạp ở bước 2b, đọc MỘT LẦN lúc ARM.
 // KHÔNG reset trong reset_all_controllers(): đó là lịch sử CẢM BIẾN, không phải
 // state điều khiển. Xoá nó lúc disarm sẽ khiến lần ARM ngay sau đó bị từ chối
 // vì "chưa đủ mẫu" trong ~300ms — một lỗi tự gây, không có lợi ích nào.
+//
+// ⚠ NGOÀI mọi #if: CẢ HAI cơ chế bù pin đều đọc nó (hover latch ở CMD_TAKEOFF,
+// hệ số nhân ở CMD_ARM). Gate nó theo một cờ sẽ làm cơ chế kia không build được
+// khi cờ đó tắt — đúng lỗi vừa gặp.
 static hover_vbat_ring_t s_vbat_ring;
+
+#if FC_FEATURE_HOVER_LATCH
+// ---- Latch ga hover theo pin (hover_model.h) ----
 // Giá trị đã chốt của lần ARM gần nhất — CHỈ để telemetry/log. Nguồn sự thật
 // khi bay là s_hold_tune.hover / s_tko_tune.prime_duty (đã ghi đè lúc ARM).
 static float s_hover_latch_v    = 0.0f;   // vbat trung vị lúc latch
 static float s_hover_latch_duty = 0.0f;   // hover suy ra
 static bool  s_hover_latched    = false;  // đã latch lần nào chưa (từ lúc boot)
-#endif
+#endif  // FC_FEATURE_HOVER_LATCH
+
+
 static fsm_t              s_fsm;
 static commander_state_t  s_cmd_state;
 static commander_config_t s_cmd_cfg;
@@ -1027,31 +1034,34 @@ static bool prearm_check(int64_t now_us) {
     // (xem src/main.c): bằng chứng "còn nguồn điều khiển" giờ phải đến từ ngoài
     // chip, nên trạng thái "chưa ai ping" là trạng thái CÓ THẬT và cần một câu
     // trả lời rõ ràng, không phải một cú disarm im lặng.
-    {
-        const int64_t hb_age_us = now_us - s_cmd_state.last_heartbeat_us;
-        if (hb_age_us > (int64_t)s_cmd_cfg.heartbeat_timeout_ms * 1000) {
-            ESP_LOGW(TAG, "ARM tu choi: heartbeat da cu %lldms (>%dms). Nguon dieu khien NGOAI "
-                          "chua ping: GUI phai dang ket noi (no tu gui 'p' moi 400ms), hoac go "
-                          "'heartbeat' neu bay bang console USB.",
-                      (long long)(hb_age_us / 1000), s_cmd_cfg.heartbeat_timeout_ms);
-            record_reject(ARM_REJECT_HEARTBEAT);
-            ok = false;
-        }
-    }
+    // ---- CỔNG HEARTBEAT: ĐÃ BỎ theo yêu cầu người dùng ----
+    // Trước đây từ chối ARM khi heartbeat cũ hơn heartbeat_timeout_ms, tức GUI
+    // phải đang kết nối mới arm được.
+    //
+    // ⚠ CÁI CÒN LẠI SAU KHI BỎ: heartbeat watchdog lúc ĐANG BAY vẫn nguyên
+    // (commander.c) — mất liên lạc giữa chuyến vẫn auto-land như cũ. Chỗ này chỉ
+    // bỏ điều kiện LÚC ARM, không đụng tới failsafe khi đã bay.
+    //
+    // Đánh đổi: arm được khi chưa có nguồn điều khiển nào sẵn sàng. Nếu bay bằng
+    // console USB thì đó chính là điều mình muốn; nếu bay bằng GUI thì lệnh
+    // takeoff sẽ tự tới ngay sau đó nên khoảng hở gần như bằng 0.
 
     if (!s_prearm.attitude_valid) {
         ESP_LOGW(TAG, "ARM tu choi: attitude CHUA hop le (Mahony chua init — de yen drone vai giay)");
         record_reject(ARM_REJECT_ATTITUDE_INVALID);
         ok = false;
-    } else {
-        const float ar = fabsf(s_prearm.roll_deg), ap = fabsf(s_prearm.pitch_deg);
-        if (ar >= FSM_ARM_MAX_TILT_DEG || ap >= FSM_ARM_MAX_TILT_DEG) {
-            ESP_LOGW(TAG, "ARM tu choi: nghieng %.1f/%.1f deg vuot nguong %.0f — dat drone bang phang",
-                      (double)ar, (double)ap, (double)FSM_ARM_MAX_TILT_DEG);
-            record_reject(ARM_REJECT_TILT);
-            ok = false;
-        }
     }
+    // ---- CỔNG NGHIÊNG (FSM_ARM_MAX_TILT_DEG): ĐÃ BỎ theo yêu cầu người dùng ----
+    // Trước đây từ chối ARM khi |roll| hoặc |pitch| vượt ngưỡng.
+    //
+    // ⚠ ĐÁNH ĐỔI THẬT, phải biết: giờ ARM được trên mặt nghiêng/mấp mô. Lúc
+    // takeoff, PRIME sẽ đẩy ga lên trong khi khung đã nghiêng sẵn -> drone có
+    // xu hướng trượt/lật về phía thấp thay vì bay thẳng lên.
+    //
+    // Cái CÒN LẠI đỡ cho tình huống đó: TKO_ABORT_TILT trong takeoff_land.c vẫn
+    // huỷ cất cánh khi nghiêng vượt ngưỡng lúc đang leo, và Commander vẫn có
+    // "tilt exceeded hard limit". Tức là mình đổi "chặn trước" lấy "bắt giữa
+    // chừng" — vẫn có lưới, nhưng lưới đặt muộn hơn một bước.
 
     if (!s_prearm.imu_fresh || !s_prearm.imu_healthy) {
         ESP_LOGW(TAG, "ARM tu choi: IMU %s (sensor_hub khong cap mau moi — kiem tra bus I2C/day INT)",
@@ -1094,28 +1104,38 @@ static bool prearm_check(int64_t now_us) {
         ok = false;
     }
 
-    // if (s_prearm.gyro_calibrated && !s_prearm_gyro_mean_valid) {
-    //     ESP_LOGW(TAG, "ARM tu choi: chua co cua so gyro corrected stationary %dms; "
-    //                   "giu yen drone roi ARM lai", PREARM_GYRO_WINDOW_MS);
-    //     record_reject(ARM_REJECT_GYRO_NOT_STATIONARY);
-    //     ok = false;
-    // } else if (s_prearm_gyro_mean_valid) {
-    //     // Gyro ĐÃ calib nhưng thực đo khi đứng yên vẫn lệch -> bias đã trôi
-    //     // (nhiệt độ) hoặc drone không thật sự đứng yên. Cả hai đều KHÔNG nên
-    //     // cất cánh. Dùng trung bình cả cửa sổ PREARM_GYRO_WINDOW_MS, không phải
-    //     // một mẫu (mục 18: "Do not fail based on one noisy sample").
-    //     const vec3f_t m = s_prearm_gyro_mean;
-    //     if (fabsf(m.x) > PREARM_GYRO_MAX_MEAN_DPS ||
-    //         fabsf(m.y) > PREARM_GYRO_MAX_MEAN_DPS ||
-    //         fabsf(m.z) > PREARM_GYRO_MAX_MEAN_DPS) {
-    //         ESP_LOGW(TAG, "ARM tu choi: gyro corrected khi dung yen van lech "
-    //                       "(%.3f,%.3f,%.3f)dps > %.2f — bias da troi (nhiet do?) hoac drone dang bi cham. "
-    //                       "Go 'calib_gyro' de do lai.",
-    //                   (double)m.x, (double)m.y, (double)m.z, (double)PREARM_GYRO_MAX_MEAN_DPS);
-    //         record_reject(ARM_REJECT_GYRO_BIAS_LARGE);
-    //         ok = false;
-    //     }
-    // }
+    // ========================================================================
+    // GYRO BIAS HEALTH — BẬT LẠI, ngưỡng 1.0 dps (yêu cầu người dùng)
+    // ========================================================================
+    // Đây là LƯỚI AN TOÀN DUY NHẤT còn lại cho gyro bias:
+    //   - pha VALIDATE của calib đã bị bỏ
+    //   - bias NVS là authoritative (calib 1 lần, boot sau chỉ nạp) nên KHÔNG
+    //     có lần đo mới nào ở boot để mà tin
+    // Calib PASS chỉ chứng minh mean(raw) - bias = 0 TẠI LÚC ĐÓ. Nó không nói
+    // gì về nhiệt độ hôm nay, và cũng không phân biệt được "đứng yên" với
+    // "đang xoay đều" (xoay đều bị hấp thụ vào chính bias, std vẫn thấp).
+    // Chỗ này là nơi DUY NHẤT còn đo gyro corrected THẬT ngay trước khi bay.
+    //
+    // CỐ Ý KHÔNG bật lại ARM_REJECT_GYRO_NOT_STATIONARY (cổng "chưa gom đủ cửa
+    // sổ thì chưa cho ARM"): đó đúng là loại ràng buộc gây khó chịu mà không
+    // thêm an toàn — chưa đủ mẫu nghĩa là CHƯA BIẾT, không phải ĐÃ HỎNG. Chưa
+    // đủ mẫu -> bỏ qua kiểm tra này, cửa sổ 100ms sẽ đầy sau vài tick.
+    if (s_prearm_gyro_mean_valid) {
+        // Trung bình CẢ cửa sổ PREARM_GYRO_WINDOW_MS, không phải một mẫu
+        // (mục 18: "Do not fail based on one noisy sample").
+        const vec3f_t m = s_prearm_gyro_mean;
+        if (fabsf(m.x) > PREARM_GYRO_MAX_MEAN_DPS ||
+            fabsf(m.y) > PREARM_GYRO_MAX_MEAN_DPS ||
+            fabsf(m.z) > PREARM_GYRO_MAX_MEAN_DPS) {
+            ESP_LOGW(TAG, "ARM tu choi: gyro corrected khi dung yen van lech "
+                          "(%.3f,%.3f,%.3f)dps > %.2f — bias chua duoc ap, da troi theo "
+                          "nhiet do, hoac drone dang bi cham. Go 'calib_gyro' de do lai, "
+                          "hoac 'cal_status' de xem GRAW/GBIAS/GCORR.",
+                      (double)m.x, (double)m.y, (double)m.z, (double)PREARM_GYRO_MAX_MEAN_DPS);
+            record_reject(ARM_REJECT_GYRO_BIAS_LARGE);
+            ok = false;
+        }
+    }
     if (!s_prearm.accel_calibrated) {
         ESP_LOGW(TAG, "ARM tu choi: accel CHUA calib 6-face — chay 'calib_accel_face' x6");
         record_reject(ARM_REJECT_ACCEL_CALIB);
@@ -1228,21 +1248,34 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
             const bool guard = prearm_check(now_us);
             fsm_state_t next = fsm_on_arm_request(s_fsm.state, guard);
             if (next != s_fsm.state) {
+// ---- LATCH GA HOVER: ĐÃ CHUYỂN SANG CMD_TAKEOFF (yêu cầu người dùng) ----
+                // Trước đây latch tại ĐÂY (lúc ARM). Xem case CMD_TAKEOFF để
+                // biết khối đó giờ nằm ở đâu và đánh đổi kèm theo.
+
 #if FC_FEATURE_HOVER_LATCH
                 // ============================================================
                 // LATCH GA HOVER THEO ĐIỆN ÁP PIN — xem hover_model.h
                 // ============================================================
-                // Đặt ở đây vì motor CHƯA quay (FSM còn DISARMED, armed gate của driver
-                //      chưa mở, throttle khoá 0) -> vbat đo được là điện áp
-                //      KHÔNG TẢI. Đó CHÍNH LÀ đại lượng model cần. Đo sau khi
-                //      motor quay sẽ dính sụt áp nội trở và cho ra hover cao
-                //      giả tạo.
+                // Đặt ở ĐÂY (lúc ARM) vì motor CHƯA quay (FSM còn DISARMED,
+                // armed gate của driver chưa mở, throttle khoá 0) -> vbat đo
+                // được là điện áp KHÔNG TẢI. Đó CHÍNH LÀ đại lượng model cần.
+                //
+                // ĐÃ THỬ đặt ở CMD_TAKEOFF rồi TRẢ VỀ ĐÂY: ở đó không bảo đảm
+                // được "không tải" (vừa chạy BENCH_RAMP/test_motor thì pin còn
+                // đang hồi), và latch nhằm vào số đã sụt sẽ cho hover_ff CAO
+                // GIẢ TẠO.
+                //
+                // ⚠ ĐIỀU LATCH KHÔNG GIẢI QUYẾT ĐƯỢC: nó chốt theo điện áp lúc
+                // ARM, nhưng pin sụt dưới tải khi bay. Log đo được sụt 0.38V ở
+                // ~1200 duty — latch 3.74V ra 1219 trong khi hover thật ở 3.36V
+                // cần ~1608. Phần thiếu do I-term của vòng Vz bù. Pin càng chai
+                // (nội trở cao) thì khoảng hở này càng lớn.
                 {
                     float vlatch = 0.0f;
                     if (!hover_vbat_median(&s_vbat_ring, &vlatch)) {
                         ESP_LOGE(TAG, "ARM tu choi: chua du mau pin de chot ga hover "
                                       "(can %d mau hop le, dang co %d). ADC pin chay 10Hz — "
-                                      "cho ~0.5s roi ARM lai. Neu KHONG tu het thi ADC pin hong that.",
+                                      "cho ~0.5s roi TAKEOFF lai. Neu KHONG tu het thi ADC pin hong that.",
                                   HOVER_MODEL_MIN_SAMPLES, s_vbat_ring.count);
                         s_arm_reject = ARM_REJECT_HOVER_LATCH_NO_SAMPLE;
                         s_arm_reject_seq++;
@@ -1263,10 +1296,10 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
                     const float hover_duty = hover_model_from_voltage(vlatch);
                     const int   prime_duty = hover_model_prime_duty(hover_duty);
 
-                    // GHI ĐÈ tune đang dùng. Từ đây tới lần ARM sau, hai giá
-                    // trị này ĐÓNG BĂNG — không có đường nào cập nhật chúng
-                    // theo vbat trong lúc bay (đó là vòng phản hồi dương đã bị
-                    // gỡ có chủ đích, xem bước 9b).
+                    // GHI ĐÈ tune đang dùng. Từ đây tới lần TAKEOFF sau, hai giá
+                    // trị này ĐÓNG BĂNG — không có đường nào cập nhật chúng theo
+                    // vbat trong lúc bay (vòng phản hồi dương đã bị gỡ có chủ
+                    // đích, xem bước 9b).
                     s_hold_tune.hover     = hover_duty;
                     s_tko_tune.prime_duty = prime_duty;
 
@@ -1274,15 +1307,12 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
                     s_hover_latch_duty = hover_duty;
                     s_hover_latched    = true;
 
-                    ESP_LOGI(TAG, "ARM: CHOT GA HOVER theo pin — vbat=%.2fV (trung vi %d mau, "
-                                  "KHONG TAI) -> hover_ff=%.0f duty, prime=%d duty (%.0f%% hover). "
+                    ESP_LOGI(TAG, "ARM: CHOT GA HOVER theo pin — vbat=%.2fV (trung vi %d mau) "
+                                  "-> hover_ff=%.0f duty, prime=%d duty (%.0f%% hover). "
                                   "Dong bang suot chuyen bay; pin tut dan se do I cua vong Vz bu.",
                               (double)vlatch, s_vbat_ring.count, (double)hover_duty, prime_duty,
                               (double)(TAKEOFF_PRIME_HOVER_FRAC * 100.0f));
 
-                    // Cảnh báo khi model CHẠM CLAMP: kết quả vẫn dùng được
-                    // nhưng nó không còn là giá trị model tính ra nữa, và đó là
-                    // thứ người bay cần biết TRƯỚC khi cất cánh.
                     if (hover_duty >= HOVER_MODEL_MAX_DUTY - 0.5f) {
                         ESP_LOGW(TAG, "ARM: hover_ff da CHAM TRAN %.0f duty — model doi cao hon "
                                       "nhung tran collective khong cho. Ga con lai cho mixer rat "
@@ -1406,6 +1436,10 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
                 s_tko_reject_seq++;
             }
             if (next != s_fsm.state) {
+// ---- LATCH GA HOVER: DA TRA VE CMD_ARM (yeu cau nguoi dung) ----
+                // Xem case CMD_ARM. Ly do: o ARM motor CHUA quay nen vbat do
+                // duoc la dien ap KHONG TAI — dung dai luong ma model can.
+
                 // KHÔNG calib baro ở đây nữa — mốc 0m đã được chốt lúc ARM
                 // (xem case CMD_ARM, nơi calib là BẮT BUỘC và ARM bị từ chối
                 // nếu thất bại). Bỏ đi có 2 cái lợi thật: (1) bấm takeoff phản
@@ -3413,19 +3447,20 @@ static void stabilize_task(void *arg) {
                               why, (int)tr.liftoff_flag, (double)s_alt_est.alt_m,
                               (double)tr.elapsed_s);
                     if (tr.abort_reason == TKO_ABORT_TIMEOUT) {
-                        // Deadline tong chuoi. Gan nhu LUON LUON nghia la
-                        // hold_ready khong dong duoc cua so, chu KHONG phai
-                        // "chuoi bi ket" — in TUNG VE de phan biet ngay.
-                        ESP_LOGE(TAG, "  hold_ready: lift=%d | zsp=%.3f==tgt=%.3f ? %d | "
-                                      "|Z-tgt|=%.3f<=%.3f ? %d | |Vz|=%.3f<=%.3f ? %d",
+                        // Deadline tong chuoi. hold_ready gio chi con HAI ve
+                        // (xem takeoff_land.c) — in dung hai ve do.
+                        //
+                        // Truoc day in ca |Z-tgt| va |Vz| vi chung LA dieu kien;
+                        // gio chung khong con la dieu kien nua nen in ra se noi
+                        // doi ve ly do abort. Van in Z/Vz o dong tren de chan
+                        // doan, nhung KHONG kem nguong nhu the chung con quyet
+                        // dinh gi.
+                        ESP_LOGE(TAG, "  hold_ready: lift=%d | zsp=%.3f==tgt=%.3f ? %d "
+                                      "(Z=%.2f Vz=%.2f — chi de tham khao, KHONG con la dieu kien)",
                                   (int)tr.liftoff_flag,
                                   (double)tr.target_z_m, (double)tr.final_target_m,
                                   (int)(tr.target_z_m == tr.final_target_m),
-                                  (double)fabsf(s_alt_est.alt_m - tr.final_target_m),
-                                  (double)TAKEOFF_HOLD_Z_TOL_M,
-                                  (int)(fabsf(s_alt_est.alt_m - tr.final_target_m) <= TAKEOFF_HOLD_Z_TOL_M),
-                                  (double)fabsf(s_alt_est.vz_ms), (double)TAKEOFF_HOLD_VZ_TOL_MS,
-                                  (int)(fabsf(s_alt_est.vz_ms) <= TAKEOFF_HOLD_VZ_TOL_MS));
+                                  (double)s_alt_est.alt_m, (double)s_alt_est.vz_ms);
                     }
                     if (tr.abort_reason == TKO_ABORT_NO_LIFT_EVIDENCE) {
                         // In SO DO THAT kem NGUONG DA AP DUNG. Nguong co theo
@@ -3453,6 +3488,56 @@ static void stabilize_task(void *arg) {
                     // CHÍNH state đó — KHÔNG preload/reset/đổi throttle gì thêm.
                     s_alt_target_m = tr.final_target_m;
                     s_alt_request_m = tr.final_target_m;
+
+#if FC_FEATURE_HOVER_LATCH
+                    // ========================================================
+                    // TRẢ hover_ff VỀ HẰNG SỐ — latch CHỈ dùng cho TAKEOFF
+                    // ========================================================
+                    // (yêu cầu người dùng). Latch theo pin sinh ra để pha PRIME/
+                    // CLIMB có một điểm khởi đầu đúng — lúc đó chưa có sai số độ
+                    // cao nào để I-term học, nên feed-forward phải tự đúng.
+                    //
+                    // Từ HOLDING trở đi thì KHÔNG cần nữa: vòng Z/Vz đã đóng, và
+                    // I-term đo được ga hover THẬT (kể cả phần latch đoán sai, kể
+                    // cả pin đã sụt dưới tải — thứ latch không bao giờ biết).
+                    //
+                    // ⚠ PHẢI BÙ NGƯỢC VÀO I, KHÔNG ĐƯỢC ĐỔI hover TRẦN TRỤI.
+                    // Cascade là:  output = hover + I  (alt_hold.c)
+                    // Đổi hover từ 1219 -> 1000 mà để I nguyên là output TỤT 219
+                    // duty NGAY MỘT TICK, đúng lúc drone vừa lên tới độ cao đích.
+                    // Dồn đúng lượng đó sang I thì tổng không đổi -> bàn giao vẫn
+                    // liền mạch, chỉ là "cùng một con số, chia phần khác đi".
+                    //
+                    // Sau bù, I mang cả phần hover mà trước đây feed-forward gánh.
+                    // Nó có thể vượt vz_ilimit; clamp trong cascade sẽ cắt, và
+                    // phần bị cắt là ga BỊ MẤT THẬT. Cảnh báo khi chạm để không
+                    // phải đi tìm nguyên nhân "tụt ga ngay sau takeoff" về sau.
+                    {
+                        const float hover_old = s_hold_tune.hover;
+                        const float hover_new = ALT_HOLD_HOVER_NOMINAL;
+                        if (hover_old != hover_new) {
+                            const float delta = hover_old - hover_new;
+                            s_hold_tune.hover = hover_new;
+                            s_hold_state.vz_integral += delta;
+                            const float ilim = s_hold_tune.vz_ilimit;
+                            if (fabsf(s_hold_state.vz_integral) > ilim) {
+                                ESP_LOGW(TAG, "HANDOFF: I sau bu (%+.0f) VUOT ilimit %.0f -> bi cat. "
+                                              "Ga se tut ~%.0f duty. Nang ALT_HOLD_HOVER_NOMINAL "
+                                              "(dang %.0f) gan hover that hon, hoac nang vz_ilimit.",
+                                          (double)s_hold_state.vz_integral, (double)ilim,
+                                          (double)(fabsf(s_hold_state.vz_integral) - ilim),
+                                          (double)hover_new);
+                                s_hold_state.vz_integral =
+                                    clampf(s_hold_state.vz_integral, -ilim, ilim);
+                            }
+                            ESP_LOGI(TAG, "HANDOFF: hover_ff %.0f -> %.0f (bo latch, ve hang so), "
+                                          "I bu %+.0f -> %+.0f. Tong ga KHONG doi.",
+                                      (double)hover_old, (double)hover_new,
+                                      (double)delta, (double)s_hold_state.vz_integral);
+                        }
+                    }
+#endif  // FC_FEATURE_HOVER_LATCH
+
                     ESP_LOGI(TAG, "TAKEOFF XONG -> HOLDING giu %.2fm (Z=%.2f Vz=%.2f, "
                                   "collective=%d, hover_ff=%.0f I=%+.0f)",
                               (double)tr.final_target_m, (double)s_alt_est.alt_m,
@@ -3569,11 +3654,39 @@ static void stabilize_task(void *arg) {
                         throttle_cmd = s_flying_throttle_latch;
                         hr.throttle_duty = throttle_cmd;
                     }
-                    // NEO target theo độ cao hiện tại mỗi tick: thả phím nghiêng
-                    // -> về HOLDING và giữ NGAY tại chỗ đang ở, không giật về
-                    // độ cao trước khi bay ngang.
-                    s_alt_target_m = commander_clamp_altitude(&s_cmd_cfg, s_alt_est.alt_m);
-                    s_alt_request_m = s_alt_target_m;
+                    // ============================================================
+                    // NEO TARGET BẰNG SỐ ĐO ToF TƯƠI (yêu cầu người dùng)
+                    // ============================================================
+                    // Mỗi tick trong FLYING, chốt lại target = độ cao ToF ĐANG
+                    // ĐỌC ĐƯỢC. Thả phím nghiêng -> HOLDING nhận đúng con số vừa
+                    // chốt và giữ NGAY tại đó; không vút lên vì một target cũ.
+                    //
+                    // VÌ SAO ToF TƯƠI chứ không phải s_alt_est.alt_m:
+                    // trong FLYING drone nghiêng để bay ngang, và alt_m là giá
+                    // trị ƯỚC LƯỢNG — khi ToF tạm không fusable nó COAST bằng
+                    // tích phân accel và TRÔI. Neo vào một số đang trôi nghĩa là
+                    // vừa thả phím đã giữ sai độ cao, rồi khi ToF bắt lại thì
+                    // alt_m nhảy về số thật còn target thì không -> drone chạy đi
+                    // sửa một sai lệch do chính cái neo tạo ra.
+                    //
+                    // tof_z_m là số đo ToF đã bù tilt + slew-limit (alt_estimator),
+                    // tức là "mặt đất đang thật sự cách bao xa" — đúng thứ cần neo.
+                    //
+                    // ⚠ CHỈ neo khi ToF ĐANG DÙNG ĐƯỢC. Mất ToF giữa lúc bay
+                    // ngang mà vẫn neo thì sẽ chốt vào một giá trị chết; lúc đó
+                    // GIỮ NGUYÊN target của tick trước là đúng hơn.
+                    if (s_alt_est.tof_fusable && tof_healthy_for_alt) {
+                        s_alt_target_m = commander_clamp_altitude(&s_cmd_cfg,
+                                                                   s_alt_est.tof_z_m);
+                        s_alt_request_m = s_alt_target_m;
+                    }
+                    // KHÔNG có nhánh else: target giữ nguyên giá trị lần chốt
+                    // gần nhất. Đó là hành vi an toàn khi ToF tạm mất.
+                    //
+                    // ⚠ TUYỆT ĐỐI KHÔNG chạy PID độ cao ở đây. Cả khối này chỉ
+                    // GHI một con số để dùng SAU khi đã về HOLDING. throttle_cmd
+                    // trong FLYING đến từ s_flying_throttle_latch (+W/S), và
+                    // hr.hold_driving đã được đặt false ở trên.
                 } else if (s_hold_state.engaged && (alt_degraded_hold || terr_freeze)) {
                     // Mất nguồn Z -> alt_meas_m là rác, KHÔNG cho vào tầng alt:
                     // ép vz_target = 0. Terrain pending -> alt_m vẫn là số coast
@@ -3790,6 +3903,14 @@ static void stabilize_task(void *arg) {
         // và GUI vẫn đọc; battery_comp giữ hằng 1.0 cho field BCOMP= để dòng
         // STATUS không đổi format (GUI cũ khỏi vỡ regex, xem telemetry_format.c).
         const int base_throttle_duty = throttle_cmd;
+
+        // battery_comp giữ hằng 1.0: bù throttle theo pin đã BỎ (xem khối trên).
+        // Field BCOMP= trong STATUS giữ nguyên format cho GUI cũ.
+        //
+        // ĐÃ THỬ một cơ chế "hệ số NHÂN throttle chốt lúc ARM" rồi GỠ theo yêu
+        // cầu người dùng — nó bù CHỒNG với hover latch (latch đã đặt base đúng
+        // mức pin, nhân thêm tỷ lệ đó lần nữa là bù hai lần). Cách bù pin đang
+        // dùng là HOVER LATCH ở CMD_ARM.
         const float battery_comp = 1.0f;
 
         // ---- 9c) GATE GA cho I-term — điều kiện ĐỘC LẬP, AND thêm vào gate

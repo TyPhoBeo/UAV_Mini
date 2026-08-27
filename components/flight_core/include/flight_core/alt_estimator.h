@@ -126,21 +126,52 @@ typedef struct {
 // phai so do chinh xac. Neu thay tof_z_m nhay loan sat dat thi day la nghi can
 // dau tien.
 #define ALT_EST_TOF_MIN_RANGE_M              0.01f
-// Gate hinh hoc cho MOT mau range tho (SAU bu cos(tilt)).
-// NANG 1.20 -> 1.60: tran bay moi la 1.20m (ALT_EST_MAX_FLIGHT_Z_M ngay duoi),
-// va o dung tran do mot cu nghieng/dao dong nho van phai con cho hop le. Gate
-// bang DUNG tran bay se cat mau ngay tai diem lam viec cao nhat -> mat
-// correction dung luc can nhat. Driver da chan cung >2000mm (tof_driver.c).
+// ============================================================================
+// GATE HINH HOC cho MOT mau range tho — PHAI phu duoc TRAN BAY SAU BU TILT
+// ============================================================================
+// Rang buoc: gate >= ALT_EST_MAX_FLIGHT_Z_M / ALT_EST_TOF_TILT_MIN_COS
+//            2.90    >= 2.50 / 0.87 = 2.87                              ✓
 //
-// CANH BAO VAT LY: VL53L0X @timing budget 33ms mac dinh chi TIN CAY toi ~1.2m;
-// tren do phu thuoc do phan xa cua san. Bay sat tran moi thi ky vong
-// tof_reject_count tang — do la gioi han cam bien, KHONG phai loi phan mem.
-#define ALT_EST_TOF_MAX_RANGE_M              2.5f
-// Tran bay (geofence max — COMMANDER_DEFAULT_ALT_MAX_M lay thang tu day).
-// NANG 0.80 -> 1.20: 0.80 khong du de bay QUA mot vat the cao 0.3-0.75m o
-// frame DATUM (khoang ho con lai tut xuong duoi ca TERR_MIN_CLEARANCE_M).
-// 1.20 = dung tran do TIN CAY cua L0X; dung nang tiep neu khong doi cam bien.
-#define ALT_EST_MAX_FLIGHT_Z_M               3.0f
+// VI SAO chia cho cos: ToF do theo TRUC CAM BIEN. Drone nghieng goc t thi de
+// o do cao z, chum tia phai di quang duong z/cos(t). O tran 2.50m va nghieng
+// het muc cho phep (cos=0.87, ~30 do) thi range THAT la 2.87m. Gate bang dung
+// tran bay se cat mau ngay tai diem lam viec cao nhat — mat correction dung luc
+// can nhat, va la mot loi chi xuat hien khi vua bay cao vua nghieng.
+//
+// ⚠⚠ CANH BAO VAT LY — SO NAY VUOT TAM TIN CAY CUA CHIP:
+// VL53L1X @LONG mode tin cay ~2.6m trong nha (4m la so danh nghia, chi dat
+// duoc voi be mat phan xa tot va it anh sang nen). Gate 2.90m nghia la:
+//   - Bay o 2.50m VA nghieng manh -> range 2.87m -> NGOAI tam tin cay
+//     -> mau bi chip tra ve range_status != 0 -> tof_reject_count TANG.
+//   - Do la GIOI HAN CAM BIEN, khong phai loi phan mem.
+//
+// VI SAO VAN CHAP NHAN DUOC (khac han truoc day):
+//   1. Innovation gate DA BO -> mat mau khong con dan toi soft-fault/auto-land.
+//   2. Cua so dung sai TOF_STALE_TIMEOUT_MS (200ms) da HOAT DONG THAT -> vai
+//      mau xau lien tiep khong lam mat nguon do cao.
+//   3. alt_m coast bang tich phan accel trong luc do; nghieng manh o tran bay
+//      la trang thai NGAN, khong phai che do bay lau dai.
+// Truoc khi co (1) va (2), cau hinh nay se tu ha canh giua chung.
+//
+// NEU THAY tof_reject_count tang deu khi bay cao: do la vat ly, khong phai bug.
+// Cach chua THAT su la ha tran bay, khong phai noi gate them.
+#define ALT_EST_TOF_MAX_RANGE_M              2.90f
+
+// ============================================================================
+// TRAN BAY (geofence max — COMMANDER_DEFAULT_ALT_MAX_M lay thang tu day)
+// ============================================================================
+// 2.50m theo yeu cau nguoi dung (truoc: 3.00m, va 3.00 KHONG kha thi vi no doi
+// gate 3.45m — xa hon ca tam danh nghia cua chip o goc nghieng lon).
+//
+// ⚠ DOI SO NAY THI PHAI DOI ALT_EST_TOF_MAX_RANGE_M THEO, theo dung cong thuc
+// o tren. Hai hang so nay mac noi tiep: nang tran ma quen nang gate thi mau bi
+// cat dung tai tran, va trieu chung se la "bay cao thi do cao nhay loan" chu
+// khong phai mot loi ro rang. test_tof_bringup_offline.py kiem rang buoc nay.
+#define ALT_EST_MAX_FLIGHT_Z_M               2.50f
+
+// cos(tilt) toi thieu de mot mau ToF con duoc coi la do duoc hinh hoc.
+// 0.87 ~ 30 do. Ha so nay (cho phep nghieng hon) se lam range yeu cau tang
+// theo 1/cos — xem rang buoc o ALT_EST_TOF_MAX_RANGE_M.
 #define ALT_EST_TOF_TILT_MIN_COS             0.87f
 // TAM THOI: ToF dang co hien tuong reset/seq dut quang, nen chot ngay mau
 // geometry-hop-le dau tien. Doi lai 30/50 khi driver da on dinh.
@@ -168,7 +199,22 @@ typedef struct {
 // KHONG BAO GIO dung duoc va takeoff se abort NO_LIFT_EVIDENCE mai mai. Ha
 // xuong 0.005 de dai chet nam HAN duoi nguong roi dat.
 #define ALT_EST_GROUND_ZERO_BAND_M           0.005f
-#define ALT_EST_TOF_INNOV_GATE_M             0.25f
+// ALT_EST_TOF_INNOV_GATE_M: DA BO (xem alt_estimator.c, khoi "INNOVATION GATE").
+// Gate nay bien "bay qua vat the" thanh "tu dong ha canh". Thay bang slew-rate
+// limit ngay ben duoi: lam so do doi MUOT thay vi LOAI BO mau.
+
+// Toc do toi da (m/s) ma tof_z_m duoc phep doi. Day la bo loc chong nhay dot
+// ngot DUY NHAT con lai tren duong ToF.
+//
+// 1.5 m/s chon theo VAT LY, khong phai theo cam tinh:
+//   - Toc do leo/ha THAT cua drone nay bi chan boi ALT_HOLD_VZ_LIMIT_MS va
+//     LAND_* (deu <= ~0.5 m/s), nen 1.5 m/s KHONG BAO GIO can tro chuyen dong
+//     that — no chi cat nhung buoc nhay nhanh hon moi thu drone lam duoc.
+//   - Bay qua vat cao 0.5m: buoc nhay 0.5m se duoc trai ra ~0.33s. Du cham de
+//     vong Vz khong giat, du nhanh de bam kip dia hinh.
+//   - Mot mau ToF loi (range nhay 2m) bi cat con ~0.06m/mau @40ms -> gan nhu
+//     vo hai, va mau ke tiep dung lai se keo ve ngay.
+#define ALT_EST_TOF_MAX_SLEW_MS              1.5f
 #define ALT_EST_TOF_REACQUIRE_SAMPLES        3
 #define ALT_EST_TOF_TRACK_MAX_AGE_MS         100
 #define ALT_EST_TOF_BRIDGE_MS                220

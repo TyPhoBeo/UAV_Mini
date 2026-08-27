@@ -349,24 +349,18 @@ void takeoff_run(takeoff_state_t *st, const takeoff_tune_t *tune,
     //     lại thì I mới bò tới giới hạn rồi NẰM LÌ. Không có dương tính giả nào
     //     phụ thuộc vào tốc độ spool.
     //
-    // ⚠ SO VỚI TRẦN NÀO: phải là trần THẨM QUYỀN CỦA CHÍNH VÒNG Vz (I chạm
-    // i_limit), KHÔNG phải trần collective của mixer. Với cấu hình hiện tại
-    // (hover_ff=1000, ALT_HOLD_VZ_ILIMIT=500) collective tối đa chỉ tới
-    // 1000+500+P ~ 1500, trong khi trần mixer là 2000*0.85 = 1700 — nên nếu chỉ
-    // so với trần mixer thì điều kiện KHÔNG BAO GIỜ đúng và cả bộ phát hiện
-    // thành code chết mà không ai biết. Giữ cả hai vế: I-limit bắt trường hợp
-    // thường, trần mixer bắt trường hợp hover_ff đặt rất cao.
-    const float i_limit_now = st->liftoff_flag ? hold_tune->vz_ilimit
-                                                : TAKEOFF_PRELIFT_I_LIMIT_DUTY;
-    const bool i_exhausted = (hold_st->vz_integral >= 0.95f * i_limit_now);
-    const bool at_ceiling = (collective >= tko_ceiling) || i_exhausted;
-    if (tko_latch_window(st->liftoff_flag && at_ceiling,
-                          &st->stuck_active, &st->stuck_since_us,
-                          now_us, TAKEOFF_STUCK_MS)) {
-        st->last_throttle = collective;
-        tko_abort(st, TKO_ABORT_STUCK, now_us, out);
-        return;
-    }
+    // ---- ABORT "STUCK" (ga kịch trần liên tục): ĐÃ BỎ (yêu cầu người dùng) ----
+    // Khối cũ hủy chuyến khi collective chạm trần thẩm quyền vòng Vz (I chạm
+    // i_limit, hoặc collective chạm trần mixer) liên tục TAKEOFF_STUCK_MS.
+    // Toàn bộ i_limit_now / i_exhausted / at_ceiling đã xoá theo — không còn ai
+    // đọc chúng, giữ lại chỉ sinh warning.
+    //
+    // ⚠ CÁI MẤT: không còn phát hiện "pin yếu / quá tải / cánh sai" bằng dấu
+    // hiệu ga kịch trần mà không lên. Cái CÒN: TKO_ABORT_TIMEOUT, "motor
+    // saturated too long" của Commander, và sàn pin. Ba cái đó vẫn chặn được
+    // trường hợp nguy hiểm, chỉ muộn hơn vài trăm ms.
+    (void)tko_ceiling;
+    (void)hold_tune;
 
     st->last_throttle = collective;
     out->throttle_duty = collective;
@@ -437,20 +431,23 @@ void takeoff_run(takeoff_state_t *st, const takeoff_tune_t *tune,
     // bay ĐÚNG tới đích rồi vẫn bị hủy vì 0.15 < 0.20 — hủy một chuyến bay
     // hoàn hảo, với lý do ghi là "không nhấc nổi". Lấy min() với một phần của
     // target để ngưỡng luôn nằm DƯỚI đích thật sự.
-    const float no_lift_alt = fminf(TAKEOFF_NO_LIFT_ALT_M,
-                                     st->final_target_m * TAKEOFF_NO_LIFT_TARGET_FRAC);
-    if (!st->liftoff_flag &&
-        (now_us - st->phase_since_us) >= (int64_t)TAKEOFF_NO_LIFT_TIMEOUT_MS * 1000 &&
-        tof_z_m < no_lift_alt) {
-        st->last_throttle = collective;
-        tko_abort(st, TKO_ABORT_NO_LIFT_EVIDENCE, now_us, out);
-        return;
-    }
+    // ---- ABORT "KHÔNG NHẤC NỔI": ĐÃ BỎ (yêu cầu người dùng) ----
+    // Khối cũ hủy chuyến khi sau TAKEOFF_NO_LIFT_TIMEOUT_MS mà ToF vẫn đọc dưới
+    // no_lift_alt. Nó đã báo giả nhiều lần trên bo này.
+    //
+    // ⚠ CÁI CÒN LẠI khi drone thật sự không nhấc nổi:
+    //   - TKO_ABORT_TIMEOUT vẫn hủy khi cả pha CLIMB quá hạn -> vẫn không có
+    //     chuyện motor quay mãi mãi mà không ai dừng.
+    //   - Commander vẫn có "motor saturated too long" và sàn pin.
+    // Tức là mất phát hiện SỚM (vài trăm ms), không mất phát hiện HẲN.
+    //
+    // liftoff_flag GIỮ NGUYÊN: nó là gate mở Ki attitude / nới trần I, không
+    // phải điều kiện hủy bay. Bỏ nhầm nó sẽ gây ground-windup.
     out->liftoff_flag = st->liftoff_flag;
 
-    // ---- VÀO HOLDING — CŨNG THUẦN THỜI GIAN ----
-    // Điều kiện DUY NHẤT: target_z đã trượt tới đích, giữ liên tục
-    // TAKEOFF_HOLD_ENTER_MS. KHÔNG còn so với est_z.
+    // ---- VÀO HOLDING — RỜI ĐẤT + RATE-LIMITER ĐÃ TRƯỢT HẾT ----
+    // Hai điều kiện, giữ liên tục TAKEOFF_HOLD_ENTER_MS. KHÔNG so với est_z,
+    // KHÔNG đòi vz về 0 — xem khối lý do ngay trên `hold_ready`.
     //
     // `target_z == final_target` KHÔNG phải phép đo — nó là trạng thái của
     // chính rate-limiter vài dòng phía trên, hoàn toàn xác định theo đồng hồ.
@@ -471,10 +468,29 @@ void takeoff_run(takeoff_state_t *st, const takeoff_tune_t *tune,
     // được bàn giao sang HOLDING TRƯỚC khi kịp bị phát hiện. Lúc đó bằng chứng
     // vẫn hiện ra ở telemetry (ALTSAT=1 kéo dài, TKOI kịch trần) nhưng KHÔNG có
     // auto-abort — người lái phải tự KILL. Xem tuning.h mục 3c.
+    // ---- ĐÃ RÚT GỌN CÒN HAI VẾ (yêu cầu người dùng) ----
+    // Trước đây có BỐN vế, và hai vế cuối là nguyên nhân một lần cất cánh thật
+    // bị kẹt: drone leo tới 1.45m trong khi target 1.00m (hover_ff latch thiếu
+    // ~460 duty so với pin lúc bay, I-term không kéo lại kịp), nên
+    //     |alt_m - final_target| <= TAKEOFF_HOLD_Z_TOL_M
+    // KHÔNG BAO GIỜ đúng -> cửa sổ không đóng -> TKO_ABORT_TIMEOUT sau 21.6s.
+    //
+    // Hai vế đó hỏi "đã tới đúng độ cao và đứng yên chưa" — một câu hỏi mà
+    // HOLDING sinh ra để trả lời. Bắt CLIMB trả lời trước là bắt vòng hở làm
+    // việc của vòng kín: CLIMB chỉ có rate-limiter và I-term đang nạp, còn
+    // HOLDING mới có đủ P+I trên sai số độ cao thật.
+    //
+    // GIỜ: rời đất + rate-limiter đã trượt hết -> bàn giao. Sai số độ cao còn
+    // lại (dù 45cm) là việc của alt_hold, và nó xử lý được vì đó đúng là việc
+    // của nó.
+    //
+    // ⚠ CÁI MẤT: không còn bảo đảm "bàn giao ở đúng độ cao đích". Drone có thể
+    // vào HOLDING khi còn lệch, rồi alt_hold kéo về — nhìn sẽ thấy nó trôi một
+    // đoạn sau khi báo TAKEOFF XONG. Đó là đánh đổi đã chọn: thà bàn giao hơi
+    // sớm còn hơn không bao giờ bàn giao.
+    // TAKEOFF_HOLD_Z_TOL_M / TAKEOFF_HOLD_VZ_TOL_MS giờ không còn ai đọc.
     const bool hold_ready = st->liftoff_flag &&
-        st->target_z_m == st->final_target_m &&
-        fabsf(alt_m - st->final_target_m) <= TAKEOFF_HOLD_Z_TOL_M &&
-        fabsf(vz_ms) <= TAKEOFF_HOLD_VZ_TOL_MS;
+        st->target_z_m == st->final_target_m;
     if (tko_latch_window(hold_ready,
                           &st->at_target_active, &st->at_target_since_us,
                           now_us, TAKEOFF_HOLD_ENTER_MS)) {

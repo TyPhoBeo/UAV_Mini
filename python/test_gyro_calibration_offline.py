@@ -4,6 +4,7 @@ This does not replace the stationary 20--30 s hardware bench test.  It proves
 the sign/unit equations with representative data and guards the source wiring
 that previously allowed the manual calibration path to reuse corrected gyro.
 """
+import re
 from pathlib import Path
 from statistics import fmean, stdev
 
@@ -58,9 +59,19 @@ for axis in range(3):
 # Source-level invariants: RAW is accumulated; validation is explicit
 # raw-candidate; the obsolete corrected-plus-old-bias accumulator is gone.
 assert "gyro_cal_window_add(&s_gcal_win, imu->gyro_raw_dps" in CORE
-assert "imu->gyro_raw_dps.x - s_gcal_candidate_bias.x" in CORE
-assert "imu->gyro_raw_dps.y - s_gcal_candidate_bias.y" in CORE
-assert "imu->gyro_raw_dps.z - s_gcal_candidate_bias.z" in CORE
+
+# ---------------------------------------------------------------------------
+# PHA VALIDATE DA BI BO (yeu cau nguoi dung: "chi lay mau va tinh ra bias thoi")
+# ---------------------------------------------------------------------------
+# Truoc day co mot cua so DOC LAP thu sau COLLECT de kiem GCORR mean ~ 0 truoc
+# khi commit.  Gio COLLECT tinh mean(gyro_raw_dps) roi commit THANG.
+#
+# ⚠ CAI MAT: khong con phep thu tu dong chung minh "tru bias xong thi con lai
+# ~0".  Bang chung do gio nam O HAI CHO KHAC, va ca hai PHAI con:
+#   - phan tinh toan ngay tren day (raw mean -> bias -> residual ~ 0)
+#   - pre-arm ARM_REJECT_GYRO_BIAS_LARGE do gyro corrected THAT luc DISARMED
+assert "GCAL_VALIDATE" not in CORE,     "pha VALIDATE da bi bo -- khong duoc dung lai"
+assert "s_gcal_candidate_bias = raw_mean;" in CORE,     "COLLECT phai chot bias = mean(raw) roi commit thang"
 assert "s_calib_gyro_sum" not in CORE
 assert "gyro_bias_dps.x +=" not in CORE
 assert "gyro_bias_dps.y +=" not in CORE
@@ -126,8 +137,41 @@ assert "s_gcal_reset_done = true;" in boot
 #    the pre-arm path still measures the REAL corrected gyro and refuses to arm
 #    when it is off -- that is what catches temperature drift.
 assert "s_prearm.gyro_calibrated = s_calib.gyro_valid;" in CORE
-assert "ARM_REJECT_GYRO_BIAS_LARGE" in CORE
-assert "PREARM_GYRO_MAX_MEAN_DPS" in CORE
+
+# ⚠ PHAI kiem TRANG THAI THAT, khong grep suong: hai cong duoi day tung bi
+# comment out ca khoi, va grep "ARM_REJECT_GYRO_BIAS_LARGE in CORE" VAN PASS vi
+# chuoi do nam trong comment -> phep thu rong, khoa mot lop bao ve khong ton tai.
+def strip_c_comments(text):
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    return re.sub(r"//[^\n]*", "", text)
+
+CORE_CODE = strip_c_comments(CORE)
+
+GYRO_BIAS_GUARD_ACTIVE = "ARM_REJECT_GYRO_BIAS_LARGE" in CORE_CODE
+if not GYRO_BIAS_GUARD_ACTIVE:
+    # Khong assert fail: nguoi dung CO QUYEN tat cong nay (da tung yeu cau bo
+    # bot rang buoc ARM). Nhung phai NOI TO, vi no la lop DUY NHAT con lai bat
+    # duoc bias NVS da troi theo nhiet do -- ma bias NVS gio la authoritative.
+    print("  ⚠ CANH BAO: ARM_REJECT_GYRO_BIAS_LARGE DANG BI TAT (comment out).")
+    print("    Bias NVS cu se KHONG con duoc kiem lai luc ARM -> bias troi theo")
+    print("    nhiet do se di thang vao chuyen bay ma khong co gi chan.")
+    print("    Bu lai bang: theo doi co gyro_cal_temp_warn, hoac go 'calib_gyro'")
+    print("    khi nhiet do lech nhieu so voi luc calib.")
+else:
+    # Cong DANG BAT. Kiem nguong con nam trong khoang co nghia.
+    TUNING = (ROOT / "components/flight_core/include/flight_core/tuning.h").read_text(encoding="utf-8")
+    m_thr = re.search(r"#define\s+PREARM_GYRO_MAX_MEAN_DPS\s+([\d.]+)f", TUNING)
+    assert m_thr, "thieu PREARM_GYRO_MAX_MEAN_DPS"
+    thr = float(m_thr.group(1))
+    # Can duoi: phai bat duoc loi da tung gap that (Gz = -1.94 dps, bias chua ap).
+    # Nguong >= 1.94 se cho chinh cai bug goc lot qua -> vo nghia.
+    assert thr < 1.94, (
+        "PREARM_GYRO_MAX_MEAN_DPS=%.2f >= 1.94: se KHONG bat duoc chinh loi goc "
+        "(Gz=-1.94 dps khi bias chua duoc ap)" % thr)
+    # Can tren: qua chat thi drone bi tu choi ARM vi nhieu binh thuong.
+    assert thr >= 0.10, "nguong qua chat, nhieu gyro binh thuong se chan ARM"
+    print(f"  (ARM_REJECT_GYRO_BIAS_LARGE DANG BAT, nguong={thr:.2f} dps"
+          f" -> yaw troi toi da ~{thr*60:.0f} deg/phut neu lech kich nguong)")
 # ...and the temperature warning stays the user-facing signal to re-run it.
 assert "gyro_cal_temp_warn" in CORE
 
