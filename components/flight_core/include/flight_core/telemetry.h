@@ -246,6 +246,15 @@ typedef struct {
     bool  imu_ok_driver, mag_ok_driver, baro_ok_driver, tof_ok_driver, battery_ok_driver;
     float tof_range_m;
     bool  tof_valid;
+    // range_status THÔ của mẫu ToF gần nhất (thang PAL sau khi map từ device
+    // status). 0 = HỢP LỆ; 255 = chưa từng có mẫu / mã lạ.
+    //
+    // VÌ SAO CẦN: tof_valid=0 gộp mọi lý do thất bại vào một bit, nên khi ToF
+    // "không ra số" thì không thể phân biệt ngoài tầm (status 2/4), tín hiệu
+    // yếu (1), nhiễu pha (5), hay chưa hề có mẫu (255). Không có số này thì
+    // chẩn đoán chỉ còn cách đoán — đúng tình huống đã xảy ra khi hub báo
+    // driver_ok=1 mà age=-1.
+    uint8_t tof_range_status;
     float baro_alt_m, baro_pressure_pa;   // baro_alt_m = RAW (trước median-of-3+LPF), xem alt_estimator.h
     uint32_t sensor_err_count;   // cộng dồn lỗi đọc I2C (mọi driver, từ boot) — best-effort
 
@@ -495,6 +504,9 @@ static inline void telemetry_snapshot_init(telemetry_snapshot_t *t) {
     telemetry_snapshot_t z = {0};
     *t = z;
     t->state = FSM_DISARMED;
+    // 0 trong thang PAL nghia la MAU HOP LE, nen zero-init se noi doi rang
+    // "ToF vua do tot" khi that ra chua he co mau nao. 255 = khong xac dinh.
+    t->tof_range_status = 255;
 }
 
 #ifdef __cplusplus

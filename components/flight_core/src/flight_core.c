@@ -2953,6 +2953,7 @@ static void stabilize_task(void *arg) {
         s_telemetry.battery_ok_driver = s_battery_ok_driver;
         s_telemetry.tof_range_m = tof.distance_m;
         s_telemetry.tof_valid = tof.valid;
+        s_telemetry.tof_range_status = tof.range_status;
         s_telemetry.tof_vertical_m = s_alt_est.tof_vertical_m;
         s_telemetry.tof_innovation_m = s_alt_est.tof_innovation_m;
         s_telemetry.tof_surface_z_m = s_alt_est.tof_surface_z_m;
