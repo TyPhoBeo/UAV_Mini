@@ -824,9 +824,18 @@ static int cmd_tof_test(int argc, char **argv) {
         printf("  => hub khong doc ToF (tof_present=0 luc sensor_hub_start?).\n");
         return 1;
     }
+    // Ky vong = nhip CHIP (1000/INTER_MEASUREMENT_MS), khong phai nhip poll cua
+    // hub. Hub poll 16ms (SENSOR_TOF_DIVISOR=4) tuc NHANH HON chip, nen tran
+    // thuc te la chip chu khong phai lich poll.
     if (hz < 10.0f) {
-        printf("tof_test: FAIL -- nhip qua thap (%.1fHz, ky vong ~30Hz).\n", (double)hz);
-        printf("  => bus I2C nghen / timing budget sai / sensor tra loi cham.\n");
+        printf("tof_test: FAIL -- nhip qua thap (%.1fHz, ky vong ~%dHz).\n",
+               (double)hz, 1000 / BOARD_TOF_L1X_INTER_MEASUREMENT_MS);
+        // KHONG doan "bus I2C nghen" nua: mot chu ky doc day du chi ton ~2.3ms
+        // @100kHz (1 byte co ngat + 17 byte ket qua + 1 byte clear), tuc rieng
+        // I2C cho phep toi ~430Hz. Nghen bus KHONG the keo nhip xuong 10Hz.
+        printf("  => nghi theo thu tu: (1) cua so cam bien bi che/con mang bao ve\n");
+        printf("     (do ra 1-4mm la dau hieu ro), (2) nguon 2.8V sut khi VCSEL ban,\n");
+        printf("     (3) INTER_MEASUREMENT/timing budget dat sai trong board_config.h.\n");
         return 1;
     }
     if (n_valid == 0) {

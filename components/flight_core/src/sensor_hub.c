@@ -71,24 +71,38 @@ _Static_assert((SENSOR_HUB_HZ % IMU_SAMPLES_PER_CONTROL) == 0,
 // tốn CPU đáng kể.
 #define SENSOR_BATTERY_DIVISOR   25
 
-// ToF VL53L0X: timing budget 33ms -> ~30Hz. Divisor 8 = 32ms/lần poll, tức
-// NHANH HƠN chip đo một chút — đúng chiều cần thiết (poll chậm hơn nguồn mẫu
-// thì mất mẫu; nhanh hơn thì chỉ tốn thêm một lần đọc cờ ngắt rẻ tiền).
+// ---- ToF: divisor 4 = poll mỗi 16ms (~62Hz) ----
+// TRƯỚC ĐÂY LÀ 8 (32ms), tính cho VL53L0X có timing budget 33ms. Board này giờ
+// chạy VL53L1X với INTER_MEASUREMENT = 40ms: hub hỏi mỗi 32ms còn chip xong mỗi
+// 40ms, hai nhịp KHÔNG chia hết cho nhau nên chúng trượt pha, và mỗi lần trượt
+// là mất trọn một chu kỳ đo. Đo thật (tof_test 10): 9.8Hz thay vì ~25Hz.
 //
-// PHASE 4 giảm va chạm với mag(phase 0)/baro(phase 2) nhưng KHÔNG loại bỏ được.
-// Đừng tin điều ngược lại: với divisor 5/5/8 thì
-//     ToF ∩ baro = vòng 12, 52, 92, ...   (mỗi 40 vòng = 160ms)
-//     ToF ∩ mag  = vòng 20, 60, 100, ...  (mỗi 40 vòng = 160ms)
-// (mag ∩ baro thì thật sự rỗng — hai cái đó cùng divisor 5, khác phase.)
+// Poll 16ms bắt được mẫu ở MỌI pha lệch: chip xong mỗi 40ms thì trong khoảng
+// đó luôn có 2-3 lần hỏi. Poll nhanh hơn nguồn mẫu gần như KHÔNG tốn thêm gì —
+// l1x_check_ready() chỉ đọc 1 byte cờ ngắt (~0.29ms @100kHz) rồi trả về ngay;
+// chỉ khi CÓ mẫu mới đọc tiếp 17 byte. Một chu kỳ đầy đủ 2.31ms, trong khi
+// riêng I2C cho phép tới ~433Hz — còn thừa rất nhiều.
 //
-// Một vòng có 2 transaction là chấp nhận được (~1ms tổng, trong ngân sách 4ms)
-// và KHÔNG chặn vòng bay vì hub đã notify stabilize TRƯỚC khi đọc mag/baro/ToF.
-// Ghi ra đây vì bản trước khẳng định "không bao giờ rơi cùng một vòng" — sai,
-// và nếu sau này ToF lại chập chờn thì đây là một trong những chỗ phải xem
-// (xung đột lịch truy cập I2C là nguyên nhân đã được ghi nhận với VL53L0X trên
-// flight controller — xem README mục ToF).
-#define SENSOR_TOF_DIVISOR       8
-#define SENSOR_TOF_PHASE         4
+// Va chạm lịch với cảm biến khác: mag và baro hiện TẮT (SENSOR_MAG_ENABLED=0,
+// SENSOR_BARO_ENABLED=0) nên không còn tranh bus. Với battery (divisor 25) thì
+// ToF trùng vòng 2 lần mỗi 200 vòng ở mọi phase — không tránh được bằng cách
+// chọn phase, nhưng một vòng có 2 transaction vẫn nằm trong ngân sách 4ms và
+// KHÔNG chặn vòng bay (hub notify stabilize TRƯỚC khi đọc các cảm biến chậm).
+#define SENSOR_TOF_DIVISOR       4
+// ⚠ PHASE PHẢI < DIVISOR. Trước đây là 4, và 4 hợp lệ khi divisor là 8. Giữ
+// nguyên 4 khi hạ divisor xuống 4 thì (round % 4) == 4 KHÔNG BAO GIỜ đúng ->
+// ToF ngừng được poll HOÀN TOÀN, im lặng, không một dòng log nào. Ràng buộc
+// này được _Static_assert bên dưới canh để không ai vấp lại.
+#define SENSOR_TOF_PHASE         1
+
+// PHASE phải NHỎ HƠN DIVISOR, nếu không (round % DIVISOR) == PHASE không bao
+// giờ đúng và cảm biến đó ngừng được đọc HOÀN TOÀN mà không có lấy một dòng
+// log — kiểu hỏng tệ nhất, vì mọi thứ khác vẫn chạy bình thường. Bắt lúc biên
+// dịch thay vì lúc bay.
+_Static_assert(SENSOR_TOF_PHASE < SENSOR_TOF_DIVISOR,
+    "SENSOR_TOF_PHASE >= SENSOR_TOF_DIVISOR -> ToF khong bao gio duoc poll");
+_Static_assert(SENSOR_BARO_PHASE < SENSOR_BARO_DIVISOR,
+    "SENSOR_BARO_PHASE >= SENSOR_BARO_DIVISOR -> baro khong bao gio duoc poll");
 
 // Timeout chờ ngắt IMU = 2 chu kỳ (giống logic cũ trong stabilize_task): ngắt
 // bình thường luôn tới trước hạn; hết hạn nghĩa là ngắt THẬT SỰ ngừng đến.
