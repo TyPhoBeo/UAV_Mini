@@ -973,3 +973,5 @@ python/                        ← fc_api.py (wrapper blocking), example_mission
                                   test_fc_api_offline.py (mock, chạy được ngay)
 flow.md                        ← sơ đồ luồng end-to-end chi tiết
 ```
+#   U A V _ M i n i  
+ 
