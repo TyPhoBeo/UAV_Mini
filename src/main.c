@@ -824,9 +824,8 @@ static int cmd_tof_test(int argc, char **argv) {
         printf("  => hub khong doc ToF (tof_present=0 luc sensor_hub_start?).\n");
         return 1;
     }
-    // Ky vong = nhip CHIP (1000/INTER_MEASUREMENT_MS), khong phai nhip poll cua
-    // hub. Hub poll 16ms (SENSOR_TOF_DIVISOR=4) tuc NHANH HON chip, nen tran
-    // thuc te la chip chu khong phai lich poll.
+    // Ky vong = nhip CHIP (1000/INTER_MEASUREMENT_MS). Hub poll 32ms
+    // (SENSOR_TOF_DIVISOR=8) con chip xong moi 40ms, nen tran thuc te la chip.
     if (hz < 10.0f) {
         printf("tof_test: FAIL -- nhip qua thap (%.1fHz, ky vong ~%dHz).\n",
                (double)hz, 1000 / BOARD_TOF_L1X_INTER_MEASUREMENT_MS);
