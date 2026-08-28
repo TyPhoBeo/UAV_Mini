@@ -160,6 +160,10 @@ static commander_state_t  s_cmd_state;
 static commander_config_t s_cmd_cfg;
 static imu_calib_t        s_imu_calib;
 
+// Moc bat dau khoang "khong co lenh dieu khien nao" trong FSM_FLYING.
+// 0 = dang co lenh (hoac khong o FLYING). Dem lai tu 0 moi khi nguoi lai
+// cham can, nen nguong FLYING_TO_HOLD_SETTLE_MS la 1s LIEN TUC yen.
+static int64_t s_flying_idle_since_us = 0;
 static bool s_imu_ok_driver = false;
 static bool s_mag_ok_driver = false;
 static bool s_tof_ok_driver = false;
@@ -197,6 +201,10 @@ static int64_t s_bench_offset_update_us = 0;
 // -1 = chưa latch (đang HOLDING hoặc chưa bay). Đặt lại về -1 mỗi khi rời
 // FLYING để lần vào sau chốt giá trị MỚI, không dùng lại số của chuyến trước.
 static int     s_flying_throttle_latch = -1;
+// Credit tich luy cho tran toc do tang ga (THROTTLE_MAX_RISE_DUTY_PER_S).
+// Can vi 150 duty/s * dt(4ms) = 0.6 duty — lam tron nguyen se ra 0 va tran bien
+// thanh khoa cung. Cong don phan le qua cac tick roi moi tieu tung duty nguyen.
+static float   s_flying_rise_credit = 0.0f;
 
 // Duty mà alt_hold xuất ở tick HOLDING gần nhất — nguồn để chốt latch ở trên.
 // Cần biến RIÊNG vì throttle_cmd là biến CỤC BỘ, bị gán 0 ở đầu bước 9 mỗi
@@ -341,6 +349,14 @@ static gyro_cal_window_t s_gcal_win;
 static int              s_gcal_bad_samples = 0;
 static vec3f_t          s_gcal_candidate_bias;
 static float            s_gcal_temp_c = 0.0f;
+// ---- RE-CALIB LUC ARM (chong troi bias theo nhiet, xem tuning.h) ----
+// true = lan calib DANG chay la re-calib nhanh luc ARM (cua so ngan hon, va
+// khi xong se TU DONG thu ARM lai). false = calib day du luc boot / `calib_gyro`.
+static bool             s_gcal_is_arm_recal = false;
+// Bias TRUOC khi re-calib — de so sanh do lech va khoi phuc neu tu choi.
+static vec3f_t          s_gcal_prev_bias = {0};
+// Lenh ARM dang cho re-calib xong. Xoa khi ARM thanh cong hoac bi tu choi.
+static bool             s_arm_pending_recal = false;
 static const char      *s_gcal_fail_reason = "";
 
 static vec3f_t s_gcal_last_raw_mean;
@@ -493,10 +509,12 @@ static void gyro_cal_set_runtime_bias(vec3f_t bias) {
 }
 
 static void gyro_cal_enter_collect(void) {
-    gyro_cal_window_reset(&s_gcal_win, gyro_cal_ticks(GYRO_CAL_DURATION_MS));
+    const int collect_ms = s_gcal_is_arm_recal ? GYRO_ARM_RECAL_DURATION_MS
+                                               : GYRO_CAL_DURATION_MS;
+    gyro_cal_window_reset(&s_gcal_win, gyro_cal_ticks(collect_ms));
     s_gcal_bad_samples = 0;
     s_gcal_state = GCAL_COLLECT;
-    ESP_LOGI(TAG, "GYRO CAL: COLLECT RAW %dms — GIU YEN drone", GYRO_CAL_DURATION_MS);
+    ESP_LOGI(TAG, "GYRO CAL: COLLECT RAW %dms — GIU YEN drone", collect_ms);
 }
 
 static void gyro_cal_finish_fail(gyro_cal_fail_t fail, const char *reason) {
@@ -557,10 +575,14 @@ static void gyro_calibration_start(void) {
     }
 
     s_calib_gyro_active = true;
-    gyro_cal_window_reset(&s_gcal_win, gyro_cal_ticks(GYRO_CAL_SETTLE_MS));
+    const int settle_ms = s_gcal_is_arm_recal ? GYRO_ARM_RECAL_SETTLE_MS
+                                              : GYRO_CAL_SETTLE_MS;
+    gyro_cal_window_reset(&s_gcal_win, gyro_cal_ticks(settle_ms));
     s_gcal_state = GCAL_SETTLING;
-    ESP_LOGW(TAG, "GYRO CAL start: settle=%dms -> collect=%dms (NO VALIDATE, chi lay mau va tinh bias)",
-             GYRO_CAL_SETTLE_MS, GYRO_CAL_DURATION_MS);
+    ESP_LOGW(TAG, "GYRO CAL start (%s): settle=%dms -> collect=%dms",
+             s_gcal_is_arm_recal ? "RE-CAL luc ARM" : "day du",
+             settle_ms,
+             s_gcal_is_arm_recal ? GYRO_ARM_RECAL_DURATION_MS : GYRO_CAL_DURATION_MS);
 }
 
 // Gọi mỗi tick TRƯỚC Mahony. Validation tự tính raw-candidate, không dùng
@@ -585,7 +607,8 @@ static bool gyro_calibration_tick(const imu_sample_t *imu, bool imu_updated) {
             }
             if (--s_gcal_win.ticks_left > 0) return true;
 
-            const int expected = gyro_cal_ticks(GYRO_CAL_DURATION_MS);
+            const int expected = gyro_cal_ticks(
+                s_gcal_is_arm_recal ? GYRO_ARM_RECAL_DURATION_MS : GYRO_CAL_DURATION_MS);
             if ((float)s_gcal_win.count < (float)expected * GYRO_CAL_MIN_VALID_FRACTION) {
                 gyro_cal_finish_fail(GCAL_FAIL_TOO_FEW_SAMPLES,
                                      "qua it mau IMU trong COLLECT");
@@ -715,6 +738,10 @@ static int      s_deadline_miss_streak = 0;  // trượt LIÊN TIẾP hiện t�
 // đồng hồ FreeRTOS — vẫn quay đúng nhịp, chỉ là dữ liệu cảm biến sẽ stale và
 // Commander thấy điều đó qua timestamp. Xem wait_next_control_tick().
 static bool     s_hub_notify_active = false;
+// Tach nguon danh thuc vong dieu khien (xem telemetry.h muc CHAN DOAN).
+static uint32_t s_loop_wake_by_hub = 0;
+static uint32_t s_loop_wake_timeout = 0;
+static uint32_t s_loop_busy_us = 0;
 static uint32_t s_imu_int_wake_count = 0;     // số vòng được hub đánh thức
 static uint32_t s_imu_int_timeout_count = 0;  // số lần chờ quá hạn
 static int      s_imu_int_miss_streak = 0;    // trượt LIÊN TIẾP hiện tại
@@ -1160,10 +1187,11 @@ static bool prearm_check(int64_t now_us) {
 
     // Flight-control Z chi dung IMU + ToF. Barometer khong duoc phep chan ARM.
     //
-    // FC_FEATURE_FLOOR_GATE=0 (mac dinh hien tai, theo yeu cau nguoi dung):
-    // BO cong chan nay. Viec thu mau san + khoa san VAN CHAY (xem
-    // alt_estimator.c), chi khong dung de tu choi ARM nua. Xem fc_features.h
-    // de biet danh doi va cach bat lai.
+    // FC_FEATURE_FLOOR_GATE=0 (mac dinh, theo yeu cau nguoi dung): BO cong
+    // chan nay. Va may do san cung DA BI BO HAN -- ToF do tuyet doi, xem
+    // alt_estimator.c::update(). Khoi #if duoi day chi con la duong quay lai
+    // neu ai do bat co len; no se KHONG chay dung nua vi floor_ready() gio
+    // luon true.
 #if FC_FEATURE_FLOOR_GATE
     if (!s_prearm.tof_floor_ready || !s_prearm.alt_estimator_valid) {
         // In DU SO LIEU: khong co no thi "chua co mau floor hop le" khong phan
@@ -1179,16 +1207,10 @@ static bool prearm_check(int64_t now_us) {
         ok = false;
     }
 #else
-    // Cong da tat -> chi CANH BAO khi floor chua san, KHONG chan. Van phai in
-    // ra: cat canh khi floor chua chot nghia la alt_m tinh tu mot goc toa do
-    // chua on dinh, va nguoi bay can biet dieu do dang xay ra.
-    if (!s_prearm.tof_floor_ready) {
-        ESP_LOGW(TAG, "ARM: floor ToF CHUA chot (n=%u/%d std=%.4f ref_valid=%d) nhung cong floor "
-                      "DANG TAT (FC_FEATURE_FLOOR_GATE=0) -> VAN CHO ARM. Do cao co the lech vi "
-                      "goc toa do chua on dinh.",
-                  (unsigned)s_alt_est.floor_sample_count, ALT_EST_FLOOR_MIN_SAMPLES,
-                  (double)s_alt_est.floor_std_m, (int)s_alt_est.tof_ground_ref_valid);
-    }
+    // ToF do TUYET DOI (khong con goc toa do, xem alt_estimator.c) nen khong
+    // con khai niem "da chot duoc mat san chua". alt_estimator_floor_ready()
+    // gio luon true, nen canh bao cu o day la code chet -- va te hon, no in ra
+    // n=0 std=0.0000 khien nguoi doc tuong ToF dang hong.
 #endif
 
     if (!s_prearm.loop_healthy) {
@@ -1489,12 +1511,28 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
                                   "(FC_FEATURE_FLOOR_GATE=0) -> van cat canh. Do cao co the lech.");
                 }
 #endif
-                if (!has_tof_src) {
-                    ESP_LOGW(TAG, "TAKEOFF tu choi: ToF khong hoat dong (driver loi) -> khong co nguon Z; "
-                                  "chay 'i2c_scan' va 'tof_test'.");
+                // ⚠ KHONG con tu choi TAKEOFF vi "chua co mau ToF dung duoc".
+                //
+                // Nam tren san, ToF doc 0.000m (duoi tam mu ~4cm cua VL53L1X)
+                // -> driver loai mau (dist_mm > 0 sai) -> floor_add() khong
+                // bao gio duoc goi -> tof_ground_ref_valid dung o false ->
+                // MOI lenh TAKEOFF bi tu choi NO_CORRECTION, vinh vien.
+                // Nguoi dung khong co duong thoat: disarm/arm lai cung the,
+                // vi drone van dang nam dung cho do.
+                //
+                // GIU LAI dieu kien DUY NHAT that su la loi phan cung:
+                // s_tof_ok_driver = driver init duoc chip hay khong. Sai =
+                // khong co ToF tren bus, luc do tu choi moi dung.
+                if (!s_tof_ok_driver) {
+                    ESP_LOGW(TAG, "TAKEOFF tu choi: ToF khong init duoc (khong thay chip tren I2C) "
+                                  "-> khong co nguon Z; chay 'i2c_scan' va 'tof_test'.");
                     s_tko_reject = TAKEOFF_REJECT_NO_CORRECTION;
                     s_tko_reject_seq++;
                     break;
+                }
+                if (!has_tof_src) {
+                    ESP_LOGW(TAG, "TAKEOFF: chua co mau ToF on dinh (nam sat san?) -> VAN cat canh, "
+                                  "goc toa do se duoc chot bang mau dau tien do duoc.");
                 }
                 if (!s_alt_est.valid) {
                     ESP_LOGW(TAG, "TAKEOFF tu choi: alt_estimator KHONG hop le (state khong huu han) — "
@@ -1556,15 +1594,22 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
                     // ngay tu tick dau. Chot bang mau hien tai it nhat cho ra
                     // mot goc DUNG NGHIA, chi la kem on dinh hon.
                     if (!alt_estimator_lock_floor_fallback(&s_alt_est)) {
-                        ESP_LOGW(TAG, "TAKEOFF tu choi: khong co CA mau floor on dinh LAN mau ToF "
-                                      "hop le nao de chot goc toa do -> khong biet dang o do cao nao");
-                        s_tko_reject = TAKEOFF_REJECT_NO_CORRECTION;
-                        s_tko_reject_seq++;
-                        break;
+                        // ⚠ KHONG tu choi nua. Day chinh la ca "nam sat san":
+                        // ToF doc 0mm nen khong co mau nao de chot goc toa do.
+                        // Truoc day break o day -> takeoff bat kha thi khi drone
+                        // dang o dung noi no phai o (tren mat dat).
+                        //
+                        // Chot goc = 0: drone DANG nam san, nen "do cao hien tai
+                        // = 0" la gia thiet DUNG, khong phai gia thiet lieu.
+                        // Mau ToF hop le dau tien sau khi nhac len se cho
+                        // estimator so that de bam theo.
+                        alt_estimator_lock_floor_at_zero(&s_alt_est);
+                        ESP_LOGW(TAG, "TAKEOFF: khong co mau ToF nao de chot goc (nam sat san?) -> chot goc = 0m. Do cao se dung sau mau ToF hop le dau tien.");
+                    } else {
+                        ESP_LOGW(TAG, "TAKEOFF: chot goc toa do bang mau ToF hien tai (%.3fm) vi "
+                                      "floor chua on dinh va cong floor DANG TAT -> do cao co the lech",
+                                  (double)s_alt_est.tof_ground_range_m);
                     }
-                    ESP_LOGW(TAG, "TAKEOFF: chot goc toa do bang mau ToF hien tai (%.3fm) vi floor "
-                                  "chua on dinh va cong floor DANG TAT -> do cao co the lech",
-                              (double)s_alt_est.tof_ground_range_m);
 #endif
                 }
                 alt_estimator_prepare_takeoff(&s_alt_est);
@@ -2277,8 +2322,13 @@ static void stabilize_task(void *arg) {
     TickType_t last_wake = xTaskGetTickCount();
 
     while (1) {
-        wait_next_control_tick(&last_wake, period);
+        // Do rieng phan CHO va phan XU LY. dt (raw_dt_us) gop ca hai nen mot
+        // minh no khong tra loi duoc "vong cham vi CPU khong du" hay "vi cam
+        // bien khong bao mau kip" — hai nguyen nhan can hai cach chua khac han.
+        const bool woke_by_hub = wait_next_control_tick(&last_wake, period);
         const int64_t now_us = esp_timer_get_time();
+        if (woke_by_hub) s_loop_wake_by_hub++;
+        else             s_loop_wake_timeout++;
 
         // ---- 0) dt THỰC ĐO, không phải hằng số 1/250s ----
         // Mọi tích phân/vi phân phía dưới (Mahony, alt_estimator, PID I/D,
@@ -2388,7 +2438,43 @@ static void stabilize_task(void *arg) {
         //     publish lần nào nên seq đứng ở 0 vĩnh viễn.
         const tof_reading_t tof = snap.tof;
         const int64_t tof_age_us = sensor_hub_age_us(&snap.tof_h, now_us);
-        const bool tof_healthy_for_alt = (tof_age_us <= SENSOR_TOF_STALE_US);
+        // tof_hw_alive = CHIP CON DANG DO, khac han tof_healthy_for_alt.
+        //
+        // VI SAO CAN RIENG: tof_h.timestamp_us chi nhich khi co mau HOP LE.
+        // Dat drone xuong san thi ToF doc 0mm (duoi tam mu ~4cm cua L1X) ->
+        // khong mau nao hop le -> tuoi tang vo han -> estimator ket luan
+        // "mat ToF" -> Commander soft-fault. Tuc la chi can de drone nam dat
+        // du lau la firmware tu bao hong cam bien.
+        //
+        // tof_alive_us den tu tof_driver_last_sample_us(): moc lan cuoi MCU
+        // doc TRON VEN mot ket qua tu chip, bat ke ket qua do co hop le hay
+        // khong. Nam sat san / ngoai tam -> van nhich. Chip chet / bus dut ->
+        // dung yen.
+        //
+        // Nguong dung DUNG ALT_EST_TOF_LOST_MS cua estimator, khong dat hang
+        // so moi: hai ben dang tra loi cung mot cau hoi "bao lau thi coi la mat".
+        const bool tof_hw_alive =
+            snap.tof_alive_us != 0 &&
+            (now_us - snap.tof_alive_us) <= (int64_t)ALT_EST_TOF_LOST_MS * 1000;
+
+        // ⚠ DUNG tof_hw_alive, KHONG dung tuoi mau hop le.
+        //
+        // Ban truoc: (tof_age_us <= SENSOR_TOF_STALE_US), tuc la hoi "bao lau
+        // roi chua co mau HOP LE". Nam sat san thi ToF doc 0.000m -> khong mau
+        // nao hop le -> tuoi tang vo han -> bien nay false VINH VIEN, trong khi
+        // chip van do deu. Hau qua day chuyen:
+        //   - neo target trong FLYING bi chan (dieu kien && tof_healthy_for_alt)
+        //   - takeoff_run() nhan alt_source_ok = false
+        //   - GUI hien "ToF LOI: mau STALE"
+        // Day chinh la "dieu kien ToF cu" con sot lai sau khi update_age() da
+        // chuyen sang mo hinh chi-hoi-chip-con-do.
+        //
+        // GIO: chip con tieu thu duoc ket qua = con dung duoc. Con mau do co
+        // FUSE duoc khong la cau hoi RIENG, do s_alt_est.tof_fusable tra loi —
+        // va moi cho dung bien nay deu da AND them tof_fusable san.
+        const bool tof_healthy_for_alt = tof_hw_alive;
+
+
 
         mag_sample_t mag = snap.mag;
         // mag_ok = có mẫu hợp lệ, MỚI, và chưa stale. mag ODR thấp nên "không
@@ -2840,7 +2926,8 @@ static void stabilize_task(void *arg) {
 #endif
                                   tof_healthy_for_alt, snap.tof_h.seq,
                                   snap.tof_h.timestamp_us, tof.distance_m,
-                                  stationary_for_alt, liftoff_candidate_for_alt,
+                                  tof_hw_alive, stationary_for_alt,
+                                  liftoff_candidate_for_alt,
                                   airborne_for_alt, now_us, fusion_dt);
         }
 
@@ -2953,7 +3040,6 @@ static void stabilize_task(void *arg) {
         s_telemetry.battery_ok_driver = s_battery_ok_driver;
         s_telemetry.tof_range_m = tof.distance_m;
         s_telemetry.tof_valid = tof.valid;
-        s_telemetry.tof_range_status = tof.range_status;
         s_telemetry.tof_vertical_m = s_alt_est.tof_vertical_m;
         s_telemetry.tof_innovation_m = s_alt_est.tof_innovation_m;
         s_telemetry.tof_surface_z_m = s_alt_est.tof_surface_z_m;
@@ -3066,6 +3152,11 @@ static void stabilize_task(void *arg) {
         s_telemetry.mag_age_ms  = (mag_age_us  == INT64_MAX) ? -1 : (int32_t)(mag_age_us  / 1000);
         s_telemetry.baro_age_ms = (baro_age_us == INT64_MAX) ? -1 : (int32_t)(baro_age_us / 1000);
         s_telemetry.tof_age_ms = (tof_age_us == INT64_MAX) ? -1 : (int32_t)(tof_age_us / 1000);
+        // Tuoi lan cuoi CHIP DO DUOC. snap.tof_alive_us == 0 nghia la chua
+        // tung doc duoc mau nao -> -1, KHONG duoc bao cao thanh 0 (0 se doc
+        // ra thanh 'vua do xong').
+        s_telemetry.tof_alive_ms = (snap.tof_alive_us == 0)
+            ? -1 : (int32_t)((now_us - snap.tof_alive_us) / 1000);
         s_telemetry.imu_healthy = snap.imu_h.healthy;
         s_telemetry.mag_healthy = snap.mag_h.healthy;
         s_telemetry.baro_healthy_hub = snap.baro_h.healthy;
@@ -3238,7 +3329,35 @@ static void stabilize_task(void *arg) {
                 const bool sp_active = fabsf(s_sp_roll_deg) > 0.01f ||
                                         fabsf(s_sp_pitch_deg) > 0.01f ||
                                         fabsf(s_sp_yaw_rate_dps) > 0.01f;
-                fsm_transition(&s_fsm, fsm_on_move_command(s_fsm.state, sp_active), now_us);
+
+                // ---- HOLDING -> FLYING: TUC THI ----
+                // Nguoi lai day can thi phai co tac dung ngay.
+                if (sp_active) {
+                    s_flying_idle_since_us = 0;
+                    fsm_transition(&s_fsm, fsm_on_move_command(s_fsm.state, true), now_us);
+                } else {
+                    // ---- FLYING -> HOLDING: CHO YEN FLYING_TO_HOLD_SETTLE_MS ----
+                    // Tha can KHONG doi state ngay. Luc vua tha, drone con
+                    // nghieng va dang troi -> ToF (nhin theo truc than) chua on
+                    // -> chot do cao vao dung tick do cho ra target sai, da quan
+                    // sat thay vot len ~2m.
+                    //
+                    // Moc dem lai tu 0 moi khi co lenh dieu khien, nen 1s nay la
+                    // "1s LIEN TUC khong dieu khien", khong phai 1s ke tu lan
+                    // dau tien tha can.
+                    if (s_fsm.state == FSM_FLYING) {
+                        if (s_flying_idle_since_us == 0) {
+                            s_flying_idle_since_us = now_us;
+                        } else if ((now_us - s_flying_idle_since_us) >=
+                                   (int64_t)FLYING_TO_HOLD_SETTLE_MS * 1000) {
+                            s_flying_idle_since_us = 0;
+                            fsm_transition(&s_fsm,
+                                fsm_on_move_command(s_fsm.state, false), now_us);
+                        }
+                    } else {
+                        s_flying_idle_since_us = 0;
+                    }
+                }
             }
         }
 
@@ -3359,6 +3478,9 @@ static void stabilize_task(void *arg) {
             ESP_LOGI(TAG, "roi FLYING -> xoa latch ga (%d duty), alt_hold nhan lai quyen giu do cao",
                       s_flying_throttle_latch);
             s_flying_throttle_latch = -1;
+            // Xoa CUNG voi latch: credit con lai cua chuyen truoc se cho phep
+            // mot buoc nhay ngay tick dau cua lan vao FLYING sau.
+            s_flying_rise_credit = 0.0f;
         }
 
         switch (s_fsm.state) {
@@ -3641,18 +3763,39 @@ static void stabilize_task(void *arg) {
                     hr.vz_target_ms = 0.0f;
                     alt_target_vz_ms = 0.0f;
 
-                    // W/S vẫn phải ăn khi đang bay ngang. Cộng thẳng vào latch
-                    // (KHÔNG chỉ vào throttle_cmd của tick này) để giữ phím có
-                    // tác dụng CỘNG DỒN đúng như cảm giác "đẩy ga lên rồi giữ".
+                    // ============================================================
+                    // W/S TRONG FLYING = OFFSET TAM THOI, KHONG CONG DON
+                    // ============================================================
+                    // Giu phim -> throttle = ga nen + 100. Nha phim -> ga nen.
+                    // Het. Do la toan bo hop dong.
+                    //
+                    // ⚠ BAN TRUOC CONG DON VAO LATCH va do la mot loi THAT, da
+                    // do duoc tren log bay:
+                    //     THR=999 -> 999 -> 1799 -> 2000 -> 2000 (MHR=0)
+                    //     THRCORR=-1 -> -1 -> 799 -> 1000 -> 1000
+                    // GUI gui keepalive moi 100ms khi giu phim (khong the khong
+                    // gui: co watchdog BENCH_OFFSET_STALE_US phia firmware). Moi
+                    // goi cong them 100 vao latch -> 5 lan la +500 -> kich tran
+                    // MOTOR_SAFE_MAX_DUTY va O NGUYEN DO sau khi nha phim, vi
+                    // latch la trang thai BEN VUNG. Drone vot len khong phanh.
+                    //
+                    // Ban chat: keepalive la co che GIU LENH SONG, khong phai
+                    // mot lenh MOI. Doc no nhu lenh moi la dem so lan lap lai
+                    // cua cung mot y dinh.
+                    //
+                    // GIO: latch giu nguyen la GA NEN, offset chi cong vao
+                    // throttle cua TICK NAY. Nha phim -> s_bench_throttle_offset
+                    // ve 0 (GUI gui, va firmware co watchdog stale rieng) ->
+                    // throttle tu dong tro lai dung ga nen.
                     if (s_bench_throttle_offset != 0) {
                         int ws_duty = s_bench_throttle_offset;
                         const float fly_alt_max = commander_clamp_altitude(&s_cmd_cfg, s_cmd_cfg.alt_max_m);
                         if (ws_duty > 0 && s_alt_est.alt_m >= fly_alt_max) ws_duty = 0;
                         if (ws_duty < 0 && s_alt_est.alt_m <= s_cmd_cfg.alt_min_m) ws_duty = 0;
-                        s_flying_throttle_latch = clampi(s_flying_throttle_latch + ws_duty,
-                                                          ALT_HOLD_MIN_THROTTLE_DUTY,
-                                                          MOTOR_SAFE_MAX_DUTY);
-                        throttle_cmd = s_flying_throttle_latch;
+                        // KHONG dung toi s_flying_throttle_latch.
+                        throttle_cmd = clampi(s_flying_throttle_latch + ws_duty,
+                                              ALT_HOLD_MIN_THROTTLE_DUTY,
+                                              MOTOR_SAFE_MAX_DUTY);
                         hr.throttle_duty = throttle_cmd;
                     }
                     // ============================================================
@@ -3805,9 +3948,37 @@ static void stabilize_task(void *arg) {
                     // này — nếu không thì tick sau latch cũ (thấp) ghi đè lại và
                     // guard chỉ có tác dụng đúng một tick, drone vẫn cắm xuống.
                     if (flying_no_alt_pid) {
-                        s_flying_throttle_latch = clampi(throttle_cmd,
+                        // ⚠ TRAN TOC DO TANG GA — day chinh la cho da gay loi.
+                        // Bay o ~23cm (duoi TERR_MIN_CLEARANCE_M=25cm) thi guard
+                        // kich hoat MOI TICK, va moi tick deu ghi de latch:
+                        //     THR=995 -> 995 -> 1095 -> 1995 -> 2000 (kich tran)
+                        // +900 duty trong MOT tick 5ms. Guard duoc phep ep leo,
+                        // nhung khong duoc phep nhay bac nhu vay.
+                        //
+                        // Chi chan chieu TANG. Guard ha ga (vd vua thoat xong)
+                        // van duoc ve ngay: chan chieu giam la tao che do hong moi.
+                        // ⚠ TICH LUY PHAN LE, KHONG duoc (int) thang.
+                        // dt = 4ms -> 150 * 0.004 = 0.6 -> (int) = 0 -> rise_cap
+                        // = latch -> ga KHONG BAO GIO tang duoc, tuc la vo hieu
+                        // hoa hoan toan guard chong va cham. Mot tran toc do lai
+                        // bien thanh mot cai khoa cung, va no im lang.
+                        s_flying_rise_credit += THROTTLE_MAX_RISE_DUTY_PER_S * dt;
+                        const int rise_cap = s_flying_throttle_latch +
+                            (int)s_flying_rise_credit;
+                        int guard_duty = clampi(throttle_cmd,
+                                                ALT_HOLD_MIN_THROTTLE_DUTY,
+                                                MOTOR_SAFE_MAX_DUTY);
+                        if (guard_duty > rise_cap) guard_duty = rise_cap;
+                        const int prev_latch = s_flying_throttle_latch;
+                        s_flying_throttle_latch = clampi(guard_duty,
                                                           ALT_HOLD_MIN_THROTTLE_DUTY,
                                                           MOTOR_SAFE_MAX_DUTY);
+                        // Tru phan credit DA TIEU. Khong tru thi credit cu tich
+                        // mai va cu nay sau lai cho phep mot buoc nhay lon.
+                        const int used = s_flying_throttle_latch - prev_latch;
+                        if (used > 0) s_flying_rise_credit -= (float)used;
+                        if (s_flying_rise_credit < 0.0f) s_flying_rise_credit = 0.0f;
+                        throttle_cmd = s_flying_throttle_latch;
                     }
                     if (!s_terr_guard_active) {
                         s_terr_guard_active = true;
@@ -4147,7 +4318,19 @@ static void stabilize_task(void *arg) {
         s_telemetry.gyro_calib_std_z_dps = s_gcal_last_corr_std.z;
         s_telemetry.accel_calib_residual_g = s_last_accel_calib_residual_g;
         s_telemetry.stamp_us = now_us;
+        // Chan doan nhip vong: tach "cho" khoi "ban" (xem telemetry.h).
+        s_telemetry.loop_wake_by_hub  = s_loop_wake_by_hub;
+        s_telemetry.loop_wake_timeout = s_loop_wake_timeout;
+        s_telemetry.loop_busy_us      = s_loop_busy_us;
         xSemaphoreGive(s_telemetry_mtx);
+
+        // ---- Do THOI GIAN XU LY cua tick nay ----
+        // Dat o CUOI vong, tru mocs now_us lay ngay sau khi thuc day. Hieu so
+        // nay KHONG bao gom phan cho cam bien, nen no tra loi truc tiep cau
+        // hoi "CPU co du khong":
+        //   busy ~ 4000us -> CPU that su khong du, phai bot viec.
+        //   busy nho ma dt lon -> dang CHO, van de o nguon nhip (INT/I2C).
+        s_loop_busy_us = (uint32_t)(esp_timer_get_time() - now_us);
     }
 }
 

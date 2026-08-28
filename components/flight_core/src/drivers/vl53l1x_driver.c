@@ -1,5 +1,11 @@
-// vl53l1x_driver.c — backend cho DÒNG VL53L1X (thanh ghi 16-BIT, ID 0x010F=0xEACC).
-// Cùng dòng: VL53L4CD (cũng trả 0xEACC).
+// vl53l1x_driver.c — backend cho VL53L1X (thanh ghi 16-BIT, ID 0x010F=0xEACC).
+//
+// ⚠ BACKEND NÀY LÀ CHO VL53L1X. Không tuyên bố con nào khác "giống hệt".
+// Bản trước ghi "cùng dòng: VL53L4CD (cũng trả 0xEACC)" — câu đó nguy hiểm ngay
+// cả khi ID có trùng: L4CD là chip KHÁC, chuỗi init và bảng cấu hình ULD của nó
+// riêng. Ai đọc dòng đó rồi cắm L4CD vào sẽ thấy chip nhận diện "thành công" và
+// đo ra số, nhưng là số của một cấu hình sai. Trùng ID không phải bằng chứng
+// tương thích — muốn hỗ trợ chip khác thì thêm backend riêng như đã làm với L0X.
 //
 // ⚠ FILE NÀY CHỈ ĐƯỢC BIÊN DỊCH KHI BOARD_TOF_CHIP == TOF_CHIP_VL53L1X.
 // Chọn chip ở main/board_config.h.
@@ -96,8 +102,15 @@ static const char *TAG = "vl53l1x";
 #define L1X_CONFIG_START_REG                             0x002D
 #define L1X_CONFIG_END_REG                               0x0087
 
-// ID 16-bit đọc tại 0x010F. VL53L1X và VL53L4CD đều trả 0xEACC.
+// ID của VL53L1X: đọc 16-bit tại 0x010F -> 0xEACC
+//   0x010F = 0xEA  (model ID byte cao)
+//   0x0110 = 0xCC  (model ID byte thấp)
+// KHÔNG dùng giá trị này để kết luận "chip nào cũng được miễn ra 0xEACC".
 #define L1X_MODEL_ID_VALUE                               0xEACC
+// Module type @ 0x0111 — đọc thêm để in ra lúc probe. KHÔNG dùng để chấp
+// nhận/từ chối chip: nó khác nhau giữa các lô module và biến nó thành điều kiện
+// sẽ loại nhầm phần cứng tốt. Chỉ để log khi cần đối chiếu.
+#define L1X_IDENTIFICATION_MODULE_TYPE                   0x0111
 
 // SYSTEM_MODE_START
 #define L1X_MODE_START_RANGING                           0x40   // timed, back-to-back
@@ -107,6 +120,12 @@ static const char *TAG = "vl53l1x";
 // mode bằng cách ghi 6 thanh ghi khác nhau).
 #define L1X_DIST_SHORT   1
 #define L1X_DIST_LONG    2
+
+// Chặn giá trị VÔ LÝ ở tầng driver — KHÔNG phải giới hạn bay.
+// Đây là biên vật lý danh nghĩa của chip: lớn hơn nó thì kết quả là rác/tràn số
+// chứ không phải "đo được xa". Giới hạn TIN CẬY để điều khiển độ cao là
+// ALT_EST_TOF_MAX_RANGE_M (alt_estimator.h) và phải đo thực nghiệm.
+#define L1X_PHYSICAL_MAX_MM  4000
 
 // ---- Cấu hình lấy từ board_config.h, có mặc định an toàn nếu thiếu ----
 #ifndef BOARD_TOF_L1X_DISTANCE_MODE
@@ -435,18 +454,36 @@ static esp_err_t l1x_set_inter_measurement(i2c_master_dev_handle_t dev,
 // Chip đã boot xong firmware chưa. Phải chờ TRƯỚC khi đọc ID hay ghi cấu hình —
 // ghi sớm thì chip nhận nhưng firmware sẽ đè lại lúc boot xong, và triệu chứng
 // là "cấu hình không có tác dụng" chứ không phải lỗi.
-static esp_err_t l1x_wait_boot(i2c_master_dev_handle_t dev) {
+// ⚠ NACK THOÁNG QUA TRONG CỬA SỔ BOOT KHÔNG PHẢI LỖI.
+// Ngay sau power-up / nhả XSHUT / reset, chip chưa kịp dựng xong I2C slave nên
+// nó NACK vài lần đầu. Bản trước `return err` ngay lần đọc hỏng ĐẦU TIÊN —
+// nghĩa là init thất bại ngẫu nhiên tuỳ vào việc MCU hỏi sớm hay muộn vài trăm
+// micro giây. Triệu chứng là "thỉnh thoảng boot không thấy ToF", và người debug
+// sẽ đi đo lại dây.
+//
+// Ở đây: lỗi đọc -> NHỚ lại rồi thử tiếp cho tới deadline. Chỉ khi hết hạn mới
+// báo hỏng, và báo kèm lỗi I2C cuối cùng để phân biệt "chip im" với "chip NACK".
+// KHÔNG retry vô hạn — vẫn đúng một deadline như cũ.
+//
+// Chính sách này CHỈ áp cho cửa sổ boot. Lỗi I2C lúc chạy vẫn nổi lên ngay.
+static esp_err_t l1x_wait_boot(i2c_master_dev_handle_t dev, uint8_t addr) {
     const int64_t deadline_us = esp_timer_get_time() +
                                 (int64_t)L1X_BOOT_TIMEOUT_MS * 1000;
+    esp_err_t last_err = ESP_ERR_TIMEOUT;
     while (esp_timer_get_time() < deadline_us) {
         uint8_t st = 0;
         const esp_err_t err = l1x_read8(dev, L1X_FIRMWARE_SYSTEM_STATUS, &st);
-        if (err != ESP_OK) return err;
-        if (st & 0x01) return ESP_OK;
+        if (err == ESP_OK) {
+            if (st & 0x01) return ESP_OK;
+        } else {
+            last_err = err;      // NACK lúc boot: ghi nhớ, thử lại
+        }
         vTaskDelay(1);   // >= 1 tick RTOS
     }
-    ESP_LOGE(TAG, "FIRMWARE_SYSTEM_STATUS khong bao boot xong sau %dms",
-             L1X_BOOT_TIMEOUT_MS);
+    ESP_LOGE(TAG, "VL53L1X addr=0x%02X: FIRMWARE_SYSTEM_STATUS (0x%04X) khong bao "
+                  "boot xong sau %dms, loi I2C cuoi=%s",
+             addr, L1X_FIRMWARE_SYSTEM_STATUS, L1X_BOOT_TIMEOUT_MS,
+             esp_err_to_name(last_err));
     return ESP_ERR_TIMEOUT;
 }
 
@@ -458,10 +495,13 @@ static esp_err_t l1x_wait_boot(i2c_master_dev_handle_t dev) {
 // KHÔNG BAO GIỜ thoát (hoặc tệ hơn: thoát ngay mỗi vòng và đọc lại cùng một mẫu).
 //
 // CHỐT MỘT LẦN lúc init rồi dùng lại: cực tính không đổi trong lúc chạy, và đọc
-// lại nó ở mỗi lần poll là thêm một transaction I2C vào đường nhịp cảm biến
-// (mỗi vòng poll ~31Hz => tiết kiệm được ~31 transaction/giây).
-static uint8_t s_interrupt_polarity = 1;
-
+// lại nó ở mỗi lần poll là thêm một transaction I2C vào đường nhịp cảm biến.
+//
+// LƯU Ở tof_sensor_state_t::interrupt_polarity, KHÔNG phải static toàn cục.
+// Bản trước dùng biến static: đúng khi có ĐÚNG MỘT sensor, nhưng thêm con thứ
+// hai là nó im lặng ghi đè cực tính của con thứ nhất — vòng poll của một trong
+// hai sẽ hoặc không bao giờ thấy mẫu, hoặc thấy mẫu ở MỌI vòng (đọc lại cùng
+// một kết quả cũ). Không có lỗi nào được in ra.
 static esp_err_t l1x_read_interrupt_polarity(i2c_master_dev_handle_t dev,
                                               uint8_t *polarity) {
     uint8_t mux = 0;
@@ -472,22 +512,23 @@ static esp_err_t l1x_read_interrupt_polarity(i2c_master_dev_handle_t dev,
 }
 
 // Có mẫu mới chưa? KHÔNG chờ — caller quyết định.
-static esp_err_t l1x_check_ready(i2c_master_dev_handle_t dev, bool *ready) {
+static esp_err_t l1x_check_ready(i2c_master_dev_handle_t dev, uint8_t polarity,
+                                  bool *ready) {
     uint8_t status = 0;
     const esp_err_t err = l1x_read8(dev, L1X_GPIO_TIO_HV_STATUS, &status);
     if (err != ESP_OK) return err;
-    *ready = ((status & 0x01) == s_interrupt_polarity);
+    *ready = ((status & 0x01) == polarity);
     return ESP_OK;
 }
 
 // Chờ CÓ CHẶN cho tới khi có mẫu. CHỈ dùng trong init (VHV calibration).
 // TUYỆT ĐỐI không gọi từ đường runtime — sensor_hub không được phép block.
-static esp_err_t l1x_wait_ready_init(i2c_master_dev_handle_t dev,
+static esp_err_t l1x_wait_ready_init(i2c_master_dev_handle_t dev, uint8_t polarity,
                                       uint32_t timeout_ms) {
     const int64_t deadline_us = esp_timer_get_time() + (int64_t)timeout_ms * 1000;
     while (esp_timer_get_time() < deadline_us) {
         bool ready = false;
-        const esp_err_t err = l1x_check_ready(dev, &ready);
+        const esp_err_t err = l1x_check_ready(dev, polarity, &ready);
         if (err != ESP_OK) return err;
         if (ready) return ESP_OK;
         vTaskDelay(1);
@@ -526,17 +567,23 @@ bool tof_backend_probe_l1x(i2c_master_bus_handle_t bus, uint8_t addr,
         return false;
     }
 
-    const esp_err_t boot_err = l1x_wait_boot(dev);
+    const esp_err_t boot_err = l1x_wait_boot(dev, addr);
     uint16_t id = 0;
+    uint8_t  module_type = 0;
     esp_err_t err = boot_err;
     if (boot_err == ESP_OK) {
         err = l1x_read16(dev, L1X_IDENTIFICATION_MODEL_ID, &id);
+        // Module type CHỈ để in ra. Lỗi đọc nó KHÔNG làm probe thất bại —
+        // chấp nhận/từ chối chip chỉ dựa trên MODEL_ID.
+        (void)l1x_read8(dev, L1X_IDENTIFICATION_MODULE_TYPE, &module_type);
     }
     i2c_master_bus_rm_device(dev);
 
     if (id_desc && id_desc_len) {
-        snprintf(id_desc, id_desc_len, "MODEL_ID(0x010F)=0x%04X (err=%s)",
-                 (unsigned)id, esp_err_to_name(err));
+        snprintf(id_desc, id_desc_len,
+                 "addr=0x%02X MODEL_ID(0x010F)=0x%04X MODULE_TYPE(0x0111)=0x%02X (err=%s)",
+                 (unsigned)addr, (unsigned)id, (unsigned)module_type,
+                 esp_err_to_name(err));
     }
     return (err == ESP_OK) && (id == L1X_MODEL_ID_VALUE);
 }
@@ -554,7 +601,7 @@ esp_err_t tof_backend_setup_l1x(tof_sensor_state_t *s) {
     // ---- 1. Chờ firmware trong chip boot xong ----
     // Lặp lại dù probe đã chờ: giữa probe và đây có thể đã có một lần reset
     // (facade kéo XSHUT), và bước này rẻ.
-    CHECK(l1x_wait_boot(dev));
+    CHECK(l1x_wait_boot(dev, s->addr));
 
     // ---- 2. Nạp bảng cấu hình mặc định của ST ULD (0x2D..0x87) ----
     // Ghi từng byte thay vì một burst dài: burst 91 byte ở 100kHz chiếm bus
@@ -573,14 +620,14 @@ esp_err_t tof_backend_setup_l1x(tof_sensor_state_t *s) {
 
     // ---- 3. Chốt cực tính ngắt (ĐỌC từ chip, không giả định) ----
     // Phải sau khi nạp cấu hình, vì chính bảng đó đặt bit cực tính.
-    CHECK(l1x_read_interrupt_polarity(dev, &s_interrupt_polarity));
+    CHECK(l1x_read_interrupt_polarity(dev, &s->interrupt_polarity));
 
     // ---- 4. Một lần đo để chip tự chạy VHV/phase calibration ----
     // ST bắt buộc bước này sau khi nạp config: nếu bỏ qua, mẫu đầu tiên sẽ có
     // sai số lớn và KHÔNG có gì báo hiệu.
     CHECK(l1x_write8(dev, L1X_SYSTEM_MODE_START, L1X_MODE_START_RANGING));
 
-    err = l1x_wait_ready_init(dev, L1X_INIT_RANGE_TIMEOUT_MS);
+    err = l1x_wait_ready_init(dev, s->interrupt_polarity, L1X_INIT_RANGE_TIMEOUT_MS);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "khong nhan duoc mau dau tien sau %dms -> chip khong bat dau do "
                       "(nghi nguon 2.8V khong on hoac cau hinh bi tu choi)",
@@ -622,10 +669,46 @@ esp_err_t tof_backend_setup_l1x(tof_sensor_state_t *s) {
     return ESP_OK;
 }
 
+// Khởi động lại vòng đo bằng ĐƯỜNG MỀM (không đụng XSHUT).
+//
+// PHẢI là STOP -> CLEAR -> START, đủ ba bước.
+// Bản trước chỉ clear rồi ghi START đè lên trạng thái đang chạy. Ghi START khi
+// chip đã ở trạng thái ranging không buộc nó bắt đầu một chu kỳ mới — nên đúng
+// cái ca mà restart sinh ra để cứu (chip kẹt, không sinh mẫu nữa) lại là ca nó
+// không cứu được. STOP trước mới đưa được chip về trạng thái xác định.
+//
+// Lỗi được TRẢ VỀ THẬT, không nuốt: nếu soft restart hỏng, facade còn đường
+// mạnh hơn (kéo XSHUT -> chờ boot -> setup lại). Nuốt lỗi ở đây sẽ khiến facade
+// tưởng đã cứu xong và không bao giờ leo thang.
 esp_err_t tof_backend_restart_l1x(tof_sensor_state_t *s) {
     if (!s || !s->dev) return ESP_ERR_INVALID_STATE;
-    (void)l1x_clear_interrupt(s->dev);
-    return l1x_write8(s->dev, L1X_SYSTEM_MODE_START, L1X_MODE_START_RANGING);
+
+    // Từ đây tới lúc START lại, chip KHÔNG ở trạng thái đo được.
+    s->ranging_started = false;
+
+    esp_err_t err = l1x_write8(s->dev, L1X_SYSTEM_MODE_START, L1X_MODE_STOP_RANGING);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "VL53L1X addr=0x%02X restart: STOP that bai: %s",
+                 s->addr, esp_err_to_name(err));
+        return err;
+    }
+
+    err = l1x_clear_interrupt(s->dev);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "VL53L1X addr=0x%02X restart: CLEAR that bai: %s",
+                 s->addr, esp_err_to_name(err));
+        return err;
+    }
+
+    err = l1x_write8(s->dev, L1X_SYSTEM_MODE_START, L1X_MODE_START_RANGING);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "VL53L1X addr=0x%02X restart: START that bai: %s",
+                 s->addr, esp_err_to_name(err));
+        return err;
+    }
+
+    s->ranging_started = true;
+    return ESP_OK;
 }
 
 // -----------------------------------------------------------------------------
@@ -651,7 +734,7 @@ esp_err_t tof_backend_poll_l1x(tof_sensor_state_t *s) {
     if (!s || !s->dev || !s->ranging_started) return ESP_ERR_INVALID_STATE;
 
     bool ready = false;
-    esp_err_t err = l1x_check_ready(s->dev, &ready);
+    esp_err_t err = l1x_check_ready(s->dev, s->interrupt_polarity, &ready);
     if (err != ESP_OK) return err;
 
     // ⚠ KHÔNG BAO GIỜ CHỜ Ở ĐÂY. Hàm này chạy trong sensor_hub, trên đường nhịp
@@ -659,27 +742,55 @@ esp_err_t tof_backend_poll_l1x(tof_sensor_state_t *s) {
     // watchdog (nó biết bao lâu không mẫu thì là treo).
     if (!ready) return ESP_OK;
 
-    // Có mẫu mới = chip còn sống. Ghi mốc TRƯỚC khi xét range_status: ngoài tầm
-    // vẫn là một lần đo thành công về mặt phần cứng.
-    s->last_sample_us = esp_timer_get_time();
+    // Chip GIƠ CỜ. Chưa phải "đã có mẫu" — mới chỉ là "chip bảo có". Ghi vào
+    // last_ready_us (thuần chẩn đoán), KHÔNG đụng last_sample_us.
+    s->last_ready_us = esp_timer_get_time();
 
     // Đọc CẢ KHỐI kết quả trong MỘT transaction: 0x0089..0x0099 = 17 byte.
-    //   [0]      range status
-    //   [13..14] range mm (thanh ghi 0x0096)
-    // Đọc hai lần riêng (status rồi range) mở ra cửa sổ để chip cập nhật giữa
-    // chừng -> ghép status của mẫu này với khoảng cách của mẫu kia. Rất hiếm,
-    // và vì hiếm nên sẽ không bao giờ tìm ra được nếu nó xảy ra lúc bay.
+    //   [0]      RESULT_RANGE_STATUS                  (0x0089)
+    //   [3..4]   ambient count rate MCPS              (0x008C, FP9.7)
+    //   [13..14] range mm, crosstalk-corrected        (0x0096)
+    //   [15..16] peak signal count rate MCPS          (0x0098, FP9.7)
+    // Đọc nhiều lần riêng mở ra cửa sổ để chip cập nhật giữa chừng -> ghép
+    // status của mẫu này với khoảng cách của mẫu kia. Rất hiếm, và vì hiếm nên
+    // sẽ không bao giờ tìm ra được nếu nó xảy ra lúc bay.
     uint8_t result[17] = {0};
     err = l1x_read(s->dev, L1X_RESULT_RANGE_STATUS, result, sizeof(result));
+    // ⚠ ĐỌC HỎNG -> KHÔNG ĐỘNG last_sample_us.
+    // Bản trước ghi mốc TRƯỚC lần đọc này, nên bus chết vẫn làm watchdog tin là
+    // "vừa có mẫu tươi" — đúng cái mà watchdog sinh ra để phát hiện. Giờ mốc chỉ
+    // nhích sau khi kết quả đã thực sự nằm trong tay MCU.
     if (err != ESP_OK) return err;
 
     const uint8_t raw_status = (uint8_t)(result[0] & 0x1F);
     const uint16_t dist_mm = (uint16_t)(((uint16_t)result[13] << 8) | result[14]);
+    const uint16_t amb_raw = (uint16_t)(((uint16_t)result[3]  << 8) | result[4]);
+    const uint16_t sig_raw = (uint16_t)(((uint16_t)result[15] << 8) | result[16]);
 
     // Clear interrupt để chip sinh mẫu kế tiếp. Luôn làm SAU khi đã tiêu thụ
     // xong dữ liệu.
+    //
+    // ⚠ CLEAR HỎNG = COI NHƯ CẢ NHỊP HỎNG. Không clear được thì chip KHÔNG sinh
+    // mẫu kế tiếp, và mọi vòng poll sau sẽ đọc lại đúng khối kết quả cũ. Nhận
+    // nó làm mẫu hợp lệ nghĩa là bơm một giá trị ĐỨNG YÊN vào alt_estimator
+    // trong khi drone đang đổi độ cao — nguy hiểm hơn hẳn việc mất mẫu, vì mất
+    // mẫu thì watchdog thấy còn số đông cứng thì không ai thấy.
     err = l1x_clear_interrupt(s->dev);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) return err;   // last_sample_us KHÔNG nhích
+
+    // ---- Từ đây trở xuống: mẫu đã ĐƯỢC TIÊU THỤ TRỌN VẸN ----
+    // MỘT mốc thời gian dùng chung cho cả hai trường: chúng mô tả CÙNG một mẫu
+    // vật lý, nên gọi esp_timer_get_time() hai lần là tạo ra hai thời điểm khác
+    // nhau cho cùng một sự kiện.
+    const int64_t sample_now_us = esp_timer_get_time();
+    s->last_sample_us = sample_now_us;
+    // Mốc "chip còn đo được" — watchdog KHÔNG chạm vào cái này, nên nó là số
+    // duy nhất phân biệt được "không có gì để đo" với "mất sensor".
+    s->last_consumed_us = sample_now_us;
+
+    s->last.signal_mcps  = sig_raw;
+    s->last.ambient_mcps = amb_raw;
+    s->last.range_status_raw = raw_status;
 
     uint8_t mapped = 255;
     if (raw_status < sizeof(L1X_STATUS_MAP)) {
@@ -687,14 +798,19 @@ esp_err_t tof_backend_poll_l1x(tof_sensor_state_t *s) {
     }
     s->last.range_status = mapped;
 
-    // Gate vật lý rộng theo TẦM CỦA CHIP (khác L0X: 2000mm -> 4000mm). Đây chỉ
-    // là chặn giá trị vô lý ở tầng driver; gate hẹp theo tầm TIN CẬY nằm ở
-    // alt_estimator (ALT_EST_TOF_MAX_RANGE_M) — hai tầng khác nhau, cố ý.
-    if (mapped == 0 && dist_mm > 0 && dist_mm <= 4000) {
+    // Gate vật lý rộng theo TẦM CỦA CHIP (khác L0X: 2000mm -> 4000mm). Đây CHỈ
+    // chặn giá trị vô lý/hỏng ở tầng driver — KHÔNG phải "độ cao bay an toàn".
+    // Giới hạn TIN CẬY để bay là ALT_EST_TOF_MAX_RANGE_M bên alt_estimator, và
+    // nó phải được xác định bằng ĐO THỰC TẾ trên bề mặt/ánh sáng thật, không
+    // phải lấy con số datasheet. Hai tầng khác nhau, cố ý.
+    if (mapped == 0 && dist_mm > 0 && dist_mm <= L1X_PHYSICAL_MAX_MM) {
         s->last.distance_m = (float)dist_mm * 0.001f;
         s->last.valid = true;
-        s->last_good_us = esp_timer_get_time();
+        s->last_good_us = sample_now_us;   // CÙNG mốc với last_sample_us
     } else {
+        // Ngoài tầm / bề mặt hấp thụ: chip VẪN SỐNG và vẫn đo.
+        // last_sample_us ĐÃ nhích ở trên, last_good_us thì KHÔNG. Đó chính là
+        // thứ phân biệt "không có gì để đo" với "sensor chết" ở tầng trên.
         s->last.valid = false;
     }
 

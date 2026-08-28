@@ -262,8 +262,8 @@ print("")
 print("TEST 8 (COT LOI): I PHAI CHAY -- chinh no hoc ga de giu dung van toc")
 # Day la DAO NGUOC co y so voi ban ±duty cu (ban do phai DONG BANG I, neu khong
 # I tu tru dan dung bang offset va phim het an sau vai giay). O che do Vz thi
-# nguoc lai: dong bang I se chan mat thu duy nhat biet cach giu 0.3 m/s.
-f = Fly(vz=0.0)                           # drone chua leo -> sai so vz = +0.3
+# nguoc lai: dong bang I se chan mat thu duy nhat biet cach giu dung van toc.
+f = Fly(vz=0.0)                           # drone chua leo -> sai so vz = +WS_VZ_MS
 now = 1_000_000
 f.cmd_offset(+100, now)
 i0 = f.i
@@ -272,7 +272,13 @@ for i in range(250):                      # giu 1s
     if i % 25 == 0:
         f.cmd_offset(+100, now)
     f.tick(now)
-check("giu 1s: I BO LEN de dap sai so vz (khong bi dong bang)", f.i > i0 + 10,
+# Nguong bam theo HANG SO THAT thay vi so cung: WS_VZ_MS da tung la 0.30 roi
+# 0.20 roi 0.10, va moi lan doi thi mot nguong cung lai bao dong gia. Lay 1/3
+# muc bo len ly thuyet (VZ_KI * WS_VZ_MS sau 1s) -- du de phan biet "co bo len"
+# voi "bi dong bang", va khong vo khi ai do chinh phim.
+i_expected = VZ_KI * WS_VZ_MS
+check("giu 1s: I BO LEN de dap sai so vz (khong bi dong bang)",
+      f.i > i0 + i_expected / 3.0,
       "i0=%.0f -> %.0f" % (i0, f.i))
 # Va no phai bo len dung nhip Ki*err: 1s * 100 * 0.3 = +30
 check("I bo len dung nhip Ki*err*t (~+%.0f sau 1s)" % (VZ_KI * WS_VZ_MS),

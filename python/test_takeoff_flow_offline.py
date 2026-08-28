@@ -19,25 +19,48 @@ assert "tof_z_m >= TAKEOFF_LIFTOFF_Z_M" in c
 assert "out->liftoff_edge = true" in c
 
 # ---------------------------------------------------------------------------
-# hold_ready DA RUT CON HAI VE (yeu cau nguoi dung)
+# hold_ready: 2 ve XAC DINH + 1 ve CHONG VOT LO (co tran thoi gian)
 # ---------------------------------------------------------------------------
-# Truoc day co BON ve. Hai ve "|alt - target| <= TOL" va "|vz| <= TOL" da bi bo,
-# va chung chinh la nguyen nhan mot lan cat canh THAT bi ket: drone leo toi
-# 1.45m trong khi target 1.00m (hover_ff latch thieu ~460 duty so voi pin luc
-# bay) -> |Z-tgt| KHONG BAO GIO <= 0.08 -> cua so khong dong -> ABORT_TIMEOUT
-# sau 21.6s. Log da xac nhan.
+# LICH SU (doc ky truoc khi sua):
+# Ban dau co BON ve. Ve "|alt - target| <= TOL" da lam mot lan cat canh THAT
+# bi ket: drone leo toi 1.45m khi target 1.00m (hover_ff latch thieu ~460 duty)
+# -> dieu kien do cao KHONG BAO GIO dung -> ABORT_TIMEOUT sau 21.6s.
 #
-# Hai ve do hoi "da toi dung do cao va dung yen chua" — cau hoi ma HOLDING sinh
-# ra de tra loi. Bat CLIMB tra loi truoc la bat vong ho lam viec cua vong kin.
-assert "fabsf(alt_m - st->final_target_m) <= TAKEOFF_HOLD_Z_TOL_M" not in c,     "dung sai do cao da bi bo khoi hold_ready -- khong duoc dung lai"
-assert "fabsf(vz_ms) <= TAKEOFF_HOLD_VZ_TOL_MS" not in c,     "dung sai Vz da bi bo khoi hold_ready -- khong duoc dung lai"
-# Hai ve CON LAI phai con nguyen. Bo not chung thi ban giao xay ra ngay khi
-# vao CLIMB, truoc ca khi roi dat.
-assert "st->liftoff_flag &&" in c, "hold_ready van phai doi ROI DAT"
-assert "st->target_z_m == st->final_target_m" in c,     "hold_ready van phai doi rate-limiter truot het"
-assert "tko_latch_window(hold_ready" in c
-assert 0.25 <= num("TAKEOFF_MAX_CLIMB_MS") <= 0.40
-# NOI 50..100 -> 50..300. Cua so duy tri lift_evidence da duoc NANG len 200ms
+# Ve do bi bo VINH VIEN va KHONG duoc dung lai: no hoi "da toi DUNG DO CAO
+# chua", cau hoi ma HOLDING sinh ra de tra loi.
+assert 'fabsf(alt_m - st->final_target_m) <= TAKEOFF_HOLD_Z_TOL_M' not in c, \
+    'dung sai DO CAO da bi bo khoi hold_ready -- KHONG duoc dung lai (ket 21.6s)'
+
+# Hai ve XAC DINH (khong phu thuoc cam bien do cao) phai con nguyen.
+assert 'st->liftoff_flag &&' in c, 'hold_ready van phai doi ROI DAT'
+assert 'st->target_z_m == st->final_target_m' in c, \
+    'hold_ready van phai doi rate-limiter truot het'
+assert 'tko_latch_window(hold_ready' in c
+
+# --- VE THU BA: |vz| da lang (chong vot lo) ---
+# KHAC ve do cao da bi bo: ve nay hoi "con dang di len nhanh khong", va vz LUON
+# ve gan 0 sau khi target ngung truot, bat ke drone dung o cao do nao.
+#
+# ⚠ BAT BUOC di kem TRAN THOI GIAN. Khong co tran thi day lai la mot dieu kien
+# co the khong bao gio dung -- dung cai bay da lam ket 21.6s.
+assert 'fabsf(vz_ms) <= TAKEOFF_HOLD_VZ_TOL_MS' in c, \
+    'thieu ve vz da lang -> ban giao khi con dang leo -> vot lo'
+assert 'settle_timeout' in c, \
+    've vz KHONG duoc thieu tran thoi gian -- se lap lai lan ket 21.6s'
+assert 'TAKEOFF_VZ_SETTLE_TIMEOUT_MS' in c
+assert 'vz_settled || settle_timeout' in c, \
+    'tran thoi gian phai OR voi ve vz, khong phai AND'
+
+# Tran cho vz phai NGAN. (TAKEOFF_TOTAL_TIMEOUT_MS da bi bo khoi firmware —
+# chi con TAKEOFF_NO_LIFT_TIMEOUT_MS cho pha chua nhac noi.) Chan tren 3s: dai
+# hon the thi nguoi lai cam thay 'takeoff bi treo' truoc khi tran kip cuu.
+assert num('TAKEOFF_VZ_SETTLE_TIMEOUT_MS') <= 3000, \
+    'tran cho vz qua dai -> nhin nhu takeoff bi treo'
+
+# Toc do leo: cang cham cang it vot lo. Khong go cung mot khoang hep -- day la
+# num chinh nguoi dung hay doi. Chi chan hai dau vo ly.
+assert 0.05 <= num('TAKEOFF_MAX_CLIMB_MS') <= 0.60, \
+    'TAKEOFF_MAX_CLIMB_MS ngoai khoang hop ly'# NOI 50..100 -> 50..300. Cua so duy tri lift_evidence da duoc NANG len 200ms
 # cung dot bo ve tof_vz khoi lift_evidence (dieu kien gio chi con do cao + ga,
 # khong con vi phan nhieu), nen bien cu khong con dung.
 assert 50 <= num("TAKEOFF_LIFTOFF_MS") <= 300

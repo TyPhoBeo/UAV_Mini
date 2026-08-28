@@ -489,8 +489,35 @@ void takeoff_run(takeoff_state_t *st, const takeoff_tune_t *tune,
     // đoạn sau khi báo TAKEOFF XONG. Đó là đánh đổi đã chọn: thà bàn giao hơi
     // sớm còn hơn không bao giờ bàn giao.
     // TAKEOFF_HOLD_Z_TOL_M / TAKEOFF_HOLD_VZ_TOL_MS giờ không còn ai đọc.
-    const bool hold_ready = st->liftoff_flag &&
+    // ---- VE THU BA: |vz| DA LANG (chong vot lo) ----
+    // Hai ve tren chi noi "rate-limiter da truot het", KHONG noi drone da toi
+    // noi. Ban giao trong khi drone con dang leo -> HOLDING nhan mot cai da di
+    // len va phai ham nguoc lai -> VOT LO. Do la co che vat ly truc tiep, khong
+    // phai chuyen tune mo.
+    //
+    // ⚠ VI SAO VE NAY AN TOAN TRONG KHI VE |alt - target| <= TOL DA PHAI BO:
+    // ve do hoi "da toi DUNG DO CAO chua" — mot cau hoi co the KHONG BAO GIO
+    // dung neu hover_ff lech (da xay ra: leo 1.45m khi target 1.00m -> ket 21.6s
+    // roi TIMEOUT). Ve nay chi hoi "con dang di len nhanh khong", va vz LUON
+    // ve gan 0 khi target ngung truot, bat ke drone dung o cao do nao.
+    //
+    // Va de chac chan khong bao gio ket: co TIMEOUT rieng ben duoi. Het han thi
+    // ban giao du vz chua lang — tha ban giao hoi som con hon khong bao gio.
+    const bool slew_done = st->liftoff_flag &&
         st->target_z_m == st->final_target_m;
+    const bool vz_settled = fabsf(vz_ms) <= TAKEOFF_HOLD_VZ_TOL_MS;
+
+    // Dong ho bat dau tu luc slew xong. Truoc do khong dem: drone dang leo la
+    // binh thuong, khong phai dang cho.
+    if (slew_done) {
+        if (st->slew_done_since_us == 0) st->slew_done_since_us = now_us;
+    } else {
+        st->slew_done_since_us = 0;
+    }
+    const bool settle_timeout = st->slew_done_since_us != 0 &&
+        (now_us - st->slew_done_since_us) >= (int64_t)TAKEOFF_VZ_SETTLE_TIMEOUT_MS * 1000;
+
+    const bool hold_ready = slew_done && (vz_settled || settle_timeout);
     if (tko_latch_window(hold_ready,
                           &st->at_target_active, &st->at_target_since_us,
                           now_us, TAKEOFF_HOLD_ENTER_MS)) {

@@ -428,6 +428,11 @@ STATUS_RE = re.compile(
     # nhieu so voi hover THAT = model sai (doi motor/canh/pin ma chua do lai).
     # Nhom o CUOI regex -> khong dich chi so nao phia truoc.
     r"(?: HOVLK=(\d) HOVLV=([-\d.]+) HOVLD=([-\d.]+))?"
+    # TOFALIVE = bao lau roi CHIP khong do duoc (ms), -1 = chua tung do duoc.
+    # KHAC HAN TOFAGE (tuoi mau HOP LE). Nam sat san / ngoai tam: TOFAGE tang
+    # vo han nhung TOFALIVE van nho -> 'khong co gi de do', KHONG phai loi.
+    # Ca hai cung tang -> that su mat cam bien.
+    r"(?: TOFALIVE=(-?\d+))?"
     # ---- DUOI TU DO: BO QUA moi truong la o cuoi dong ----
     #
     # TRUOC DAY cho nay la r"\s*$" — bat buoc dong STATUS phai KET THUC ngay
@@ -485,8 +490,13 @@ ARM_REJECT_NAMES = {
 TAKEOFF_REJECT_NAMES = {
     "0": "",
     "1": "FSM KHONG o ARMED -> bam ARM truoc (dang bay thi dung LAND/KILL)",
-    "2": ("Chua chot duoc mau FLOOR ToF hop le; hien firmware dung mau hop le dau tien. "
-          "Kiem tra TOFFUSE/FLOORREADY/FLOORN, i2c_scan va tof_test."),
+    # Ma 2 gio CHI con nghia "khong thay chip ToF tren I2C luc boot".
+    # TRUOC DAY no con bao gom "chua chot duoc mau floor" -- ma nam sat san thi
+    # ToF doc 0.000m nen KHONG BAO GIO chot duoc -> moi lenh TAKEOFF bi tu choi
+    # vinh vien, khong co duong thoat. Firmware da bo dieu kien do: khong co mau
+    # thi chot goc = 0 va van cat canh.
+    "2": ("ToF khong init duoc (khong thay chip tren I2C luc boot) -> khong co "
+          "nguon do cao. Chay 'i2c_scan' va 'tof_test'; kiem tra day/nguon 2.8V."),
     "3": "alt_estimator KHONG hop le (state khong huu han) -> ARM lai de reset",
     # Ma 4 KHONG con duoc gan: latch ga hover da tra ve luc ARM, nen ly do tu
     # choi tuong ung nam o ARM_REJECT_NAMES. Giu cho de khong dich so.
@@ -2343,17 +2353,21 @@ class PidTunerApp:
     # Nguong suc khoe ToF — khop SENSOR_TOF_STALE_US (200ms) ben firmware.
     TOF_STALE_MS = 200
 
-    def _tof_health(self, tofage, tof_raw, tofen=None):
+    def _tof_health(self, tofage, tof_raw, tofen=None, tofalive=None):
         """Ket luan ToF co dang chay khong. Tra (text, mau).
 
-        Dua tren TUOI MAU, khong dua tren gia tri: raw=0 mot minh KHONG phan
-        biet duoc 'sensor doc 0m' voi 'chua bao gio duoc doc'.
+        HAI CAU HOI KHAC NHAU, truoc day bi gop lam mot:
+          TOFAGE   = bao lau roi chua co mau HOP LE  -> 'co so de bay khong'
+          TOFALIVE = bao lau roi CHIP khong do duoc  -> 'con cam bien khong'
 
-        tofen=0 -> ToF bi TAT luc bien dich. Luc do TOFAGE=-1 la KET QUA MONG
-        DOI chu khong phai su co, nen KHONG duoc bao do. Truoc day thieu ve nay
-        nen mot cau hinh baro-only hoan toan hop le van hien
-        "ToF LOI: CHUA TUNG co mau -> chay tof_test", lam nguoi dung tuong he
-        thong BAT BUOC phai co ToF va di sua mot cam bien khong ton tai.
+        Dat drone xuong san thi ToF doc 0.000m (duoi tam mu ~4cm cua VL53L1X).
+        Mau do bi loai -> TOFAGE tang vo han, TRONG KHI chip van do deu moi
+        40ms. Ban cu chi nhin TOFAGE nen bao do 'mat tin hieu' -- sai han: do
+        la 'khong co gi de do'. Dung mau do cho tinh huong binh thuong lam
+        nguoi dung di tim loi phan cung khong ton tai, va te hon la lam ho bo
+        qua canh bao do THAT khi no den.
+
+        tofen=0 -> ToF bi TAT luc bien dich, TOFAGE=-1 la KET QUA MONG DOI.
         """
         if tofen == "0":
             return ("ToF: TAT theo cau hinh (SENSOR_TOF_ENABLED=0)", "gray")
@@ -2363,17 +2377,46 @@ class PidTunerApp:
             age = int(tofage)
         except (TypeError, ValueError):
             return ("ToF: ?", "gray")
-        if age < 0:
-            return ("ToF LOI: CHUA TUNG co mau (hub khong doc) -> chay 'tof_test'", "#c0392b")
-        if age > self.TOF_STALE_MS:
-            return (f"ToF LOI: mau STALE {age}ms (>{self.TOF_STALE_MS}) -> mat tin hieu", "#c0392b")
-        return (f"ToF OK ({age}ms, raw={tof_raw}m)", "#0a7d2c")
 
+        # alive=None -> firmware cu chua gui TOFALIVE. Khong the phan biet ->
+        # giu nguyen hanh vi cu de khong am tham bo qua mot loi that.
+        alive = None
+        if tofalive is not None:
+            try:
+                alive = int(tofalive)
+            except (TypeError, ValueError):
+                alive = None
+
+        # Chip THAT SU im: -1 = chua tung do duoc, hoac qua han.
+        hw_dead = alive is not None and (alive < 0 or alive > self.TOF_STALE_MS)
+
+        if age < 0:
+            if alive is not None and not hw_dead:
+                # Chip dang do nhung chua mau nao hop le: dung luc nam tren san.
+                return (f"ToF: chip do binh thuong ({alive}ms) nhung chua co mau dung duoc (nam sat san?)", "#b35c00")
+            return ("ToF LOI: CHUA TUNG co mau (hub khong doc) -> chay 'tof_test'", "#c0392b")
+
+        if age > self.TOF_STALE_MS:
+            if alive is not None and not hw_dead:
+                # Day la ca da lam GUI bao do oan.
+                return (f"ToF: khong co gi de do ({age}ms khong mau hop le, chip van do {alive}ms) -- ngoai tam / sat san", "#b35c00")
+            return (f"ToF LOI: mau STALE {age}ms (>{self.TOF_STALE_MS}) -> mat tin hieu", "#c0392b")
+
+        return (f"ToF OK ({age}ms, raw={tof_raw}m)", "#0a7d2c")
+    # PHAI KHOP alt_source_t trong
+    # components/flight_core/include/flight_core/alt_estimator.h.
+    # Bang cu HOAN TOAN LECH: no map 0->"KHONG NGUON", 1->"ToF", 2->"BARO",
+    # 3->"ToF+BARO" -- tuc la doc enum cua mot phien ban firmware khong con
+    # ton tai. Hau qua nhin thay tren man hinh: nam tren san (ALTSRC=0 =
+    # GROUND_LOCK, hoan toan binh thuong) bi hien do loet thanh
+    # "Z<-KHONG NGUON", con luc dang bay bang ToF (ALTSRC=2 = TOF_FUSED) lai
+    # hien "BARO" trong khi baro da bi TAT tu lau.
     ALT_SOURCE_NAMES = {
-        "0": ("KHONG NGUON", "#c0392b"),
-        "1": ("ToF", "#0a7d2c"),
-        "2": ("BARO", "#b35c00"),
-        "3": ("ToF+BARO", "#0a7d2c"),
+        "0": ("NAM DAT", "gray"),         # GROUND_LOCK: chua cat canh, Z khoa 0
+        "1": ("IMU", "#b35c00"),          # IMU_PREDICT_ONLY: khong co correction
+        "2": ("ToF", "#0a7d2c"),          # TOF_FUSED: dang fuse ToF -- trang thai tot
+        "3": ("ToF (bridge)", "#b35c00"), # TOF_SHORT_BRIDGE: ho ngan, dang coast
+        "4": ("MAT ToF", "#c0392b"),      # TOF_LOST: that su mat nguon do cao
     }
 
     def _alt_source_prefix(self, altsrc):
@@ -2391,7 +2434,7 @@ class PidTunerApp:
 
     def _update_tof_label(self, tofst, tofcor, tofsurf, tofinn, floorz,
                            tofage=None, tof_raw=None, tof_valid=None, altsrc=None,
-                           tofen=None):
+                           tofen=None, tofalive=None):
         """Hien ToF DANG nhin be mat nao va co dang sua world-Z khong.
 
         Day la thong tin duy nhat giai thich duoc vi sao UAV KHONG bam theo ToF
@@ -2402,7 +2445,7 @@ class PidTunerApp:
             return
         pfx, pcolor = self._alt_source_prefix(altsrc)
         # SUC KHOE truoc TIEN: sensor chet thi phan loai be mat vo nghia.
-        health, hcolor = self._tof_health(tofage, tof_raw, tofen)
+        health, hcolor = self._tof_health(tofage, tof_raw, tofen, tofalive)
         if hcolor == "#c0392b":
             self.tof_var.set(pfx + health)
             self.tof_label.configure(fg=hcolor)
@@ -2414,22 +2457,26 @@ class PidTunerApp:
             self.tof_var.set(pfx + health)
             self.tof_label.configure(fg=pcolor or "gray")
             return
-        name = TOF_SURFACE_NAMES.get(tofst, f"?{tofst}")
-        if tofst == "2":      # OTHER
-            self.tof_var.set(
-                pfx + f"{health} | BE MAT KHAC (cao ~{tofsurf}m, san khoa {floorz}m) "
-                f"-> KHONG sua world-Z [dung thiet ke]")
-            self.tof_label.configure(fg="#b35c00")
-        elif tofst == "1":    # FLOOR
-            on = (tofcor == "1")
-            self.tof_var.set(
-                pfx + f"{health} | SAN (innov={tofinn}m) -> "
-                f"{'dang sua world-Z' if on else 'cho mau moi'}")
-            self.tof_label.configure(fg="#0a7d2c" if on else "gray")
+        # ---- NHAN DIEN SAN DA BI BO HAN (firmware) ----
+        # TRUOC DAY o day hien: "SAN (innov=...)" / "BE MAT KHAC (cao ~Xm,
+        # san khoa Ym)". Toan bo ngon ngu do thuoc ve he thong do san +
+        # innovation gate, ma ca hai deu da bi go khoi firmware:
+        #   - innovation gate: bo (bay qua vat the khong con tu ha canh)
+        #   - may do san:      bo (ToF gio do TUYET DOI, khong con goc toa do)
+        # Giu lai chung tren man hinh la noi doi voi nguoi dung: "san khoa"
+        # luon 0.00m va innov chi la hieu so voi mot moc khong con y nghia.
+        #
+        # GIO chi hien thu THAT SU con quyet dinh: co dang fuse ToF khong
+        # (TOFCOR). Do la dieu duy nhat anh huong toi do cao.
+        if tofcor == "1":
+            self.tof_var.set(pfx + f"{health} | dang dung ToF cho do cao")
+            self.tof_label.configure(fg="#0a7d2c")
         else:
-            self.tof_var.set(pfx + f"{health} | {name} (chua du bang chung)")
-            self.tof_label.configure(fg="gray")
-
+            # Khong fuse: ngoai tam / be mat hap thu / nam sat san. KHONG phai
+            # loi -- do cao dang coast bang IMU, va _tof_health() o tren da noi
+            # ro chip con do hay khong.
+            self.tof_var.set(pfx + f"{health} | chua co mau dung duoc (coast IMU)")
+            self.tof_label.configure(fg="#b35c00")
     # ---- pha cất cánh — label riêng cạnh nút TAKEOFF ----
     def _update_takeoff_phase_label(self, tkop, airb, altm, tkoact=None,
                                      tkotgt=None, zsp=None, tkoi=None,
@@ -2538,8 +2585,10 @@ class PidTunerApp:
     #
     # Gio GUI luon gui @THR OFFSET; viec dich sang y nghia dung cua tung state
     # do FIRMWARE lam, la noi DUY NHAT biet chac minh dang o state nao.
-    # ⚠ NANG 100 -> 200 duty theo yeu cau nguoi dung (chi ap dung o FLYING).
-    WS_THROTTLE_OFFSET_DUTY = 200
+    # ⚠ 200 -> 100 duty (yeu cau moi nhat cua nguoi dung). Truoc do tung la
+    # 100, roi nang len 200, gio ve lai 100. Chi ap dung o FLYING — o HOLDING
+    # thi W/S di duong khac han (buoc do cao, xem WS_ALT_STEP_M ben duoi).
+    WS_THROTTLE_OFFSET_DUTY = 100
     WS_OFFSET_KEEPALIVE_MS = 100     # < BENCH_OFFSET_STALE_US(400ms) nhieu lan
     # Buoc do cao moi lan bam W/S o HOLD. Phai KHOP voi buoc ma firmware ap dung
     # cho '>'/'<' (command_parser.c: +-0.10m) — GUI chi gui phim, khong gui so.
@@ -3535,8 +3584,10 @@ class PidTunerApp:
             # Latch ga hover theo pin -- g[114:117], o CUOI regex. None = firmware
             # cu hon (truoc khi co hover_model.h) HOAC HOVER_LATCH_ENABLED=0.
             hovlk, hovlv, hovld = g[114:117]
+            # TOFALIVE o CUOI regex -> g[117]. None = firmware cu chua gui.
+            tofalive = g[117]
             self._update_tof_label(tofst, tofcor, tofsurf, tofinn, floorz,
-                                    tofage, tof, _tok, altsrc, tofen)
+                                    tofage, tof, _tok, altsrc, tofen, tofalive)
 
             # Nuôi 2 đồ thị Vz/Az world (xem _build_plots) — CÙNG khối `if m:`
             # vì các field này CHỈ có ở đuôi mở rộng UAV-S3, không tách được

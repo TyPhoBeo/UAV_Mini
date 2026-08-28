@@ -37,56 +37,65 @@ static void clear_runtime(alt_estimator_t *e, bool keep_floor) {
 
 void alt_estimator_reset(alt_estimator_t *e) { if (e) clear_runtime(e, false); }
 
+// alt_estimator_floor_ready() — GIU LAI CHU KY, LUON TRA TRUE.
+//
+// ToF gio do TUYET DOI (khong con goc toa do, xem update()), nen "da chot
+// duoc mat san chua" khong con la cau hoi co nghia. Tra true de moi cho goi
+// no — prearm, takeoff, telemetry — khong con bi chan.
+//
+// KHONG xoa han ham: no duoc goi tu 4 cho trong flight_core.c va telemetry.
+// Xoa se lam vo build o nhung file khong lien quan gi toi thay doi nay. Giu
+// mot ham tra hang so la cach re nhat de giu bien gioi module.
 bool alt_estimator_floor_ready(const alt_estimator_t *e) {
-    return e && e->tof_ground_ref_valid &&
-           e->floor_sample_count >= ALT_EST_FLOOR_MIN_SAMPLES &&
-           e->floor_std_m <= ALT_EST_FLOOR_MAX_STD_M;
+    return e != NULL;
 }
 
-// lock_floor_at() — phan THAN chung: chot goc toa do tai `ground_range_m`.
-// Tach ra de duong chuan (trung binh cua so on dinh) va duong fallback (mau
-// ToF hien tai) dung DUNG cung mot logic reset — hai ban sao se lech nhau.
-static void lock_floor_at(alt_estimator_t *e, float ground_range_m) {
+// lock_floor_at() — RESET trang thai bay truoc khi cat canh.
+// Ten con giu chu "floor" vi 3 ham public goi no van mang ten do (va duoc goi
+// tu flight_core.c), nhung no KHONG con chot goc toa do nao: ToF do tuyet doi.
+static void lock_floor_at(alt_estimator_t *e) {
     e->floor_locked = true;
-    e->tof_ground_range_m = ground_range_m;
+    // tof_ground_range_m khong con duoc tru vao dau ca (ToF do tuyet doi).
+    // Van xoa ve 0 de telemetry khong hien mot so cu gay hieu nham.
+    e->tof_ground_range_m = 0.0f;
     e->floor_plane_z_m = e->alt_m = e->vz_ms = 0.0f;
     e->active_source = ALT_SRC_GROUND_LOCK;
-    // Chot datum TRUOC khi cat canh (B3): mat san vua khoa CHINH LA terrain
-    // hien tai -> offset = 0 theo dinh nghia. Xoa sach ung vien/pending cua
-    // chuyen bay truoc, neu khong mot bac dia hinh cu se song sot qua lan
-    // takeoff moi va lam lech alt ngay tu tick dau.
     e->terrain_off_m = e->terr_cand_offset_m = e->terr_residual_m = 0.0f;
     e->terr_pending = false;
     e->terr_confirm_cnt = 0;
     e->agl_m = 0.0f;
     e->prev_tof_vertical_valid = false;
+    // Xoa moc slew/derivative: gia tri cua lan bay truoc se lam mau dau tien
+    // cua lan nay bi gioi han sai huong.
+    e->prev_tof_z_valid = false;
 }
 
+// ---- Ba ham "chot san" ben duoi: GIU CHU KY, BO PHAN THONG KE ----
+// ToF gio do TUYET DOI nen khong con goc toa do de chot. Thu duy nhat con
+// y nghia la RESET trang thai bay (alt/vz/terrain/prev) truoc khi cat canh —
+// chinh la phan lock_floor_at() van lam. Ca ba deu thanh cong va lam DUNG
+// mot viec do.
+//
+// KHONG hop nhat thanh mot ham: chung duoc goi tu 3 cho khac nhau trong
+// flight_core.c voi y nghia khac nhau ("duong chuan", "fallback", "khong co
+// mau"), va gop lai se buoc phai sua ca ba cho do trong cung mot luot — nhieu
+// rui ro hon la giu ba cua vao mong.
 bool alt_estimator_lock_floor(alt_estimator_t *e) {
-    if (!alt_estimator_floor_ready(e)) return false;
-    lock_floor_at(e, e->floor_mean_m);
+    if (!e) return false;
+    lock_floor_at(e);
     return true;
 }
 
-// alt_estimator_lock_floor_fallback() — chot goc toa do bang mau ToF hop le
-// HIEN TAI thay vi trung binh cua so on dinh.
-//
-// CHI dung khi cong floor da tat (FC_FEATURE_FLOOR_GATE=0, xem fc_features.h).
-// Kem chinh xac hon duong chuan — mot mau don le mang ca nhieu cua cam bien —
-// nhung van HON HAN viec giu nguyen tof_ground_range_m cu: gia tri cu la goc
-// toa do cua LAN BAY TRUOC (hoac 0 neu chua tung bay), tuc alt_m se sai ngay
-// tu tick dau tien va sai mot luong khong ai biet truoc.
-//
-// Tra false khi khong co ca mau ToF nao dung duoc -> caller phai tu choi lenh:
-// khong co goc toa do nghia la khong biet minh dang o do cao nao.
 bool alt_estimator_lock_floor_fallback(alt_estimator_t *e) {
-    if (!e || !e->tof_ground_ref_valid) return false;
-    // tof_vertical_m = range da bu nghieng (xem update()). >0 moi co nghia.
-    if (!(e->tof_vertical_m > 0.0f) || !isfinite(e->tof_vertical_m)) return false;
-    lock_floor_at(e, e->tof_vertical_m);
+    if (!e) return false;
+    lock_floor_at(e);
     return true;
 }
 
+void alt_estimator_lock_floor_at_zero(alt_estimator_t *e) {
+    if (!e) return;
+    lock_floor_at(e);
+}
 void alt_estimator_unlock_floor(alt_estimator_t *e) {
     if (e) clear_runtime(e, false);
 }
@@ -158,55 +167,68 @@ bool alt_estimator_terrain_rebase(alt_estimator_t *e) {
 #endif
 }
 
-static void floor_add(alt_estimator_t *e, float v) {
-    // Che do tam thoi chot mau hop le dau tien. Sau khi valid, giu nguyen floor
-    // toi event unlock/reset de ToF reset/seq dut khong lam hoc lai mat san.
-    if (e->tof_ground_ref_valid || e->floor_sample_count >= ALT_EST_FLOOR_MAX_SAMPLES) return;
-    if (e->floor_sample_count && fabsf(v - e->floor_mean_m) > ALT_EST_FLOOR_RESTART_DELTA_M) {
-        e->floor_sample_count = 0;
-        e->floor_mean_m = e->floor_m2_m2 = 0.0f;
-        e->tof_ground_ref_valid = false;
-    }
-    e->floor_sample_count++;
-    const float d = v - e->floor_mean_m;
-    e->floor_mean_m += d / (float)e->floor_sample_count;
-    e->floor_m2_m2 += d * (v - e->floor_mean_m);
-    e->floor_std_m = e->floor_sample_count > 1
-        ? sqrtf(fmaxf(0.0f, e->floor_m2_m2 / (float)(e->floor_sample_count - 1))) : 0.0f;
-    e->tof_ground_range_m = e->floor_mean_m;
-    e->tof_ground_ref_valid = e->floor_sample_count >= ALT_EST_FLOOR_MIN_SAMPLES &&
-                              e->floor_std_m <= ALT_EST_FLOOR_MAX_STD_M;
-}
+// tof_hw_alive = "chip VẪN ĐANG ĐO", KHÁC HẲN "có mẫu dùng được".
+// Nó đến từ sensor_hub snapshot (tof_alive_us) và chỉ đứng yên khi chip chết
+// hoặc bus đứt — nằm sát sàn (0mm, dưới tầm mù), nhìn ra khoảng không, hay bề
+// mặt hấp thụ đều KHÔNG làm nó đứng.
+// update_age() — quyet dinh do cao con DUNG DUOC khong.
+//
+// ============================================================================
+// TUOI MAU KHONG CON LA DIEU KIEN (yeu cau nguoi dung)
+// ============================================================================
+// TRUOC DAY day la mot bac thang 4 muc theo tuoi mau hop le:
+//     <=TRACK_MAX_AGE -> TRACKING
+//     <=BRIDGE_MS     -> SHORT_BRIDGE
+//     < LOST_MS       -> IMU_PREDICT (degraded)
+//     >=LOST_MS       -> LOST  -> valid=false -> Commander soft-fault
+//
+// Bac cuoi la nguon goc cua ca mot chuoi loi da phai vá tung cai mot: bay qua
+// vat the, nam sat san, nhin ra khoang khong, be mat hap thu — tat ca deu lam
+// tuoi mau tang vo han TRONG KHI cam bien hoan toan lanh, va tat ca deu ket
+// thuc bang tu dong ha canh giua chung.
+//
+// GIO chi con MOT cau hoi: CHIP CO CON DO KHONG (tof_hw_alive).
+//   con do  -> valid = true. Co mau moi thi fuse, khong co thi coast bang IMU.
+//              Do la trang thai degraded, KHONG phai loi.
+//   chip im -> valid = false. Day la loi THAT, va la duong soft-fault DUY NHAT
+//              con lai.
+//
+// ⚠ DANH DOI CO Y: coast bang tich phan accel khong con gioi han thoi gian.
+// Chip song ma khong ra mau hop le trong 10s thi do cao van "valid" du no da
+// troi dang ke. Bu lai: khong con tu ha canh vi mot ly do binh thuong. Nguoi
+// bay nhin ALTSRC=IMU tren GUI de biet dang coast.
+static void update_age(alt_estimator_t *e, bool airborne, bool tof_hw_alive,
+                       int64_t now_us) {
+    e->no_correction_ms = e->last_tof_accept_us
+        ? (int)((now_us - e->last_tof_accept_us) / 1000) : 0;
 
-static void update_age(alt_estimator_t *e, bool airborne, int64_t now_us) {
     if (!airborne) {
         e->tof_track_state = e->tof_fusable ? ALT_TOF_TRACKING : ALT_TOF_LOST;
         return;
     }
-    if (!e->last_tof_accept_us) {
+
+    if (!tof_hw_alive) {
+        // Chip im — bus dut hoac cam bien chet. Duong soft-fault DUY NHAT.
         e->tof_track_state = ALT_TOF_LOST;
         e->tof_fusable = e->valid = false;
         e->degraded = true;
         e->active_source = ALT_SRC_TOF_LOST;
         return;
     }
-    const int age = (int)((now_us - e->last_tof_accept_us) / 1000);
-    e->no_correction_ms = age;
-    if (age <= ALT_EST_TOF_TRACK_MAX_AGE_MS) {
+
+    // Chip con do. Co mau vua duoc fuse o tick nay khong?
+    if (e->tof_fusable) {
         e->tof_track_state = ALT_TOF_TRACKING;
-        e->valid = true; e->degraded = false; e->active_source = ALT_SRC_TOF_FUSED;
-    } else if (age <= ALT_EST_TOF_BRIDGE_MS) {
-        e->tof_track_state = ALT_TOF_BRIDGE;
-        e->tof_fusable = false;
-        e->valid = true; e->degraded = false; e->active_source = ALT_SRC_TOF_SHORT_BRIDGE;
-    } else if (age < ALT_EST_TOF_LOST_MS) {
-        e->tof_track_state = ALT_TOF_BRIDGE;
-        e->tof_fusable = false;
-        e->valid = true; e->degraded = true; e->active_source = ALT_SRC_IMU_PREDICT_ONLY;
+        e->valid = true;
+        e->degraded = false;
+        e->active_source = ALT_SRC_TOF_FUSED;
     } else {
-        e->tof_track_state = ALT_TOF_LOST;
-        e->tof_fusable = e->valid = false;
-        e->degraded = true; e->active_source = ALT_SRC_TOF_LOST;
+        // Chip do nhung mau khong dung duoc (ngoai tam / hap thu / sat san).
+        // Coast bang IMU. VAN valid — day khong phai loi.
+        e->tof_track_state = ALT_TOF_BRIDGE;
+        e->valid = true;
+        e->degraded = true;
+        e->active_source = ALT_SRC_IMU_PREDICT_ONLY;
     }
 }
 
@@ -217,6 +239,7 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
 #endif
                           bool tof_healthy, uint32_t tof_seq,
                           int64_t tof_timestamp_us, float tof_range_m,
+                          bool tof_hw_alive,
                           bool stationary, bool liftoff_candidate, bool airborne,
                           int64_t now_us, float dt) {
     if (!e || !(dt > 0.0f) || !isfinite(dt)) return;
@@ -254,11 +277,32 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
             rzz >= ALT_EST_TOF_TILT_MIN_COS;
         if (geometry_ok) {
             e->tof_vertical_m = tof_range_m * rzz;
-            if (!e->floor_locked && stationary) floor_add(e, e->tof_vertical_m);
-            if (e->tof_ground_ref_valid) {
-                // AGL THO: do cao tren BE MAT dang nhin. Dai luong nay KHONG
-                // phu thuoc terrain — no la thu cam bien thuc su do duoc.
-                float raw_agl = e->tof_vertical_m - e->tof_ground_range_m;
+            {
+                // ============================================================
+                // ToF DO TUYET DOI — KHONG con goc toa do, KHONG con do san
+                // ============================================================
+                // TRUOC DAY: raw_agl = tof_vertical_m - tof_ground_range_m,
+                // trong do tof_ground_range_m den tu mot cua so thong ke thu
+                // luc drone nam yen (floor_add + Welford + nguong std).
+                //
+                // May do san do da bi BO HAN theo yeu cau nguoi dung. Ly do
+                // thuc te: nam sat san thi VL53L1X doc 0.000m (duoi tam mu
+                // ~4cm) -> driver loai mau -> cua so khong bao gio dong duoc
+                // -> tof_ground_ref_valid dung o false -> ca khoi nay khong
+                // chay -> ToF khong correction gi ca, VA takeoff bi tu choi.
+                // Mot co che sinh ra de lam do cao chinh xac hon lai la thu
+                // chan khong cho bay.
+                //
+                // GIO: do cao = khoang cach toi BE MAT dang nhin, thang tu
+                // cam bien. Khong tru gi ca.
+                //
+                // ⚠ DOI NGHIA DO CAO — biet truoc de khong ngac nhien:
+                // alt_m gio la "cach be mat ben duoi bao nhieu", KHONG phai
+                // "cao hon diem cat canh bao nhieu". Cat canh tu tren ban roi
+                // bay ra ngoai ban thi do cao NHAY mot bac bang chieu cao ban,
+                // va PID se phan ung voi buoc nhay do. Slew-rate limit ben duoi
+                // lam cho buoc nhay do di TU TU thay vi tuc thi.
+                float raw_agl = e->tof_vertical_m;
 
 #if FC_FEATURE_TERRAIN_OFFSET
                 // ---- PHAT HIEN BAC TERRAIN BANG RESIDUAL (B4) ----
@@ -481,7 +525,7 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
         e->degraded = !e->valid || !tof_healthy;
         e->no_correction_ms = e->last_tof_accept_us
             ? (int)((now_us - e->last_tof_accept_us) / 1000) : 0;
-        update_age(e, false, now_us);
+        update_age(e, false, tof_hw_alive, now_us);
         return;
     }
 
@@ -512,7 +556,7 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
     // AGL loc — dan xuat DUY NHAT tu (alt_m, terrain_off_m). Moi noi can "cao
     // bao nhieu so voi be mat" phai doc field nay, khong tu tru lai.
     e->agl_m = e->alt_m - e->terrain_off_m;
-    update_age(e, true, now_us);
+    update_age(e, true, tof_hw_alive, now_us);
 }
 
 void alt_estimator_correct_velocity(alt_estimator_t *e, float v, bool ok, float dt) {

@@ -116,7 +116,7 @@ extern "C" {
 // 2) ALT HOLD (alt_hold.h) — cascade giữ độ cao: alt -> vz_target -> vz-PI
 // ============================================================================
 
-#define ALT_HOLD_ALT_KP             0.5f     // alt_err -> vz_target [1/s]
+#define ALT_HOLD_ALT_KP             1.5f     // alt_err -> vz_target [1/s]
 // VZ_KP/KI/ILIMIT map vz_err(m/s) -> DUTY -> đã nhân đôi theo thang 2000.
 //
 // ---- VÌ SAO KHÔNG CÓ Kd Ở VÒNG NÀY (câu trả lời cho "đề xuất PID cho Vz") ----
@@ -155,8 +155,8 @@ extern "C" {
 // ⚠ SỐ NÀY CHƯA ĐO TRÊN PHẦN CỨNG THẬT. Plant mô phỏng không có rung
 // động cơ, không có hiệu ứng mặt đất, không có sụt áp pin. Bay thử phải THÁO
 // CÁNH/giữ trên giá trước, xem `status` (vz_i, throttle) có mượt không.
-#define ALT_HOLD_VZ_KP              50.0f
-#define ALT_HOLD_VZ_KI              100.0f
+#define ALT_HOLD_VZ_KP              100.0f
+#define ALT_HOLD_VZ_KI              50.0f
 #define ALT_HOLD_VZ_ILIMIT          500.0f
 // ============================================================================
 // hover_ff DÙNG TỪ HOLDING TRỞ ĐI — feed-forward của cascade độ cao
@@ -184,8 +184,8 @@ extern "C" {
 //
 // Đây KHÔNG phải bản sao của HOVER_MODEL_REF_DUTY (=900, hover đo tại ĐÚNG
 // 4.2V) — hai đại lượng khác nhau, đừng "đồng bộ" chúng.
-#define ALT_HOLD_HOVER_NOMINAL      1200.0f
-#define ALT_HOLD_VZ_LIMIT_MS        0.50f   // trần |vz_target| (m/s)
+#define ALT_HOLD_HOVER_NOMINAL      1000.0f
+#define ALT_HOLD_VZ_LIMIT_MS        0.25f   // trần |vz_target| (m/s)
 
 // ---- W/S (GIU phim o GUI) = LỆNH VẬN TỐC LÊN/XUỐNG, không phải cộng duty ----
 //
@@ -203,7 +203,20 @@ extern "C" {
 //
 // PHẢI <= ALT_HOLD_VZ_LIMIT_MS (có _Static_assert trong flight_core.c). Đặt
 // dưới trần để tầng ngoài Z-PID vẫn còn lề khi người lái nhả phím.
-#define ALT_HOLD_WS_VZ_MS           0.30f
+#define ALT_HOLD_WS_VZ_MS           0.10f
+
+// ---- FLYING -> HOLDING: PHAI YEN 1s MOI CHOT DO CAO ----
+// Truoc day cạnh nay tuc thi: tha can la doi state NGAY, va do cao HOLD duoc
+// chot bang tof_z_m cua DUNG tick do. Van de: luc vua tha can drone van dang
+// nghieng va dang troi, ToF nhin xuong theo truc than nen so doc chua on —
+// chot vao do cho ra target sai, co luc vot len ~2m.
+//
+// Cho 1s sau lenh dieu khien CUOI CUNG: du de attitude ve gan bang, propwash
+// on lai, va ToF cho vai mau lien tiep on dinh. Chi khi do moi chot.
+//
+// ⚠ TRONG 1s CHO: van o FSM_FLYING, tuc PID do cao VAN KHONG chay (dung theo
+// thiet ke da chot truoc day). Drone giu ga hien tai va troi tu nhien.
+#define FLYING_TO_HOLD_SETTLE_MS    1000
 #define ALT_HOLD_TILT_GATE_DEG      30.0f   // không engage/giữ khi nghiêng quá
 #define ALT_HOLD_MIN_ENGAGE_M       0.10f   // cao tối thiểu để engage HOLD (m)
 #define ALT_HOLD_MIN_THROTTLE_DUTY  400     // sàn PID khi đang bay
@@ -292,7 +305,7 @@ extern "C" {
 //
 // Số này dùng cho HAI việc (đọc mục 3b ngay trên): trần tốc độ trượt target VÀ
 // trần |vz_target|. Phải giữ là CÙNG một số.
-#define TAKEOFF_MAX_CLIMB_MS        0.30f
+#define TAKEOFF_MAX_CLIMB_MS        0.15f
 
 // ---- 3c) LIFTOFF — THEO THỜI GIAN, KHÔNG THEO ĐỘ CAO ĐO ĐƯỢC ----
 //
@@ -410,11 +423,35 @@ extern "C" {
 // target 1.00m nên |Z-tgt| KHÔNG BAO GIỜ <= 0.08.
 // GIỮ LẠI định nghĩa (không xoá) để lịch sử tune còn đọc được và để bật lại
 // bằng một dòng nếu sau này muốn siết bàn giao. Xem takeoff_land.c `hold_ready`.
-#define TAKEOFF_HOLD_Z_TOL_M        0.08f
+#define TAKEOFF_HOLD_Z_TOL_M        0.10f
 // Dung sai Vz. NỚI 0.08 -> 0.20: Vz ước lượng dao động ±0.25 m/s ngay cả khi
 // drone treo ổn định (ToF 30Hz + propwash), nên 0.08 là dưới mức nhiễu nền —
 // cùng loại lỗi với vế tof_vz đã phải bỏ khỏi lift_evidence.
-#define TAKEOFF_HOLD_VZ_TOL_MS      0.20f
+#define TAKEOFF_HOLD_VZ_TOL_MS      0.10f
+// Tran thoi gian cho ve "|vz| <= TAKEOFF_HOLD_VZ_TOL_MS" o hold_ready.
+// Het han thi ban giao DU vz chua lang.
+//
+// ⚠ VE NAY BAT BUOC PHAI CO. Dieu kien do cao cu (|alt-target| <= TOL) tung
+// lam mot lan cat canh ket 21.6s roi TIMEOUT vi no CO THE khong bao gio dung.
+// Ve vz thi ve nguyen ly luon dung sau khi target ngung truot — nhung "ve
+// nguyen ly" khong phai bao dam. 1.5s: du cho mot cu vot lo binh thuong lang
+// xuong, va ngan hon nhieu so voi TAKEOFF_TOTAL_TIMEOUT_MS.
+#define TAKEOFF_VZ_SETTLE_TIMEOUT_MS  1500
+// ---- TRAN TOC DO TANG GA (duty/giay) ----
+// Ga chi duoc phep TANG toi da ngan nay moi giay. KHONG gioi han chieu GIAM:
+// ha ga la duong thoat an toan, chan no lai la tao ra mot che do hong moi.
+//
+// ⚠ VI SAO CAN: da do duoc tren log bay THAT. Bay o ~23cm, duoi nguong guard
+// khoang ho TERR_MIN_CLEARANCE_M (25cm), nen guard chay MOI TICK va moi lan
+// deu ghi ket qua vao s_flying_throttle_latch:
+//     THR=995 -> 995 -> 1095 -> 1995 -> 2000 -> 2000   (MHR=0, kich tran)
+// Buoc nhay +900 trong MOT tick (5ms). PID khong sinh ra so do (VZP=2.80,
+// VZI=-6.97 dung yen ca doan) — no den tu viec guard ghi de latch lien tuc.
+//
+// 150 duty/s tren dai 0..2047: tu hover (~1000) len tran mat ~7s. Du nhanh de
+// thoat mot vat can that, du cham de nguoi lai kip phan ung va de mixer con
+// thẩm quyen tao mo-men (MHR khong ve 0 tuc thi).
+#define THROTTLE_MAX_RISE_DUTY_PER_S   500.0f
 
 // ---- 3e) ABORT — mọi nhánh đều dẫn về EMERGENCY ----
 // EMERGENCY tự phân giải thành LANDING (còn kiểm soát + đang trên không) hoặc
@@ -518,7 +555,7 @@ extern "C" {
 // khoảng cách còn lại, nên sai số độ cao (ToF nhiễu, nền không phẳng) chỉ làm
 // tốc độ lệch một chút, KHÔNG làm drone chạm đất ở tốc độ sai. Theo thời gian
 // thì một lần ToF trễ là drone tiếp đất nhanh gấp đôi.
-#define LAND_DESCENT_VZ             0.35f    // m/s, tốc độ hạ pha DESCEND
+#define LAND_DESCENT_VZ             0.5f    // m/s, tốc độ hạ pha DESCEND
 #define LAND_FLARE_ALT_M            0.50f    // m, ngưỡng vào FLARE
 #define LAND_FLARE_VZ                0.12f   // m/s, tốc độ hạ lúc gần chạm
 #define LAND_TOUCHDOWN_ALT_M        0.080f   // m, ToF height tren floor
@@ -620,8 +657,8 @@ extern "C" {
 //
 // Hai số dưới đây là giá trị đã dò trên khung thật (trước đây nằm chôn trong
 // flight_core.c dưới dạng số ma thuật, không ai sửa được từ tuning.h).
-#define TRIM_ROLL_DEG_DEFAULT    (-0.5f)
-#define TRIM_PITCH_DEG_DEFAULT   (-0.2f)
+#define TRIM_ROLL_DEG_DEFAULT    (0.68f)
+#define TRIM_PITCH_DEG_DEFAULT   (0.49f)
 
 // Canh lúc BIÊN DỊCH: mặc định phải nằm trong dải mà runtime chấp nhận. Đường
 // CMD_SET_TRIM có clampf(), còn khởi tạo tĩnh thì KHÔNG — thiếu dòng này thì
@@ -760,6 +797,44 @@ _Static_assert(TRIM_PITCH_DEG_DEFAULT >= -TRIM_MAX_DEG &&
 // chỉ kéo dài 15s rồi báo cùng một lỗi. Trượt -> nói rõ lý do -> người dùng đặt
 // lại drone rồi gõ `calib_gyro`.
 #define GYRO_CAL_MIN_VALID_FRACTION             0.80f
+// ============================================================================
+// RE-CALIB GYRO LUC ARM (chong troi bias theo NHIET)
+// ============================================================================
+// VAN DE: bias gyro MPU6050 troi theo nhiet die. Bias trong NVS duoc chot o
+// mot nhiet do nao do (GCALTEMP), con luc bay die da am len — sai lech do di
+// thang vao Mahony va tich phan thanh troi yaw/attitude.
+//
+// GIAI PHAP: moi lan ARM, do lai bias TAI NHIET HIEN TAI truoc khi motor quay.
+//
+// ⚠ VI SAO KHONG LAM LUC TAKEOFF (da can nhac va bo):
+//   - luc TAKEOFF, FSM da o ARMED va MOTOR DANG QUAY -> rung co khi di thang
+//     vao gyro; trung binh cua so se "hoc" luon ca rung, cho ra bias TE HON
+//     cai dang co.
+//   - gyro_calibration_start() goi motor_driver_all_off() + mahony_init():
+//     cat motor giua chung va xoa attitude — khong chap nhan duoc khi da armed.
+// Luc ARM thi ca hai van de deu khong ton tai: motor chua quay, va reset
+// Mahony la vo hai (chua bay).
+//
+// THOI GIAN: ngan hon calib day du (SETTLE 1500 + COLLECT 3000 = 4.5s) vi day
+// KHONG phai calib tu dau — chip da chay on dinh hang phut, khong con transient
+// sau DEVICE_RESET. Chi can du mau de trung binh hoa nhieu.
+//
+// 250Hz * 1000ms = 250 mau. Nhieu gyro MPU6050 ~0.05 dps RMS -> sai so chuan
+// cua trung binh ~ 0.05/sqrt(250) = 0.003 dps. Du chinh xac.
+#define GYRO_ARM_RECAL_SETTLE_MS               200
+#define GYRO_ARM_RECAL_DURATION_MS            1000
+
+// Bat/tat tinh nang. 0 = ARM khong re-calib (hanh vi cu, dung bias NVS).
+#define GYRO_ARM_RECAL_ENABLED                   1
+
+// Chenh lech toi da cho phep giua bias MOI (vua do luc ARM) va bias CU.
+// Vuot nguong = nghi drone dang bi cam/rung chu khong phai troi nhiet -> TU
+// CHOI ARM thay vi nhan mot bias sai vao he.
+//
+// 5.0 dps: troi nhiet thuc te tren MPU6050 vao khoang 0.01..0.05 dps/degC, tuc
+// chenh 30degC moi cho ~1.5 dps. 5.0 rong gap 3 lan nen khong chan oan, nhung
+// van bat duoc truong hop cam drone tren tay (thuong >20 dps).
+#define GYRO_ARM_RECAL_MAX_DELTA_DPS            5.0f
 
 // Tỉ lệ mẫu "nghi động" TỐI ĐA cho phép trong một cửa sổ. Thay cho việc cắt
 // ngang ngay khi gặp MỘT mẫu xấu — cách cũ biến mọi nhiễu lẻ tẻ (một cú gõ bàn,

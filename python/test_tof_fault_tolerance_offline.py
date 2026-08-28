@@ -88,8 +88,14 @@ m_health = re.search(
 check("tim thay dinh nghia tof_healthy_for_alt", m_health is not None)
 if m_health:
     expr = " ".join(m_health.group(1).split())
-    check("tof_healthy_for_alt tinh bang TUOI (SENSOR_TOF_STALE_US)",
-          "SENSOR_TOF_STALE_US" in expr, expr)
+    # DA DOI: khong con tinh theo TUOI MAU HOP LE nua.
+    # Cua so 200ms tung duoc dung de "vai mau xau khong lam mat ToF", nhung no
+    # van sap khi mau xau KEO DAI — ma nam sat san thi mau xau la VINH VIEN
+    # (ToF doc 0.000m, duoi tam mu). Gio hoi thang: chip con do khong.
+    check("tof_healthy_for_alt dung tof_hw_alive",
+          "tof_hw_alive" in expr, expr)
+    check("KHONG con tinh theo tuoi mau hop le",
+          "SENSOR_TOF_STALE_US" not in expr, expr)
     check("tof_healthy_for_alt KHONG AND voi tof_h.valid",
           "tof_h.valid" not in expr,
           "AND voi valid lam ve tuoi thanh code chet -- MOT mau xau = mat ToF: %s" % expr)

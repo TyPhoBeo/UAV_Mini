@@ -203,7 +203,7 @@
 //
 // Đặt = 0 để dùng chung BOARD_I2C_FREQ_HZ. Nếu đã đi dây ngắn/che nhiễu tốt và
 // muốn lấy lại tốc độ, nâng dần lên 400000 rồi soi `tof_test` + stall_restarts.
-#define BOARD_TOF_I2C_FREQ_HZ 100000
+#define BOARD_TOF_I2C_FREQ_HZ 400000
 
 // XSHUT — TÙY CHỌN khi chỉ có 1 ToF. Đặt < 0 nếu không nối dây (module có
 // pull-up 10k nên chip vẫn chạy). Lý do DUY NHẤT còn lại để nối: reset cứng

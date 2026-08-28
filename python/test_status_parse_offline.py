@@ -43,6 +43,7 @@ line = (
     " TOFCORRZ=0.0120 TOFCORRVZ=0.0450 BAROCORRZ=0.0031 BAROCORRVZ=0.0090"
     " BIASRES=-0.0210 BIASADP=1234"
     " HOVLK=1 HOVLV=3.87 HOVLD=1085"
+    " TOFALIVE=42"
 )
 
 m = mod.STATUS_RE.match(line)
@@ -233,7 +234,16 @@ m_nolatch = mod.STATUS_RE.match(line.replace(" HOVLK=1", " HOVLK=0"))
 check("hovlk=0 parse duoc", m_nolatch is not None, True)
 if m_nolatch is not None:
     check("hovlk=0 g[114]", m_nolatch.groups()[114], "0")
-check("tong so group", len(g), 117)
+check("tofalive g[117]", g[117], "42")
+# Firmware cu khong gui TOFALIVE -> phai None, KHONG duoc lam vo dong.
+m_noalive = mod.STATUS_RE.match(line.split(" TOFALIVE=")[0])
+check("khong co TOFALIVE van parse", m_noalive is not None, True)
+if m_noalive is not None:
+    check("khong co TOFALIVE: g[117] None", m_noalive.groups()[117], None)
+    check("khong co TOFALIVE: hovld van dung", m_noalive.groups()[116], "1085")
+# 118 = 117 cu + TOFALIVE (g[117]). Con so nay PHAI doi moi khi them group:
+# no la cai chuong bao "ai do them field ma quen cap nhat index phia sau".
+check("tong so group", len(g), 118)
 
 # --- TELEMETRY_LEVEL=1 (MINIMAL): dong cat NGAY SAU HOVLD ---------------------
 # Phase 2 refactor gate phan duoi HOVLD sau #if TELEMETRY_LEVEL >= 2. Test nay
@@ -249,13 +259,13 @@ check("MINIMAL parse duoc", m_min is not None, True)
 if m_min is not None:
     g_min = m_min.groups()
     # Toan bo 117 group van co mat -> khong mat gi so voi FULL.
-    check("MINIMAL: van du 117 group", len(g_min), 117)
+    check("MINIMAL: van du 118 group", len(g_min), 118)
     check("MINIMAL: hovlk g[114]", g_min[114], "1")
     check("MINIMAL: hovlv g[115]", g_min[115], "3.87")
     check("MINIMAL: hovld g[116]", g_min[116], "1085")
     # Khong mot group nao bi None hoa so voi FULL: chung minh phan bi cat
     # KHONG nam trong vung STATUS_RE doc.
-    lost = [i for i in range(117) if g[i] is not None and g_min[i] is None]
+    lost = [i for i in range(118) if g[i] is not None and g_min[i] is None]
     check("MINIMAL: khong group nao bi mat", lost, [])
 
 if fails:

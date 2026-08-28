@@ -150,6 +150,32 @@ typedef struct {
     // mỗi lần drone bay qua chỗ không có gì để đo — biến một tình huống bình
     // thường thành một chuỗi reset vô nghĩa.
     int64_t  last_sample_us;
+
+    // Lần cuối một kết quả được TIÊU THỤ TRỌN VẸN (đọc xong khối 17 byte VÀ
+    // clear interrupt OK), bất kể hợp lệ hay không.
+    //
+    // ⚠ VÌ SAO KHÔNG DÙNG LUÔN last_sample_us: stall-watchdog trong tof_driver.c
+    // DỜI last_sample_us tới hiện tại mỗi lần nó restart, để bản thân nó không
+    // lặp vô hạn. Hệ quả là last_sample_us KHÔNG còn trả lời được câu "chip có
+    // còn đo không" — một con ToF chết hẳn vẫn làm nó nhích mỗi 300ms.
+    //
+    // last_consumed_us CHỈ backend đặt, watchdog không chạm. Đây là số DUY NHẤT
+    // dùng được để kết luận "mất sensor" (xem tof_driver_last_sample_us()).
+    int64_t  last_consumed_us;
+
+    // Lần cuối chip GIƠ CỜ "có mẫu mới" — KHÁC last_sample_us.
+    // last_sample_us chỉ nhích khi đã ĐỌC XONG kết quả thành công; cái này nhích
+    // ngay khi thấy cờ. Hai số bằng nhau = đường I2C lành. last_ready_us chạy mà
+    // last_sample_us đứng = chip vẫn đo nhưng MCU không lấy được kết quả (bus
+    // lỗi). Không có số này thì hai ca đó nhìn giống hệt nhau trong log.
+    int64_t  last_ready_us;
+
+    // Cực tính ngắt ĐỌC TỪ CHIP lúc setup. Để PER-INSTANCE chứ không phải static
+    // toàn cục: hai sensor trên cùng bus có thể khác cực tính, và một biến chung
+    // sẽ khiến con thứ hai đọc cờ "có mẫu" bằng cực tính của con thứ nhất —
+    // vòng poll hoặc không bao giờ thấy mẫu, hoặc thấy mẫu ở mọi vòng.
+    uint8_t  interrupt_polarity;
+
     tof_reading_t last;
 } tof_sensor_state_t;
 

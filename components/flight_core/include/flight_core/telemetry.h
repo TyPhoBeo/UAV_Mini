@@ -161,6 +161,20 @@ typedef struct {
     int32_t  loop_dt_us;
     int32_t  loop_max_us;
     uint32_t deadline_miss_count;
+    // ---- CHAN DOAN NGUON NHIP VONG DIEU KHIEN ----
+    // Log bay cho thay DT dao dong 4.0 -> 11.6ms va DLM tich 20000+ tick, nhung
+    // KHONG co cach nao biet TAI SAO: dt do giua hai lan BAT DAU tick nen no gop
+    // ca "cho cam bien" lan "xu ly lau". Ba so duoi day tach chung ra.
+    //
+    // loop_wake_by_hub  = so vong duoc sensor_hub danh thuc (duong NHANH, dung).
+    // loop_wake_timeout = so vong phai roi ve dong ho FreeRTOS vi cho qua han.
+    //   Ty le timeout/wake cao = hub khong publish kip -> nghi I2C/ToF chiem bus.
+    // loop_busy_us      = thoi gian XU LY cua tick truoc (khong ke phan cho).
+    //   Gan 4000us = CPU that su khong du. Nho ma dt van lon = dang CHO, khong
+    //   phai dang ban -> nguyen nhan nam o nguon nhip chu khong o khoi luong tinh.
+    uint32_t loop_wake_by_hub;
+    uint32_t loop_wake_timeout;
+    uint32_t loop_busy_us;
 
     // ================= Vì sao lệnh ARM gần nhất bị TỪ CHỐI =================
     // VẤN ĐỀ NÓ SINH RA ĐỂ GIẢI QUYẾT: mọi lý do từ chối ARM trước đây CHỈ đi ra
@@ -227,6 +241,15 @@ typedef struct {
     // biet sensor_hub co that su dang lay mau ToF khong — tof_range_m=0 mot
     // minh khong phan biet duoc "sensor doc 0" voi "chua bao gio duoc doc".
     int32_t tof_age_ms;
+    // Tuoi cua lan cuoi CHIP DO DUOC (ms), khac han tof_age_ms.
+    //   tof_age_ms    = bao lau roi chua co mau HOP LE  -> 'co so de bay khong'
+    //   tof_alive_ms  = bao lau roi chip khong do duoc  -> 'con cam bien khong'
+    // Nam sat san (0mm, duoi tam mu) hay ngoai tam: tof_age_ms tang vo han
+    // NHUNG tof_alive_ms van nho. Chi khi chip chet / bus dut thi ca hai cung
+    // tang. Khong co so nay thi GUI khong the phan biet 'khong co gi de do'
+    // voi 'mat cam bien' -- va no da bao do nham dung o ca hai ca.
+    // -1 = chua tung doc duoc mau nao.
+    int32_t tof_alive_ms;
     bool    imu_healthy, mag_healthy, baro_healthy_hub;
 
     // heading_degraded — yaw đang CHỈ dựa vào tích phân gyro (mag mất/chưa
@@ -246,15 +269,6 @@ typedef struct {
     bool  imu_ok_driver, mag_ok_driver, baro_ok_driver, tof_ok_driver, battery_ok_driver;
     float tof_range_m;
     bool  tof_valid;
-    // range_status THÔ của mẫu ToF gần nhất (thang PAL sau khi map từ device
-    // status). 0 = HỢP LỆ; 255 = chưa từng có mẫu / mã lạ.
-    //
-    // VÌ SAO CẦN: tof_valid=0 gộp mọi lý do thất bại vào một bit, nên khi ToF
-    // "không ra số" thì không thể phân biệt ngoài tầm (status 2/4), tín hiệu
-    // yếu (1), nhiễu pha (5), hay chưa hề có mẫu (255). Không có số này thì
-    // chẩn đoán chỉ còn cách đoán — đúng tình huống đã xảy ra khi hub báo
-    // driver_ok=1 mà age=-1.
-    uint8_t tof_range_status;
     float baro_alt_m, baro_pressure_pa;   // baro_alt_m = RAW (trước median-of-3+LPF), xem alt_estimator.h
     uint32_t sensor_err_count;   // cộng dồn lỗi đọc I2C (mọi driver, từ boot) — best-effort
 
@@ -504,9 +518,6 @@ static inline void telemetry_snapshot_init(telemetry_snapshot_t *t) {
     telemetry_snapshot_t z = {0};
     *t = z;
     t->state = FSM_DISARMED;
-    // 0 trong thang PAL nghia la MAU HOP LE, nen zero-init se noi doi rang
-    // "ToF vua do tot" khi that ra chua he co mau nao. 255 = khong xac dinh.
-    t->tof_range_status = 255;
 }
 
 #ifdef __cplusplus

@@ -102,6 +102,23 @@ typedef struct {
 
     // true khi distance_m dùng được.
     bool valid;
+
+    // ---- CHẨN ĐOÁN, KHÔNG dùng để gate điều khiển ----
+    // Ba số dưới đây CHỈ để đọc log. Chúng KHÔNG được đưa vào bất kỳ quyết định
+    // bay nào cho tới khi có dữ liệu bay thật để đặt ngưỡng — đặt ngưỡng bằng
+    // cảm tính trên số chưa hiểu là cách nhanh nhất để tự chặn mất ToF.
+    //
+    // range_status_raw: mã status THÔ của chip (5 bit), TRƯỚC khi tra bảng ST.
+    //   Giữ cả thô lẫn đã map vì bảng map dồn nhiều mã thô về cùng một giá trị
+    //   PAL — mất mã thô là mất khả năng phân biệt nguyên nhân.
+    uint8_t  range_status_raw;
+
+    // signal_mcps / ambient_mcps: peak signal và ambient count rate, đơn vị
+    //   MCPS ở dạng FP9.7 (chia 128 ra MCPS thật). Ở LONG mode đây là thứ phân
+    //   biệt bốn ca mà range_status gộp làm một: quá xa, bề mặt hấp thụ,
+    //   nắng chói, và sensor thật sự hỏng.
+    uint16_t signal_mcps;
+    uint16_t ambient_mcps;
 } tof_reading_t;
 
 
@@ -171,22 +188,18 @@ esp_err_t tof_driver_read(tof_reading_t *out);
 // chỉ mua thêm thời gian, nó không làm cảm biến đáng tin trở lại.
 uint32_t tof_driver_stall_restarts(void);
 
-// tof_driver_poll_stats() — số liệu THÔ của đường poll, để phân biệt ba tình
-// huống mà bề ngoài giống hệt nhau (valid=0, range_status=255, stall=0):
+// tof_driver_last_sample_us() — mốc esp_timer lần cuối MCU TIÊU THỤ TRỌN VẸN
+// một kết quả từ chip (đọc xong khối 17 byte VÀ clear interrupt thành công),
+// BẤT KỂ kết quả đó có hợp lệ hay không. 0 = chưa từng.
 //
-//   calls=0, not_ready>0  -> hub CÓ gọi nhưng driver chưa sẵn sàng
-//                            (dev=NULL hoặc ranging_started=0)
-//   calls=0, not_ready=0  -> hub KHÔNG hề gọi (lịch poll sai / tof_present=0)
-//   calls>0, io_errors≈calls -> chip KHÔNG trả lời trên I2C (last_err chỉ rõ)
-//   calls>0, io_errors=0     -> bus tốt, chip chỉ chưa sinh mẫu nào
-//
-// VÌ SAO CẦN: khi backend lỗi I2C, poll_with_watchdog() return NGAY, trước cả
-// khối stall watchdog — nên stall_restarts đứng yên và trông như "chip khoẻ".
-// Không có bộ đếm này thì không cách nào phân biệt bằng quan sát.
-//
-// Con trỏ nào không cần thì truyền NULL. Chỉ đọc, an toàn khi đang bay.
-void tof_driver_poll_stats(uint32_t *calls, uint32_t *io_errors,
-                           uint32_t *not_ready, int *last_err);
+// ⚠ ĐỪNG NHẦM với tuổi mẫu HỢP LỆ.
+//   - Nằm trên sàn (0mm, dưới tầm mù) hoặc nhìn ra khoảng không:
+//       range_status != 0 -> KHÔNG có mẫu hợp lệ, nhưng số này VẪN NHÍCH.
+//   - Chip chết / bus đứt:
+//       số này ĐỨNG YÊN.
+// Dùng nó để trả lời "còn sensor không", KHÔNG phải "có số để bay không".
+// Câu hỏi thứ hai là việc của tof_reading_t::valid và sensor_health_t::valid.
+int64_t tof_driver_last_sample_us(void);
 
 // Tên dòng chip ĐANG được biên dịch vào ("VL53L0X" / "VL53L1X"). Hằng chuỗi
 // tĩnh, luôn khác NULL. Dùng cho log/telemetry để người đọc biết firmware này

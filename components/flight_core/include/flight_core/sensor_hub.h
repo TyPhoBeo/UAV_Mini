@@ -142,6 +142,21 @@ typedef struct {
     // để chỉ correction MỘT LẦN cho mỗi mẫu (ToF ~30Hz vs estimator 250Hz).
     tof_reading_t    tof;
     sensor_health_t  tof_h;
+
+    // ---- "CHIP CÒN ĐO ĐƯỢC" — KHÁC HẲN "có số dùng được" ----
+    // tof_h.timestamp_us chỉ nhích khi có mẫu HỢP LỆ (mark_ok). Đúng cho việc
+    // quyết định có correction hay không, nhưng SAI khi dùng để kết luận
+    // "sensor chết": nằm trên sàn (0mm, dưới tầm mù) hay nhìn ra khoảng không
+    // đều cho range_status != 0 -> tof_h.timestamp_us đứng yên -> tuổi mẫu tăng
+    // vô hạn -> soft-fault, TRONG KHI chip vẫn đang đo đều đặn.
+    //
+    // tof_alive_us = mốc lần cuối MCU TIÊU THỤ TRỌN VẸN một kết quả từ chip,
+    // bất kể kết quả đó hợp lệ hay không. Chip chết / bus đứt thì số này ĐỨNG;
+    // chạm đất hay ngoài tầm thì nó VẪN NHÍCH. Đó chính là thứ phân biệt
+    // "không có gì để đo" với "không còn sensor".
+    //
+    // 0 = chưa từng tiêu thụ được mẫu nào (chưa init xong).
+    int64_t          tof_alive_us;
 } sensor_snapshot_t;
 
 // Ngưỡng lỗi LIÊN TIẾP trước khi hạ healthy. Đủ lớn để nhiễu bus lẻ tẻ không

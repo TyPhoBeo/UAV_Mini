@@ -168,19 +168,39 @@ check("_ws_press() doc mode da luu", "_ws_mode()" in GUI_PY)
 # =============================================================================
 print("\n== (5) Dieu kien ban giao takeoff -> HOLDING ==")
 TKO_C = (ROOT / "components/flight_core/src/takeoff_land.c").read_text(encoding="utf-8")
+
+def strip_c_comments(src):
+    """Bo comment truoc khi kiem 'code co dung X khong'.
+
+    Khoi giai thich o takeoff_land.c CON NHAC TEN cac hang so da bo, nen
+    kiem thang tren van ban se bao dong gia.
+    """
+    src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
+    return re.sub(r"//[^\n]*", "", src)
+
+
+TKO_CODE = strip_c_comments(TKO_C)
 m_hr = re.search(r"const bool hold_ready\s*=(.*?);", TKO_C, re.S)
 check("tim thay hold_ready", m_hr is not None)
 if m_hr:
     expr = " ".join(m_hr.group(1).split())
-    check("hold_ready doi ROI DAT", "liftoff_flag" in expr, expr)
+    # hold_ready gio la: slew_done && (vz_settled || settle_timeout).
+    # Hai ve xac dinh nam trong slew_done, nen kiem tren CA HAM thay vi chi
+    # tren dong hold_ready.
+    check("hold_ready doi ROI DAT", "liftoff_flag" in TKO_CODE, expr)
     check("hold_ready doi rate-limiter truot het",
-          "target_z_m == st->final_target_m" in expr, expr)
-    # Hai ve DA BO — chung la nguyen nhan takeoff ket 21.6s roi timeout.
-    check("hold_ready KHONG con doi |alt - target| <= TOL",
-          "TAKEOFF_HOLD_Z_TOL_M" not in expr,
+          "target_z_m == st->final_target_m" in TKO_CODE, expr)
+    check("hold_ready doi vz da lang (chong vot lo)",
+          "vz_settled" in expr, expr)
+    check("ve vz co tran thoi gian (khong the ket vinh vien)",
+          "settle_timeout" in expr, expr)
+    # Ve DO CAO da bo VINH VIEN: no tung lam takeoff ket 21.6s roi timeout
+    # (drone leo 1.45m khi target 1.00m -> |Z-tgt| khong bao gio <= 0.08).
+    # Kiem tren CA HAM, khong chi tren dong hold_ready: kiem hep se cho ket qua
+    # XANH GIA neu ai do khai lai no o mot bien trung gian.
+    check("KHONG con doi |alt - target| <= TOL (tung lam ket 21.6s)",
+          "TAKEOFF_HOLD_Z_TOL_M" not in TKO_CODE,
           "ve nay tung lam takeoff khong bao gio ban giao duoc")
-    check("hold_ready KHONG con doi |vz| <= TOL",
-          "TAKEOFF_HOLD_VZ_TOL_MS" not in expr)
 
 print("")
 if fails:

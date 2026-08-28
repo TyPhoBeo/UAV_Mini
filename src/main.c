@@ -264,40 +264,9 @@ static int cmd_status(int argc, char **argv) {
     // duoc phep sua world-Z. Tren mat dat (ground lock) corr LUON =0 va reject
     // tang deu — DUNG THIET KE, khong phai loi: Z=0 luc con o dat la ground
     // truth chac chan hon moi cam bien.
-    // status: thang PAL sau khi map tu device status (xem L1X_STATUS_MAP).
-    // Day la so QUAN TRONG NHAT khi ToF "khong ra gia tri": no noi chip TU CHOI
-    // vi ly do gi, thay vi chi thay valid=0 va phai doan.
-    static const char *const kTofStatus[] = {
-        "VALID",        /* 0 */
-        "SIGMA_FAIL",   /* 1  nhieu qua lon */
-        "SIGNAL_FAIL",  /* 2  tin hieu ve qua yeu -> NGOAI TAM hoac be mat hap thu */
-        "MIN_RANGE",    /* 3  vat qua GAN */
-        "PHASE_FAIL",   /* 4  ngoai tam / nhieu pha */
-        "HW_FAIL",      /* 5 */
-        "NO_UPDATE",    /* 6 */
-        "WRAP_FAIL",    /* 7 */
-    };
-    const uint8_t tof_st = t.tof_range_status;
-    const char *tof_st_name =
-        (tof_st == 255) ? "CHUA CO MAU"
-                        : ((tof_st < (sizeof(kTofStatus) / sizeof(kTofStatus[0])))
-                               ? kTofStatus[tof_st] : "?");
-    printf("tof: driver_ok=%d raw=%.3fm valid=%d status=%u(%s) age=%dms | vertical=%.3fm innov=%.3fm\n",
-           (int)t.tof_ok_driver, t.tof_range_m, (int)t.tof_valid,
-           (unsigned)tof_st, tof_st_name, (int)t.tof_age_ms,
+    printf("tof: driver_ok=%d raw=%.3fm valid=%d age=%dms | vertical=%.3fm innov=%.3fm\n",
+           (int)t.tof_ok_driver, t.tof_range_m, (int)t.tof_valid, (int)t.tof_age_ms,
            (double)t.tof_vertical_m, (double)t.tof_innovation_m);
-    // age=-1 nghia la seq==0 (sensor_hub_age_us tra INT64_MAX): mark_ok() CHUA
-    // CHAY LAN NAO. Ket hop voi status o tren de biet dung o dau:
-    //   status=255 -> hub chua he doc duoc mau nao tu chip
-    //   status!=0  -> chip CO tra loi, nhung tu choi mau (ly do o ten status)
-    if (t.tof_age_ms < 0) {
-        printf("  ^ age=-1: CHUA TUNG co mau HOP LE ke tu boot (seq=0).\n");
-        if (tof_st == 255) {
-            printf("    status=255 -> hub chua doc duoc gi tu chip: nghi nguon 2.8V/day I2C.\n");
-        } else {
-            printf("    status!=0 -> chip CO do nhung tu choi ket qua; xem ten status o tren.\n");
-        }
-    }
     printf("tof_surface: state=%d(%s) corr=%d surface_z=%.2fm floor_z=%.2fm ground_ref=%.3fm "
 "accept=%u reject=%u | landing_z=%.2fm valid=%d\n",
            (int)t.tof_surface_state,
@@ -839,28 +808,6 @@ static int cmd_tof_test(int argc, char **argv) {
     // app_config.h se vo BUILD -- tuc la co mot cau hinh hop le ma khong build duoc.
     printf("  stall_restarts: %u  (phai DUNG YEN; tang = ToF treo that -> nghi nguon/nhieu)\n",
            (unsigned)tof_driver_stall_restarts());
-    // Doc thang tu driver: PHAN BIET "hub khong goi" vs "goi ma loi I2C" vs
-    // "bus tot nhung chip khong sinh mau". Ba cai nay truoc day nhin giong het.
-    {
-        uint32_t pc = 0, pe = 0, pn = 0;
-        int perr = 0;
-        tof_driver_poll_stats(&pc, &pe, &pn, &perr);
-        printf("  poll_driver: calls=%u io_errors=%u not_ready=%u last_err=%s\n",
-               (unsigned)pc, (unsigned)pe, (unsigned)pn, esp_err_to_name((esp_err_t)perr));
-        if (pc == 0 && pn == 0) {
-            printf("    => hub KHONG he goi tof_driver_read(): tof_present=0 luc\n");
-            printf("       sensor_hub_start(), hoac lich poll sai. KHONG phai loi phan cung.\n");
-        } else if (pc == 0 && pn > 0) {
-            printf("    => driver CHUA SAN SANG (dev=NULL hoac ranging_started=0)\n");
-            printf("       du init bao thanh cong -> xem lai tof_driver_init/tof_reinit.\n");
-        } else if (pe > 0 && pe * 2 >= pc) {
-            printf("    => chip KHONG tra loi tren I2C (loi >= 50%% so lan doc).\n");
-            printf("       last_err o tren la ma loi that; day moi la dau hieu day/nguon.\n");
-        } else if (pc > 0 && pe == 0) {
-            printf("    => bus I2C TOT (0 loi trong %u lan doc) nhung chip khong sinh mau:\n", (unsigned)pc);
-            printf("       chip nhan lenh nhung khong ranging -> nghi cau hinh/VCSEL, KHONG phai day.\n");
-        }
-    }
 #endif
 
     if (n_valid > 0) {
@@ -873,35 +820,13 @@ static int cmd_tof_test(int argc, char **argv) {
 
     // ---- Ket luan ----
     if (n_new == 0) {
-        // "mau moi" o day = tof_age_ms GIAM, ma age chi giam khi mark_ok() chay,
-        // ma mark_ok chi chay khi mau HOP LE. Nen n_new==0 KHONG chung minh hub
-        // im lang: no cung dung khi hub doc deu nhung chip tu choi moi mau.
-        // Phan biet bang status duoi day, dung doan.
-        printf("tof_test: FAIL -- khong co mau HOP LE nao trong %.1fs.\n", (double)sec);
-        telemetry_snapshot_t td;
-        flight_core_read_telemetry(&td);
-        printf("  range_status hien tai = %u  (0=VALID, 255=chua co mau)\n",
-               (unsigned)td.tof_range_status);
-        if (td.tof_range_status == 255) {
-            printf("  => hub CHUA doc duoc gi tu chip: tof_present=0 luc sensor_hub_start,\n");
-            printf("     hoac chip khong tra loi (nguon 2.8V / day I2C). Chay 'tof' va 'i2c_scan'.\n");
-        } else {
-            printf("  => chip CO do nhung TU CHOI moi mau (status != 0). Chay 'tof' de xem\n");
-            printf("     ten status; status 2/4 = ngoai tam hoac be mat khong phan xa lai.\n");
-        }
+        printf("tof_test: FAIL -- driver OK nhung sensor_hub KHONG cap mau nao.\n");
+        printf("  => hub khong doc ToF (tof_present=0 luc sensor_hub_start?).\n");
         return 1;
     }
-    // Ky vong = nhip CHIP (1000/INTER_MEASUREMENT_MS). Hub poll 32ms
-    // (SENSOR_TOF_DIVISOR=8) con chip xong moi 40ms, nen tran thuc te la chip.
     if (hz < 10.0f) {
-        printf("tof_test: FAIL -- nhip qua thap (%.1fHz, ky vong ~%dHz).\n",
-               (double)hz, 1000 / BOARD_TOF_L1X_INTER_MEASUREMENT_MS);
-        // KHONG doan "bus I2C nghen" nua: mot chu ky doc day du chi ton ~2.3ms
-        // @100kHz (1 byte co ngat + 17 byte ket qua + 1 byte clear), tuc rieng
-        // I2C cho phep toi ~430Hz. Nghen bus KHONG the keo nhip xuong 10Hz.
-        printf("  => nghi theo thu tu: (1) cua so cam bien bi che/con mang bao ve\n");
-        printf("     (do ra 1-4mm la dau hieu ro), (2) nguon 2.8V sut khi VCSEL ban,\n");
-        printf("     (3) INTER_MEASUREMENT/timing budget dat sai trong board_config.h.\n");
+        printf("tof_test: FAIL -- nhip qua thap (%.1fHz, ky vong ~30Hz).\n", (double)hz);
+        printf("  => bus I2C nghen / timing budget sai / sensor tra loi cham.\n");
         return 1;
     }
     if (n_valid == 0) {

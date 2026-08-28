@@ -565,29 +565,48 @@ esp_err_t tof_backend_poll_l0x(tof_sensor_state_t *s) {
 
     // Có mẫu mới = chip còn sống. Ghi mốc TRƯỚC khi xét range_status: ngoài
     // tầm vẫn là một lần đo thành công về mặt phần cứng.
-    s->last_sample_us = esp_timer_get_time();
+    // Thuần chẩn đoán, KHÔNG đụng last_sample_us (xem tof_backend.h).
+    s->last_ready_us = esp_timer_get_time();
 
     // RESULT_RANGE_STATUS block is 12 bytes; range_mm is at offset +10.
     uint8_t result[12] = {0};
     err = read_multi(s->dev, VL53L0X_REG_RESULT_RANGE_STATUS, result, sizeof(result));
+    // ⚠ ĐỌC HỎNG -> KHÔNG ĐỘNG last_sample_us. Bản trước ghi mốc TRƯỚC lần đọc
+    // này, nên bus chết vẫn làm watchdog tin là "vừa có mẫu tươi" — đúng cái
+    // watchdog sinh ra để phát hiện.
     if (err != ESP_OK) return err;
 
     // Clear interrupt so the next ranging result can be generated.
+    // Clear hỏng = chip KHÔNG sinh mẫu kế tiếp, mọi vòng poll sau đọc lại đúng
+    // khối cũ. Coi cả nhịp là hỏng, đừng nhận số đứng yên làm mẫu hợp lệ.
     err = write_reg8(s->dev, VL53L0X_REG_SYSTEM_INTERRUPT_CLEAR, 0x01);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) return err;   // last_sample_us KHÔNG nhích
+
+    // ---- Mẫu đã ĐƯỢC TIÊU THỤ TRỌN VẸN ----
+    // MỘT mốc dùng chung: chúng mô tả CÙNG một mẫu vật lý.
+    const int64_t sample_now_us = esp_timer_get_time();
+    s->last_sample_us   = sample_now_us;
+    s->last_consumed_us = sample_now_us;   // watchdog KHÔNG chạm vào cái này
 
     const uint16_t dist_mm = (uint16_t)(((uint16_t)result[10] << 8) | result[11]);
     const uint8_t mapped = map_device_range_status(result[0]);
 
-    s->last.range_status = mapped;
+    s->last.range_status     = mapped;
+    s->last.range_status_raw = result[0];
+    // L0X không có signal/ambient trong khối 12 byte này -> để 0, nghĩa là
+    // "không có số", khác với "đo được 0". Chỉ L1X điền hai trường này.
+    s->last.signal_mcps  = 0;
+    s->last.ambient_mcps = 0;
 
     // VL53L0X nominal max is ~2 m; use a broad physical gate and require device
     // status Range Valid. Bottom-ToF fusion can impose a tighter confidence gate.
     if (mapped == 0 && dist_mm > 0 && dist_mm <= 2000 && dist_mm != 0xFFFF) {
         s->last.distance_m = (float)dist_mm * 0.001f;
         s->last.valid = true;
-        s->last_good_us = esp_timer_get_time();
+        s->last_good_us = sample_now_us;   // CÙNG mốc với last_sample_us
     } else {
+        // Ngoài tầm / bề mặt hấp thụ / nằm sát sàn: chip VẪN SỐNG và vẫn đo.
+        // last_sample_us + last_consumed_us ĐÃ nhích, last_good_us thì KHÔNG.
         s->last.valid = false;
     }
 

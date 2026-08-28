@@ -34,17 +34,36 @@
 #define SENSOR_BATTERY_ENABLED   1   // ADC1 pin sense (IO6)
 #define SENSOR_CAMERA_ENABLED    0   // OV2640 — có trên bo, KHÔNG dùng cho firmware bay, không khai báo pin
 
-// ---- Latch ga hover theo điện áp pin (hover_model.h) ----
-// 1 = lúc ARM, đo vbat (motor CHƯA quay -> điện áp KHÔNG TẢI) rồi chốt
-//     hover_ff + ga PRIME theo model hover(V). Chốt MỘT LẦN, đóng băng suốt
-//     chuyến bay — KHÔNG phải bù pin liên tục (cái đó đã bị gỡ có chủ đích, xem
-//     flight_core.c bước 9b). Pin tụt dần trong lúc bay do I của vòng Vz tự bù.
-// 0 = hover_ff giữ nguyên hằng số ALT_HOLD_HOVER_NOMINAL như trước — hành vi
-//     cũ y nguyên, kể cả điều kiện ARM (không có thêm lý do từ chối nào).
+// ---- Latch ga hover theo dien ap pin (hover_model.h) ----
+// 1 = luc ARM, do vbat roi chot hover_ff + ga PRIME theo model hover(V).
+// 0 = hover_ff = hang so ALT_HOLD_HOVER_NOMINAL.
+// ⚠ TAT (=0) — DA DO DUOC TREN LOG BAY THAT, KHONG PHAI SUY DOAN.
 //
-// TẮT VỀ 0 nếu bay thử thấy ga ban đầu sai hẳn: model chỉ fit từ 2 điểm đo
-// bench-ramp của MỘT con drone, đổi motor/cánh/khung là phải đo lại.
-#define HOVER_LATCH_ENABLED      1
+// Latch chot ga hover theo vbat DUY NHAT MOT LAN luc ARM, qua model
+//     hover(V) = 900 * (4.2/V)^2.6        (hover_model.h)
+// So mu 2.6 KHUECH DAI moi sai so cua phep do vbat.
+//
+// Do ADC vbat trong CUNG mot chuyen bay dao dong 2.93..4.07V (bien do 1.14V
+// tren mot vien 1S). Qua model, cung mot con drone cho ra:
+//     V=4.07 -> FF =  977 duty
+//     V=3.61 -> FF = 1334 duty
+//     V=2.93 -> FF = 2295 duty
+// Tuc la ket qua phu thuoc vao viec latch TRUNG mau nao luc ARM.
+//
+// Hau qua da quan sat (2 chuyen bay lien tiep):
+//     HOVLV=3.61V -> TKOBASE=1332, ga hover THAT ~993  -> thua 339 duty (34%)
+//     vz thuc +1.1 m/s trong khi VZTGT=-0.10 (lenh DI XUONG)
+//     TKOI bo toi -127 va VAN chua du (can -339) -> drone vuot target 0.50m
+//     len 1.69m va con dang len.
+// Vong Vz lam dung viec, nhung no phai chong lai mot feedforward sai 34%.
+//
+// TAT -> hover_ff = ALT_HOLD_HOVER_NOMINAL (hang so). Do duoc o lan bay on
+// dinh: THR=995 = 1000 + VZP 2.80 - VZI 6.97, tuc hover that ~993 duty.
+// Hang so 1000 lech ~7 duty (0.7%) — I-term nuot phan do trong vai tram ms.
+//
+// MUON BAT LAI: phai loc vbat truoc (trung vi cua so dai, tu choi chot khi
+// do lech mau qua lon). Bat lai voi ADC nhu hien tai se lap lai dung loi nay.
+#define HOVER_LATCH_ENABLED      0
 
 
 // ---- Terrain offset (bay qua bàn/ghế mà KHÔNG mất tham chiếu ToF) ----

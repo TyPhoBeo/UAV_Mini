@@ -156,6 +156,11 @@ typedef struct {
     // quan tới est_z (xem tuning.h 3d).
     bool     at_target_active;
     int64_t  at_target_since_us;
+    // Moc luc rate-limiter truot XONG (target_z == final_target). Dung de
+    // dat TRAN THOI GIAN cho ve "|vz| da lang" — het han thi ban giao du vz
+    // chua lang, de khong bao gio lap lai lan ket 21.6s cua dieu kien do cao.
+    // 0 = chua truot xong.
+    int64_t  slew_done_since_us;
     // Cửa sổ "collective kịch trần" -> TKO_ABORT_STUCK (không nhấc nổi).
     bool     stuck_active;
     int64_t  stuck_since_us;

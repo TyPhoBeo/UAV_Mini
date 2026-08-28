@@ -150,6 +150,19 @@ void telemetry_format_status_line(char *out, size_t out_size) {
         //   HOVLV  = vbat trung vi luc chot (V, KHONG TAI)
         //   HOVLD  = hover_ff suy ra tu model (duty)
         " HOVLK=%d HOVLV=%.2f HOVLD=%.0f"
+        // TOFALIVE = bao lau roi CHIP khong do duoc (ms), -1 = chua tung.
+        // KHAC TOFAGE (tuoi mau HOP LE). Nam sat san/ngoai tam: TOFAGE tang
+        // vo han nhung TOFALIVE van nho -> GUI biet do la 'khong co gi de do'
+        // chu khong phai 'mat cam bien'. Giu o muc MINIMAL vi thieu no la GUI
+        // bao do nham. Noi o CUOI de khong dich group index cua STATUS_RE.
+        " TOFALIVE=%d"
+        // Chan doan nhip vong dieu khien (telemetry.h):
+        //   LWH  = so vong duoc sensor_hub danh thuc (duong NHANH, dung)
+        //   LWT  = so vong phai roi ve dong ho FreeRTOS (cho qua han)
+        //   LBUSY= thoi gian XU LY tick truoc (us), KHONG ke phan cho
+        // LWT tang deu = hub khong publish kip (nghi I2C/ToF chiem bus).
+        // LBUSY gan 4000 = CPU that su khong du.
+        " LWH=%u LWT=%u LBUSY=%u"
 #if TELEMETRY_LEVEL >= 2
         // ================= TU DAY TRO XUONG CHI CO O MUC FULL =================
         // GUI (STATUS_RE) khong parse bat ky field nao duoi day -- no ket thuc
@@ -167,14 +180,16 @@ void telemetry_format_status_line(char *out, size_t out_size) {
         " AZBZ=%.4f AZERAW=%.4f AZGRAV=%.4f AZBIAS=%.4f AZLPF2=%.4f"
         " ZREQ=%.3f ZERR=%.3f VZERR=%.3f VZP=%.2f VZI=%.2f VZD=%.2f"
         " VZOUT=%.1f HOVTHR=%.1f THRCORR=%.1f"
-        // ---- TERRAIN — nối THÊM Ở CUỐI DÒNG, CÙNG LÝ DO với TOFEN/HOVLK ở
-        // trên: chèn vào GIỮA sẽ làm DỊCH group index của STATUS_RE bên GUI.
-        // TOFF =terrain_off_m (bề mặt đang nhìn cao hơn sàn cất cánh bao nhiêu)
-        // TPEND=đang nghi có bậc (I freeze, alt coast); TCMT=số lần commit;
-        // TRES =residual mẫu cuối (số để tune TERR_JUMP_THRESH_M);
-        // CLR  =KHOẢNG HỞ THẬT dưới bụng (AGL) — số quyết định va chạm, KHÔNG
-        //       phải ALTm; FRAME=0 DATUM / 1 AGL.
-        " TOFF=%.3f TPEND=%d TCMT=%u TRES=%.3f CLR=%.3f FRAME=%d"
+        // CLR  =KHOANG HO THAT duoi bung (AGL) — so quyet dinh va cham, KHONG
+        //       phai ALTm; FRAME=0 DATUM / 1 AGL.
+        //
+        // ---- TOFF/TPEND/TCMT/TRES: DA CAT (4 field) ----
+        // Terrain offset da TAT (TERRAIN_OFFSET_ENABLED=0, xem app_config.h).
+        // terrain_off_m luon = 0 nen ca 4 so nay dung yen vinh vien — giu lai
+        // chi lam nguoi doc log tuong chung con y nghia. Da kiem: khong regex
+        // nao ben tools/uav_udp_console.py doc chung, va khong test nao dung.
+        // CLR/FRAME GIU LAI: chung van co nghia that (clearance + he quy chieu).
+        " CLR=%.3f FRAME=%d"
         // Gyro calibration diagnostics ở cadence STATUS, không phải 1kHz.
         " GRAWX=%.3f GRAWY=%.3f GRAWZ=%.3f"
         " GBIASX=%.3f GBIASY=%.3f GBIASZ=%.3f"
@@ -248,7 +263,10 @@ void telemetry_format_status_line(char *out, size_t out_size) {
         (double)t.tof_corr_z_m, (double)t.tof_corr_vz_ms,
         (double)t.baro_corr_z_m, (double)t.baro_corr_vz_ms,
         (double)t.bias_residual_m, (unsigned)t.bias_adapt_count,
-        t.hover_latched ? 1 : 0, (double)t.hover_latch_v, (double)t.hover_latch_duty
+        t.hover_latched ? 1 : 0, (double)t.hover_latch_v, (double)t.hover_latch_duty,
+        (int)t.tof_alive_ms,
+        (unsigned)t.loop_wake_by_hub, (unsigned)t.loop_wake_timeout,
+        (unsigned)t.loop_busy_us
 #if TELEMETRY_LEVEL >= 2
         // ---- doi so cua phan FULL: PHAI khop 1-1 voi khoi #if o format string ----
         ,
@@ -262,8 +280,7 @@ void telemetry_format_status_line(char *out, size_t out_size) {
         (double)t.vz_p_term, (double)t.vz_i_term, (double)t.vz_d_term,
         (double)t.vz_output_duty, (double)t.hover_throttle_duty,
         (double)t.throttle_correction_duty,
-        (double)t.terrain_off_m, t.terrain_pending ? 1 : 0,
-        (unsigned)t.terrain_commits, (double)t.terrain_residual_m,
+        // (4 doi so TOFF/TPEND/TCMT/TRES da cat cung luc voi format string)
         (double)t.clearance_m, (int)t.alt_frame,
         (double)t.gyro_raw_dps.x, (double)t.gyro_raw_dps.y, (double)t.gyro_raw_dps.z,
         (double)t.gyro_bias_dps.x, (double)t.gyro_bias_dps.y, (double)t.gyro_bias_dps.z,

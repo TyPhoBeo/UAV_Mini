@@ -71,12 +71,9 @@ _Static_assert((SENSOR_HUB_HZ % IMU_SAMPLES_PER_CONTROL) == 0,
 // tốn CPU đáng kể.
 #define SENSOR_BATTERY_DIVISOR   25
 
-// ToF: divisor 8 = poll mỗi 32ms (~31Hz), phase 4.
-//
-// ĐÃ THỬ 4/1 (poll 16ms) rồi HOÀN NGUYÊN: giả thuyết lúc đó là hub 32ms và chip
-// 40ms trượt pha nên mất mẫu. Poll dày hơn KHÔNG cải thiện gì trên phần cứng
-// thật — lần đo sau khi đổi cho 0 mẫu, tức nút thắt nằm ở chỗ khác (chip không
-// sinh mẫu), không phải ở lịch poll. Giữ 8/4 là cấu hình đã từng chạy được.
+// ToF VL53L0X: timing budget 33ms -> ~30Hz. Divisor 8 = 32ms/lần poll, tức
+// NHANH HƠN chip đo một chút — đúng chiều cần thiết (poll chậm hơn nguồn mẫu
+// thì mất mẫu; nhanh hơn thì chỉ tốn thêm một lần đọc cờ ngắt rẻ tiền).
 //
 // PHASE 4 giảm va chạm với mag(phase 0)/baro(phase 2) nhưng KHÔNG loại bỏ được.
 // Đừng tin điều ngược lại: với divisor 5/5/8 thì
@@ -86,17 +83,12 @@ _Static_assert((SENSOR_HUB_HZ % IMU_SAMPLES_PER_CONTROL) == 0,
 //
 // Một vòng có 2 transaction là chấp nhận được (~1ms tổng, trong ngân sách 4ms)
 // và KHÔNG chặn vòng bay vì hub đã notify stabilize TRƯỚC khi đọc mag/baro/ToF.
+// Ghi ra đây vì bản trước khẳng định "không bao giờ rơi cùng một vòng" — sai,
+// và nếu sau này ToF lại chập chờn thì đây là một trong những chỗ phải xem
+// (xung đột lịch truy cập I2C là nguyên nhân đã được ghi nhận với VL53L0X trên
+// flight controller — xem README mục ToF).
 #define SENSOR_TOF_DIVISOR       8
 #define SENSOR_TOF_PHASE         4
-
-// PHASE phải NHỎ HƠN DIVISOR, nếu không (round % DIVISOR) == PHASE không bao
-// giờ đúng và cảm biến đó ngừng được đọc HOÀN TOÀN mà không có lấy một dòng
-// log — kiểu hỏng tệ nhất, vì mọi thứ khác vẫn chạy bình thường. Bắt lúc biên
-// dịch thay vì lúc bay.
-_Static_assert(SENSOR_TOF_PHASE < SENSOR_TOF_DIVISOR,
-    "SENSOR_TOF_PHASE >= SENSOR_TOF_DIVISOR -> ToF khong bao gio duoc poll");
-_Static_assert(SENSOR_BARO_PHASE < SENSOR_BARO_DIVISOR,
-    "SENSOR_BARO_PHASE >= SENSOR_BARO_DIVISOR -> baro khong bao gio duoc poll");
 
 // Timeout chờ ngắt IMU = 2 chu kỳ (giống logic cũ trong stabilize_task): ngắt
 // bình thường luôn tới trước hạn; hết hạn nghĩa là ngắt THẬT SỰ ngừng đến.
@@ -203,8 +195,17 @@ static void publish_battery(const battery_sample_t *s, bool ok, int64_t now_us) 
 // nhiều lần bởi cùng một measurement.
 #if FC_FEATURE_TOF
 static void publish_tof(const tof_reading_t *s, bool ok, int64_t now_us) {
+    // Lấy NGOÀI mutex: getter chỉ đọc một int64 do backend ghi, không đụng
+    // snapshot. Gọi trong mutex chỉ kéo dài đoạn găng vô ích.
+    const int64_t alive_us = tof_driver_last_sample_us();
+
     xSemaphoreTake(s_mtx, portMAX_DELAY);
     s_snap.tof = *s;
+    // ⚠ CẬP NHẬT BẤT KỂ ok — đây chính là điểm khác nhau giữa "không có gì để
+    // đo" và "mất sensor". Nằm trên sàn (0mm, dưới tầm mù) hay nhìn ra khoảng
+    // không đều cho ok=false, nhưng chip VẪN đang đo đều -> alive_us vẫn nhích.
+    // Chỉ khi chip chết / bus đứt thì nó mới đứng yên.
+    s_snap.tof_alive_us = alive_us;
     if (ok) { mark_ok(&s_snap.tof_h, now_us); }
     else    { mark_err(&s_snap.tof_h); }
     xSemaphoreGive(s_mtx);

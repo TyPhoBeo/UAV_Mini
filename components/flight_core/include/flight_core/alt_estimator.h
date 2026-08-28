@@ -125,7 +125,7 @@ typedef struct {
 // min-range-fail). Mau trong dai 0.01-0.03 nen coi la "co con hon khong", KHONG
 // phai so do chinh xac. Neu thay tof_z_m nhay loan sat dat thi day la nghi can
 // dau tien.
-#define ALT_EST_TOF_MIN_RANGE_M              0.01f
+#define ALT_EST_TOF_MIN_RANGE_M              0.00f
 // ============================================================================
 // GATE HINH HOC cho MOT mau range tho — PHAI phu duoc TRAN BAY SAU BU TILT
 // ============================================================================
@@ -321,6 +321,10 @@ float alt_estimator_tof_agl_m(const alt_estimator_t *e);
 // rang be mat gan hon nhieu so voi model, va cho them 4 mau nua la cho them
 // mot cu va cham. Tra false neu khong co mau ToF dung duoc.
 bool alt_estimator_terrain_rebase(alt_estimator_t *e);
+// Chot goc toa do = 0 khi KHONG co mau ToF nao dung duoc (nam sat san, ToF doc
+// 0.000m duoi tam mu). Duong cuoi de takeoff KHONG bi tu choi chi vi drone dang
+// nam dung cho no phai nam. Xem giai thich day du trong alt_estimator.c.
+void alt_estimator_lock_floor_at_zero(alt_estimator_t *e);
 
 void alt_estimator_update(alt_estimator_t *e, vec3f_t acc_body_g, quat_t q,
 #if FC_FEATURE_BARO
@@ -329,6 +333,16 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t acc_body_g, quat_t q,
 #endif
                           bool tof_healthy, uint32_t tof_seq,
                           int64_t tof_timestamp_us, float tof_range_m,
+                          // tof_hw_alive = chip VAN DANG DO, khac han "co mau
+                          // dung duoc". Nam sat san (0mm, duoi tam mu), nhin ra
+                          // khoang khong hay be mat hap thu deu cho tof_healthy
+                          // = false NHUNG tof_hw_alive = true. Chi khi chip chet
+                          // / bus dut thi no moi false.
+                          //
+                          // Dung DUY NHAT de tra loi "con cam bien khong". Cau
+                          // "co so de bay khong" van la viec cua tof_healthy.
+                          // Truyen tof_alive_us tu sensor_snapshot_t.
+                          bool tof_hw_alive,
                           bool stationary, bool liftoff_candidate, bool airborne,
                           int64_t now_us, float dt);
 void alt_estimator_correct_velocity(alt_estimator_t *e, float vz_measured_ms,
