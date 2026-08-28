@@ -171,6 +171,23 @@ esp_err_t tof_driver_read(tof_reading_t *out);
 // chỉ mua thêm thời gian, nó không làm cảm biến đáng tin trở lại.
 uint32_t tof_driver_stall_restarts(void);
 
+// tof_driver_poll_stats() — số liệu THÔ của đường poll, để phân biệt ba tình
+// huống mà bề ngoài giống hệt nhau (valid=0, range_status=255, stall=0):
+//
+//   calls=0, not_ready>0  -> hub CÓ gọi nhưng driver chưa sẵn sàng
+//                            (dev=NULL hoặc ranging_started=0)
+//   calls=0, not_ready=0  -> hub KHÔNG hề gọi (lịch poll sai / tof_present=0)
+//   calls>0, io_errors≈calls -> chip KHÔNG trả lời trên I2C (last_err chỉ rõ)
+//   calls>0, io_errors=0     -> bus tốt, chip chỉ chưa sinh mẫu nào
+//
+// VÌ SAO CẦN: khi backend lỗi I2C, poll_with_watchdog() return NGAY, trước cả
+// khối stall watchdog — nên stall_restarts đứng yên và trông như "chip khoẻ".
+// Không có bộ đếm này thì không cách nào phân biệt bằng quan sát.
+//
+// Con trỏ nào không cần thì truyền NULL. Chỉ đọc, an toàn khi đang bay.
+void tof_driver_poll_stats(uint32_t *calls, uint32_t *io_errors,
+                           uint32_t *not_ready, int *last_err);
+
 // Tên dòng chip ĐANG được biên dịch vào ("VL53L0X" / "VL53L1X"). Hằng chuỗi
 // tĩnh, luôn khác NULL. Dùng cho log/telemetry để người đọc biết firmware này
 // build cho chip nào — KHÔNG phải kết quả dò lúc chạy.

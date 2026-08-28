@@ -88,6 +88,18 @@ static tof_sensor_state_t s_sensor;
 // Số lần watchdog phải khởi động lại ranging (xem tof_driver.h).
 static uint32_t s_stall_restarts = 0;
 
+// ---- Bộ đếm CHẨN ĐOÁN đường poll (xem poll_with_watchdog) ----
+// Ba con số này tách ba chuyện mà trước đây đều hiện ra thành "valid=0,
+// status=255, stall_restarts=0" giống hệt nhau:
+//   s_poll_not_ready : hub CÓ gọi nhưng driver chưa sẵn sàng (dev/ranging=0)
+//   s_poll_calls     : số lần thật sự chạm chip
+//   s_poll_io_errors : trong số đó, bao nhiêu lần lỗi I2C (kèm mã lỗi cuối)
+// Đây là dữ liệu ĐỌC-CHỈ, không đổi hành vi bay.
+static uint32_t  s_poll_calls = 0;
+static uint32_t  s_poll_io_errors = 0;
+static uint32_t  s_poll_not_ready = 0;
+static esp_err_t s_poll_last_err = ESP_OK;
+
 // Timeout dùng cho MỌI transaction của backend. Bắt đầu ở mức INIT, hạ xuống
 // RUNTIME khi tof_driver_init() thành công (xem cuối hàm đó).
 int tof_io_timeout_ms = TOF_IO_INIT_TIMEOUT_MS;
@@ -477,11 +489,23 @@ esp_err_t tof_driver_init(i2c_master_bus_handle_t bus, int xshut_gpio,
 // không nên tự ý reset phần cứng.
 static esp_err_t poll_with_watchdog(void) {
     tof_sensor_state_t *s = &s_sensor;
-    if (!s->dev || !s->ranging_started) return ESP_ERR_INVALID_STATE;
+    if (!s->dev || !s->ranging_started) {
+        s_poll_not_ready++;
+        return ESP_ERR_INVALID_STATE;
+    }
 
+    s_poll_calls++;
     const int64_t before_us = s->last_sample_us;
     const esp_err_t err = tof_be_poll(s);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) {
+        // ⚠ THOÁT TRƯỚC WATCHDOG. Backend lỗi I2C -> hàm này return ngay ở đây,
+        // nên khối stall watchdog bên dưới KHÔNG chạy và s_stall_restarts đứng
+        // yên. Nghĩa là "stall_restarts = 0" KHÔNG chứng minh chip khoẻ: nó
+        // cũng đúng khi mọi lần đọc đều lỗi bus. Đếm riêng để phân biệt.
+        s_poll_io_errors++;
+        s_poll_last_err = err;
+        return err;
+    }
 
     // Backend cập nhật last_sample_us khi VÀ CHỈ KHI nó tiêu thụ một mẫu mới.
     // Mốc không đổi = vòng này không có mẫu.
@@ -519,6 +543,14 @@ static esp_err_t poll_with_watchdog(void) {
 
 uint32_t tof_driver_stall_restarts(void) {
     return s_stall_restarts;
+}
+
+void tof_driver_poll_stats(uint32_t *calls, uint32_t *io_errors,
+                           uint32_t *not_ready, int *last_err) {
+    if (calls)     *calls     = s_poll_calls;
+    if (io_errors) *io_errors = s_poll_io_errors;
+    if (not_ready) *not_ready = s_poll_not_ready;
+    if (last_err)  *last_err  = (int)s_poll_last_err;
 }
 
 esp_err_t tof_driver_read(tof_reading_t *out) {

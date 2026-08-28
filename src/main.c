@@ -839,6 +839,28 @@ static int cmd_tof_test(int argc, char **argv) {
     // app_config.h se vo BUILD -- tuc la co mot cau hinh hop le ma khong build duoc.
     printf("  stall_restarts: %u  (phai DUNG YEN; tang = ToF treo that -> nghi nguon/nhieu)\n",
            (unsigned)tof_driver_stall_restarts());
+    // Doc thang tu driver: PHAN BIET "hub khong goi" vs "goi ma loi I2C" vs
+    // "bus tot nhung chip khong sinh mau". Ba cai nay truoc day nhin giong het.
+    {
+        uint32_t pc = 0, pe = 0, pn = 0;
+        int perr = 0;
+        tof_driver_poll_stats(&pc, &pe, &pn, &perr);
+        printf("  poll_driver: calls=%u io_errors=%u not_ready=%u last_err=%s\n",
+               (unsigned)pc, (unsigned)pe, (unsigned)pn, esp_err_to_name((esp_err_t)perr));
+        if (pc == 0 && pn == 0) {
+            printf("    => hub KHONG he goi tof_driver_read(): tof_present=0 luc\n");
+            printf("       sensor_hub_start(), hoac lich poll sai. KHONG phai loi phan cung.\n");
+        } else if (pc == 0 && pn > 0) {
+            printf("    => driver CHUA SAN SANG (dev=NULL hoac ranging_started=0)\n");
+            printf("       du init bao thanh cong -> xem lai tof_driver_init/tof_reinit.\n");
+        } else if (pe > 0 && pe * 2 >= pc) {
+            printf("    => chip KHONG tra loi tren I2C (loi >= 50%% so lan doc).\n");
+            printf("       last_err o tren la ma loi that; day moi la dau hieu day/nguon.\n");
+        } else if (pc > 0 && pe == 0) {
+            printf("    => bus I2C TOT (0 loi trong %u lan doc) nhung chip khong sinh mau:\n", (unsigned)pc);
+            printf("       chip nhan lenh nhung khong ranging -> nghi cau hinh/VCSEL, KHONG phai day.\n");
+        }
+    }
 #endif
 
     if (n_valid > 0) {
