@@ -112,8 +112,14 @@ if i_fly != -1:
 # =============================================================================
 print("\n== (3) GUI: giu/nha phim ==")
 
-check("GUI gui offset 100 (khong phai 200)",
-      "WS_THROTTLE_OFFSET_DUTY = 100" in GUI_PY)
+# Khong ghim con so: bien do nay la num nguoi dung chinh theo cam giac bay
+# (da qua 100 -> 200 -> 100 -> 150). Chi chan hai dau vo ly.
+m_ws = re.search(r"WS_THROTTLE_OFFSET_DUTY\s*=\s*(\d+)", GUI_PY)
+check("tim thay WS_THROTTLE_OFFSET_DUTY", m_ws is not None)
+if m_ws:
+    ws_duty = int(m_ws.group(1))
+    check("bien do offset nam trong khoang hop ly (50..400)",
+          50 <= ws_duty <= 400, str(ws_duty))
 check("GUI co keepalive khi giu phim", "_ws_tick" in GUI_PY)
 check("nha phim -> gui 0", "_send_thr_offset(0)" in GUI_PY)
 
@@ -137,7 +143,7 @@ if m_ka and m_stale:
 print("\n== (4) Mo phong: giu phim 1s (10 lan keepalive) ==")
 
 GA_NEN = 1000
-OFFSET = 100
+OFFSET = ws_duty if m_ws else 150
 MAX = 2000
 MIN = 400
 
@@ -160,7 +166,7 @@ for _ in range(10):
     latch_d, thr_d = tick_dung(latch_d, OFFSET)
     latch_s, thr_s = tick_sai(latch_s, OFFSET)
 
-check("DUNG: giu 1s -> throttle van la ga_nen + 100", thr_d == GA_NEN + OFFSET,
+check("DUNG: giu 1s -> throttle van la ga_nen + offset", thr_d == GA_NEN + OFFSET,
       "duoc %d, ky vong %d" % (thr_d, GA_NEN + OFFSET))
 check("DUNG: ga nen KHONG bi doi", latch_d == GA_NEN, str(latch_d))
 check("(chung minh loi cu) SAI: giu 1s -> kich tran", thr_s == MAX, str(thr_s))
@@ -175,14 +181,14 @@ check("(chung minh loi cu) SAI: nha phim -> VAN kich tran", thr_s == MAX, str(th
 latch_d2 = GA_NEN
 for _ in range(100):        # 10s
     latch_d2, thr_d2 = tick_dung(latch_d2, OFFSET)
-check("DUNG: giu 10s van la ga_nen + 100 (khong troi theo thoi gian)",
+check("DUNG: giu 10s van la ga_nen + offset (khong troi theo thoi gian)",
       thr_d2 == GA_NEN + OFFSET, str(thr_d2))
 
 # Chieu am.
 latch_d3 = GA_NEN
 for _ in range(10):
     latch_d3, thr_d3 = tick_dung(latch_d3, -OFFSET)
-check("DUNG: giu S 1s -> ga_nen - 100", thr_d3 == GA_NEN - OFFSET, str(thr_d3))
+check("DUNG: giu S 1s -> ga_nen - offset", thr_d3 == GA_NEN - OFFSET, str(thr_d3))
 
 # =============================================================================
 # (5) TRAN TOC DO TANG GA (150 duty/s) -- guard khong duoc nhay bac
@@ -260,4 +266,4 @@ if fails:
     print("KET QUA: %d FAIL -- %s" % (len(fails), ", ".join(fails)))
     sys.exit(1)
 print("KET QUA: ALL PASS")
-print("         giu phim = ga_nen +/- 100, nha phim = ga_nen. Khong cong don.")
+print("         giu phim = ga_nen +/- %d, nha phim = ga_nen. Khong cong don." % OFFSET)

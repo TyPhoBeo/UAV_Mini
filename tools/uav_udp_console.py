@@ -2585,10 +2585,12 @@ class PidTunerApp:
     #
     # Gio GUI luon gui @THR OFFSET; viec dich sang y nghia dung cua tung state
     # do FIRMWARE lam, la noi DUY NHAT biet chac minh dang o state nao.
-    # ⚠ 200 -> 100 duty (yeu cau moi nhat cua nguoi dung). Truoc do tung la
-    # 100, roi nang len 200, gio ve lai 100. Chi ap dung o FLYING — o HOLDING
-    # thi W/S di duong khac han (buoc do cao, xem WS_ALT_STEP_M ben duoi).
-    WS_THROTTLE_OFFSET_DUTY = 100
+    # Bien do offset ga khi GIU W/S trong FLYING. Da qua 100 -> 200 -> 100 ->
+    # 150 theo cam giac bay cua nguoi dung; khong co rang buoc ky thuat nao
+    # ghim con so nay, chi can no du nho de khong nhay bac.
+    # CHI ap dung o FLYING — o HOLDING thi W/S di duong khac han (buoc do cao,
+    # xem WS_ALT_STEP_M ben duoi).
+    WS_THROTTLE_OFFSET_DUTY = 150
     WS_OFFSET_KEEPALIVE_MS = 100     # < BENCH_OFFSET_STALE_US(400ms) nhieu lan
     # Buoc do cao moi lan bam W/S o HOLD. Phai KHOP voi buoc ma firmware ap dung
     # cho '>'/'<' (command_parser.c: +-0.10m) — GUI chi gui phim, khong gui so.

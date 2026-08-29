@@ -5,6 +5,11 @@
 
 #include "flight_core/fc_features.h"   // FC_FEATURE_FLOOR_GATE
 
+_Static_assert(TERR_PENDING_TIMEOUT_MS < ALT_EST_TOF_LOST_MS,
+    "TERR_PENDING_TIMEOUT_MS >= ALT_EST_TOF_LOST_MS: nghi ngo terrain se keo dai qua "
+    "nguong mat ToF -> valid=false -> soft-fault -> LANDING giua chuyen, TRUOC khi loi "
+    "thoat kip chay. Day dung la loi da lam TERRAIN_OFFSET_ENABLED bi tat.");
+
 static const float GRAVITY_MS2 = 9.80665f;
 static const float TWO_PI = 6.28318530718f;
 
@@ -17,6 +22,7 @@ static void clear_runtime(alt_estimator_t *e, bool keep_floor) {
     alt_estimator_t old = *e;
     memset(e, 0, sizeof(*e));
     e->tof_tilt_cos = 1.0f;
+    e->tilt_cos = 1.0f;
     e->tof_track_state = ALT_TOF_LOST;
     e->active_source = ALT_SRC_GROUND_LOCK;
     e->tof_surface_state = ALT_EST_TOF_SURFACE_UNKNOWN;
@@ -62,6 +68,7 @@ static void lock_floor_at(alt_estimator_t *e) {
     e->active_source = ALT_SRC_GROUND_LOCK;
     e->terrain_off_m = e->terr_cand_offset_m = e->terr_residual_m = 0.0f;
     e->terr_pending = false;
+    e->terr_pending_since_us = 0;
     e->terr_confirm_cnt = 0;
     e->agl_m = 0.0f;
     e->prev_tof_vertical_valid = false;
@@ -107,6 +114,7 @@ void alt_estimator_prepare_takeoff(alt_estimator_t *e) {
     e->active_source = ALT_SRC_GROUND_LOCK;
     e->terrain_off_m = e->terr_cand_offset_m = e->terr_residual_m = 0.0f;
     e->terr_pending = false;
+    e->terr_pending_since_us = 0;
     e->terr_confirm_cnt = 0;
     e->agl_m = 0.0f;
     e->prev_tof_vertical_valid = false;
@@ -156,6 +164,7 @@ bool alt_estimator_terrain_rebase(alt_estimator_t *e) {
     const float raw_agl = e->tof_vertical_m - e->tof_ground_range_m;
     e->terrain_off_m = e->alt_m - raw_agl;
     e->terr_pending = false;
+    e->terr_pending_since_us = 0;
     e->terr_confirm_cnt = 0;
     e->terr_cand_offset_m = e->terrain_off_m;
     e->terr_commit_count++;
@@ -253,6 +262,9 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
     const float w=q.w, x=q.x, y=q.y, z=q.z;
     const float rzz = 1.0f - 2.0f*x*x - 2.0f*y*y;
     const float ezg = 2.0f*(x*z-w*y)*a.x + 2.0f*(y*z+w*x)*a.y + rzz*a.z;
+    // Ghi MOI TICK (khong nam trong if(tof_new)): bu throttle theo nghieng
+    // can gia tri tuoi o nhip dieu khien, khong phai nhip ToF.
+    e->tilt_cos = rzz;
     e->az_body_z_g = a.z;
     e->az_earth_raw_ms2 = ezg * GRAVITY_MS2;
     e->az_after_gravity_ms2 = (ezg - 1.0f) * GRAVITY_MS2;
@@ -313,7 +325,19 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
                     e->tof_dt_s > 0.005f &&
                     e->tof_dt_s <= (float)ALT_EST_TOF_GAP_DERIV_MAX_MS / 1000.0f) {
                     const float d_range  = e->tof_vertical_m - e->prev_tof_vertical_m;
-                    const float expected = e->vz_ms * e->tof_dt_s;   // leo -> range tang
+                    // ⚠ DUNG vz_accel_only_ms, KHONG dung vz_ms.
+                    // vz_ms DA duoc chinh BOI ToF (xem khoi fuse cuoi ham:
+                    // tof_vz_lpf + innovation/dt). Dung no lam "du doan doc
+                    // lap" la mot vong hoi tiep kin: cu nhay range bom vao
+                    // vz_ms -> expected phinh len theo dung huong cua cu nhay
+                    // -> residual bi TRIET TIEU mot phan -> bac terrain that
+                    // co the tut xuong duoi TERR_JUMP_THRESH_M va khong bao
+                    // gio duoc phat hien.
+                    //
+                    // vz_accel_only_ms tich phan THUAN tu accel, khong bao gio
+                    // an correction ToF -- no la du doan DOC LAP that su, dung
+                    // thu ma phep tru residual can.
+                    const float expected = e->vz_accel_only_ms * e->tof_dt_s;  // leo -> range tang
                     const float residual = d_range - expected;
                     e->terr_residual_m = residual;
                     if (fabsf(residual) > TERR_JUMP_THRESH_M) {
@@ -323,6 +347,9 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
                         // nhieu.
                         e->terr_cand_offset_m = e->terrain_off_m - residual;
                         e->terr_confirm_cnt = 0;
+                        // Dong ho loi thoat: chi dat o CANH LEN cua nghi ngo.
+                        // Dat lai moi tick se lam timeout khong bao gio het han.
+                        if (!e->terr_pending_since_us) e->terr_pending_since_us = now_us;
                     }
                 }
 
@@ -334,10 +361,20 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
                     const float cand_z = raw_agl + e->terr_cand_offset_m;
                     if (fabsf(cand_z - e->alt_m) < TERR_CONFIRM_TOL_M) {
                         if (++e->terr_confirm_cnt >= TERR_CONFIRM_N) {
-                            e->terrain_off_m = e->terr_cand_offset_m;   // COMMIT
+                            // ---- B3: SANITY CHECK ----
+                            // Buoc terrain qua lon = do sai, khong phai bac
+                            // that. Tu choi va giu offset cu; van thoat pending
+                            // (neu khong thi lai ket dung vong luan quan cu).
+                            if (fabsf(e->terr_cand_offset_m - e->terrain_off_m)
+                                    <= TERR_MAX_STEP_M) {
+                                e->terrain_off_m = e->terr_cand_offset_m;   // COMMIT
+                                e->terr_commit_count++;
+                            } else if (e->terr_reject_count < UINT16_MAX) {
+                                e->terr_reject_count++;
+                            }
                             e->terr_pending = false;
+                            e->terr_pending_since_us = 0;
                             e->terr_confirm_cnt = 0;
-                            e->terr_commit_count++;
                         }
                     } else {
                         e->terr_confirm_cnt = 0;
@@ -446,6 +483,44 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
         }
     }
 
+#if FC_FEATURE_TERRAIN_OFFSET
+    // ========================================================================
+    // LOI THOAT BAT BUOC CHO terr_pending  (fix vong luan quan)
+    // ========================================================================
+    // ⚠ KHOI NAY PHAI NAM NGOAI if(tof_new). Do la TOAN BO diem cua no.
+    //
+    // Trong luc nghi ngo, tof_fusable bi ep false (co y: khong an range dang
+    // loan). Nhung confirm-counter chi chay khi CO mau di qua nhanh fusable ->
+    // khong bao gio confirm, cung khong bao gio huy -> terr_pending ket o 1
+    // vinh vien -> sau 300ms khong correction thi valid=false -> ALTSRC=4 ->
+    // soft-fault -> LANDING giua chuyen bay. Da do duoc tren bo:
+    //     TOFF=-0.315  TPEND=1  TCMT=1  TOFFUSE=0  TOFTRACK=0
+    //
+    // Dat trong if(tof_new) thi loi thoat cung chi chay khi co mau moi -- tuc
+    // la khong sua duoc gi trong dung cai kich ban no sinh ra de sua.
+    //
+    // HET HAN = HUY NGHI NGO, KHONG PHAI COMMIT. Commit mot ung vien chua duoc
+    // xac nhan la ghi mot offset co the sai vao trang thai BEN VUNG -- dung cai
+    // da tao ra TOFF=-0.315 roi loai het moi mau sau do. Huy thi te nhat la
+    // PID thay mot buoc nhay do cao that va phan ung voi no; do la thu co the
+    // phuc hoi duoc.
+    if (e->terr_pending && e->terr_pending_since_us &&
+        (now_us - e->terr_pending_since_us) >
+            (int64_t)TERR_PENDING_TIMEOUT_MS * 1000) {
+        e->terr_pending = false;
+        e->terr_pending_since_us = 0;
+        e->terr_confirm_cnt = 0;
+        e->terr_cand_offset_m = e->terrain_off_m;   // vut ung vien
+        if (e->terr_timeout_count < UINT16_MAX) e->terr_timeout_count++;
+        // KHONG dung toi terrain_off_m: giu nguyen offset DA duoc xac nhan
+        // truoc do. Chi bo rieng lan nghi ngo nay.
+        //
+        // Mau ToF ke tiep se di qua nhanh fusable binh thuong (vi terr_pending
+        // gio la false), nen vong Vz nhan lai correction ngay -- khong phai cho
+        // them ALT_EST_TOF_REACQUIRE_SAMPLES.
+    }
+#endif
+
     const bool bias_ok = (!airborne && stationary) ||
         (airborne && e->tof_fusable && e->tof_vz_valid &&
          fabsf(e->tof_vz_lpf_ms) < 0.15f && fabsf(e->tof_innovation_m) < 0.08f);
@@ -468,6 +543,7 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
         // khong duoc mang bac cua chuyen bay truoc sang.
         e->terrain_off_m = 0.0f;
         e->terr_pending = false;
+        e->terr_pending_since_us = 0;
         e->terr_confirm_cnt = 0;
         e->agl_m = 0.0f;
         e->active_source = ALT_SRC_GROUND_LOCK;

@@ -183,12 +183,12 @@ void telemetry_format_status_line(char *out, size_t out_size) {
         // CLR  =KHOANG HO THAT duoi bung (AGL) — so quyet dinh va cham, KHONG
         //       phai ALTm; FRAME=0 DATUM / 1 AGL.
         //
-        // ---- TOFF/TPEND/TCMT/TRES: DA CAT (4 field) ----
-        // Terrain offset da TAT (TERRAIN_OFFSET_ENABLED=0, xem app_config.h).
-        // terrain_off_m luon = 0 nen ca 4 so nay dung yen vinh vien — giu lai
-        // chi lam nguoi doc log tuong chung con y nghia. Da kiem: khong regex
-        // nao ben tools/uav_udp_console.py doc chung, va khong test nao dung.
-        // CLR/FRAME GIU LAI: chung van co nghia that (clearance + he quy chieu).
+        // ---- TERRAIN: KHOI PHUC LAI (TERRAIN_OFFSET_ENABLED=1 tro lai) ----
+        // TTMO la so QUAN TRONG NHAT o day: no cho biet loi thoat chong deadlock
+        // co dang chay hay khong. TPEND=1 keo dai MA TTMO dung yen = loi thoat
+        // khong chay -> tat terrain lai va di tim tiep (xem app_config.h).
+        // TREJ tang = sanity check dang chan commit sai (TERR_MAX_STEP_M).
+        " TOFF=%.3f TPEND=%d TCMT=%u TREJ=%u TTMO=%u TRES=%.3f"
         " CLR=%.3f FRAME=%d"
         // Gyro calibration diagnostics ở cadence STATUS, không phải 1kHz.
         " GRAWX=%.3f GRAWY=%.3f GRAWZ=%.3f"
@@ -280,7 +280,9 @@ void telemetry_format_status_line(char *out, size_t out_size) {
         (double)t.vz_p_term, (double)t.vz_i_term, (double)t.vz_d_term,
         (double)t.vz_output_duty, (double)t.hover_throttle_duty,
         (double)t.throttle_correction_duty,
-        // (4 doi so TOFF/TPEND/TCMT/TRES da cat cung luc voi format string)
+        (double)t.terrain_off_m, t.terr_pending ? 1 : 0,
+        (unsigned)t.terr_commit_count, (unsigned)t.terr_reject_count,
+        (unsigned)t.terr_timeout_count, (double)t.terr_residual_m,
         (double)t.clearance_m, (int)t.alt_frame,
         (double)t.gyro_raw_dps.x, (double)t.gyro_raw_dps.y, (double)t.gyro_raw_dps.z,
         (double)t.gyro_bias_dps.x, (double)t.gyro_bias_dps.y, (double)t.gyro_bias_dps.z,

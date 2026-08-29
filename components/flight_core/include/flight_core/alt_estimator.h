@@ -58,6 +58,11 @@ typedef struct {
     float az_raw_ms2;             // alias wire cu = after gravity
     float az_lpf_ms2;
     float az_corrected_ms2;       // sau bias + deadband + LPF
+    // cos(tilt) TUOI moi tick dieu khien (250Hz) -- KHAC tof_tilt_cos von chi
+    // duoc ghi khi CO MAU ToF MOI (~25Hz, va dung han neu ToF chet).
+    // Dung cho bu throttle theo goc nghieng (TILT_COMP_*): bu ga phai theo kip
+    // attitude, khong the tre 40ms hay dong bang o gia tri cuoi cung.
+    float tilt_cos;
     bool az_lpf_init;
     float vz_accel_only_ms, z_inertial_m;
     float accel_bias_ms2, bias_residual_m;
@@ -107,10 +112,18 @@ typedef struct {
     // thu ve dang cu.
     float    terrain_off_m;        // do cao BE MAT dang nhin so voi san da khoa
     float    agl_m;                // alt_m - terrain_off_m (do cao tren BE MAT)
-    bool     terr_pending;         // dang NGHI co bac, chua COMMIT
+    bool     terr_pending;
+    // Moc bat dau nghi ngo -- de huy nghi ngo khi qua TERR_PENDING_TIMEOUT_MS.
+    int64_t terr_pending_since_us;         // dang NGHI co bac, chua COMMIT
     float    terr_cand_offset_m;   // offset ung vien dang cho xac nhan
     int      terr_confirm_cnt;     // so mau lien tiep da khop ung vien
     uint32_t terr_commit_count;    // so lan COMMIT (telemetry + landing reset pha)
+    // So lan nghi ngo bi HUY vi het han (TERR_PENDING_TIMEOUT_MS). Con so nay
+    // la thu can nhin khi tune TERR_JUMP_THRESH_M: cao lien tuc = nguong dat
+    // qua thap, dang bao dong gia tren nhieu ToF binh thuong.
+    uint16_t terr_timeout_count;
+    // So lan COMMIT bi TU CHOI vi vuot TERR_MAX_STEP_M (sanity fail).
+    uint16_t terr_reject_count;
     float    terr_residual_m;      // residual mau gan nhat (telemetry/tune)
     float    prev_tof_vertical_m;  // range da bu tilt cua mau TRUOC
     bool     prev_tof_vertical_valid;
@@ -271,6 +284,42 @@ typedef struct {
 // danh nhau voi PID). Du logic offset co sai, drone van khong cam xuong ban.
 #define TERR_MIN_CLEARANCE_M                 0.25f
 #define TERR_ESCAPE_VZ_MS                    0.20f
+
+// ============================================================================
+// TERR_PENDING_TIMEOUT_MS -- LOI THOAT BAT BUOC CHO terr_pending
+// ============================================================================
+// ⚠ DAY LA BAN VA CHO LOI DA LAM TINH NANG NAY BI TAT (app_config.h). Log that
+// do duoc tren bo:
+//     TOFF=-0.315  TPEND=1  TCMT=1  TOFFUSE=0  TOFTRACK=0
+//     TOFR 83->95 (tang deu)   TOFA=177..178 (DUNG YEN)
+//
+// VONG LUAN QUAN:
+//   terr_pending = true  ->  tof_fusable = false   (dung theo thiet ke: dang
+//                                                   nghi ngo thi khong an range)
+//   tof_fusable = false  ->  khong co mau nao de so voi ung vien
+//   khong co mau         ->  terr_confirm_cnt khong bao gio tang, VA cung
+//                            khong bao gio bi reset ve 0
+//   =>  terr_pending KET O 1 VINH VIEN
+//
+// Sau ALT_EST_TOF_LOST_MS khong co correction -> valid = false -> ALTSRC=4
+// (TOF_LOST) -> commander soft-fault -> LANDING giua chuyen bay.
+//
+// CACH SUA: nghi ngo co HAN. Het han ma chua confirm duoc thi HUY nghi ngo va
+// quay lai fuse binh thuong -- chap nhan mot buoc nhay do cao con hon mat han
+// nguon do cao roi tu ha canh.
+//
+// 200ms -- PHAI NGAN HON ALT_EST_TOF_LOST_MS (300ms), co _Static_assert bao ve.
+// Neu dat dai hon thi soft-fault se no TRUOC khi loi thoat kip chay, va ban va
+// nay thanh vo dung. Van du cho TERR_CONFIRM_N=4 mau o nhip ToF ~40ms (L1X)
+// ke ca khi truot mot vai mau.
+#define TERR_PENDING_TIMEOUT_MS              200
+
+// B3 -- SANITY CHECK truoc khi COMMIT offset.
+// Mot buoc terrain trong nha khong the lon hon nay: ban ~0.75m, ghe ~0.45m,
+// tu ~1.8m nhung bay ben tren tu thi ToF het tam truoc da. Vuot nguong nay
+// nghia la do sai (mau rac / phan xa gong / ToF ngoai tam), khong phai co
+// mot cai bac that cao nhu vay -> TU CHOI commit, giu offset cu.
+#define TERR_MAX_STEP_M                      1.50f
 
 // Frame do cao — CHON DUOC LUC RUNTIME (fc.set_param("alt_frame", 0|1)).
 typedef enum {

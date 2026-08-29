@@ -116,7 +116,7 @@ extern "C" {
 // 2) ALT HOLD (alt_hold.h) — cascade giữ độ cao: alt -> vz_target -> vz-PI
 // ============================================================================
 
-#define ALT_HOLD_ALT_KP             1.5f     // alt_err -> vz_target [1/s]
+#define ALT_HOLD_ALT_KP             1.0f     // alt_err -> vz_target [1/s]
 // VZ_KP/KI/ILIMIT map vz_err(m/s) -> DUTY -> đã nhân đôi theo thang 2000.
 //
 // ---- VÌ SAO KHÔNG CÓ Kd Ở VÒNG NÀY (câu trả lời cho "đề xuất PID cho Vz") ----
@@ -156,7 +156,7 @@ extern "C" {
 // động cơ, không có hiệu ứng mặt đất, không có sụt áp pin. Bay thử phải THÁO
 // CÁNH/giữ trên giá trước, xem `status` (vz_i, throttle) có mượt không.
 #define ALT_HOLD_VZ_KP              100.0f
-#define ALT_HOLD_VZ_KI              50.0f
+#define ALT_HOLD_VZ_KI              200.0f
 #define ALT_HOLD_VZ_ILIMIT          500.0f
 // ============================================================================
 // hover_ff DÙNG TỪ HOLDING TRỞ ĐI — feed-forward của cascade độ cao
@@ -216,10 +216,110 @@ extern "C" {
 //
 // ⚠ TRONG 1s CHO: van o FSM_FLYING, tuc PID do cao VAN KHONG chay (dung theo
 // thiet ke da chot truoc day). Drone giu ga hien tai va troi tu nhien.
-#define FLYING_TO_HOLD_SETTLE_MS    1000
+// 1000 -> 300ms (yeu cau nguoi dung). Danh doi ro rang: 300ms phan hoi nhanh
+// hon han khi tha can, nhung it thoi gian cho attitude ve bang va ToF on lai,
+// nen do cao chot duoc co the lech hon mot chut so voi 1s.
+#define FLYING_TO_HOLD_SETTLE_MS    300
+
+// ============================================================================
+// PHASE A -- FLYING GIU Vz = 0 BANG TANG TRONG CUA CASCADE
+// ============================================================================
+// VAN DE DA CO TRUOC PHASE A: vao FLYING la TAT CA HAI tang cua cascade, ga
+// dong bang tai s_flying_throttle_latch. Ga dung yen KHONG co nghia la do cao
+// dung yen: neu luc vao FLYING drone dang co vz != 0 (vua tha phim W/S, vua
+// thoat guard, hoac chi la nhieu propwash) thi no TROI TU DO suot ca doan
+// FLYING. Micro quad tut duoc 10-20cm trong 300ms.
+//
+// LY DO GOC vi sao phai tat tang ngoai VAN DUNG va KHONG doi: VL53L1X do
+// khoang cach toi BE MAT NGAY DUOI, khong phai do cao so voi san. Bay qua ban
+// cao 0.75m thi range nhay 1.2 -> 0.45; tang ngoai (alt -> vz_target) doc so do
+// nay va ket luan "tut 0.75m" -> boc ga dung dung.
+//
+// NHUNG tang trong (vz -> throttle) KHONG doc range. No doc vz. Va vz -- neu
+// lay tu accel -- KHONG he biet co cai ban nao ben duoi ca. Nen no van dung
+// xuyen qua cu nhay.
+//
+//   TANG NGOAI  alt -> vz_target   : TAT trong FLYING (range khong dang tin)
+//   TANG TRONG  vz  -> throttle    : GIU CHAY, vz_target = 0
+//
+// s_flying_throttle_latch KHONG bi bo: no van la FEEDFORWARD nen (= hover that
+// ma alt_hold da hoc duoc o HOLDING). Tang trong chi chinh phan SAI LECH quanh
+// no. Bo latch di thi vong Vz phai tu hoc lai hover tu dau moi lan vao FLYING.
+#define FLYING_VZ_HOLD_ENABLED      1
+
+// Tran |I| cua vong Vz TRONG FLYING -- SIET CHAT hon ALT_HOLD_VZ_ILIMIT.
+// VI SAO: trong FLYING drone nghieng de bay ngang, nen luc nang doc giam that
+// (cos tilt) va vz am nhe la BINH THUONG, khong phai sai so can tich phan het
+// co. De I chay het tran nhu o HOLDING thi khi tha can ve HOLDING se mang theo
+// mot cuc bias -> vot len. Cho phep bu mot phan, khong cho bu het.
+//
+// alt_hold_vz_cascade() da tu clamp tham so nay xuong <= tune->vz_ilimit nen
+// dat cao hon o day cung khong noi rong duoc -- an toan theo thiet ke.
+#define FLYING_VZ_ILIMIT_DUTY       120.0f
+
+// Nguon vz dung trong FLYING: 1 = vz_accel_only_ms (accel THUAN, khong dinh
+// ToF), 0 = vz_ms (da fuse ToF).
+//
+// PHAI = 1. alt_estimator.c fuse ToF vao vz_ms qua HAI duong:
+//     dv  = ALT_EST_TOF_VZ_GAIN * (tof_vz_lpf_ms - vz_ms)
+//     dv += clamp(ALT_EST_TOF_INNOV_VZ_GAIN * iz / tof_dt_s, -0.20, 0.20)
+// Bay qua ban -> iz nhay 0.75m -> duong thu hai bom vao vz_ms mot van toc GIA
+// (bi clamp 0.20 m/s nhung van sai dau va keo dai nhieu tick). Vong Vz phan ung
+// voi so gia do = con te hon tat han.
+//
+// vz_accel_only_ms tich phan tu az_corrected_ms2 (da tru bias thich nghi +
+// deadband + LPF) va KHONG BAO GIO an correction ToF -- xem alt_estimator.c.
+#define FLYING_VZ_USE_ACCEL_ONLY    1
+
 #define ALT_HOLD_TILT_GATE_DEG      30.0f   // không engage/giữ khi nghiêng quá
 #define ALT_HOLD_MIN_ENGAGE_M       0.10f   // cao tối thiểu để engage HOLD (m)
 #define ALT_HOLD_MIN_THROTTLE_DUTY  400     // sàn PID khi đang bay
+
+// ============================================================================
+// PHASE E3 -- BU cos(tilt) CHO THROTTLE
+// ============================================================================
+// Luc day cua 4 canh quat luon vuong goc voi THAN drone. Nghieng di goc theta
+// thi thanh phan THANG DUNG chi con F*cos(theta) -- phan con lai thanh luc day
+// NGANG (chinh la thu lam drone bay toi). Khong bu thi cu nghieng la tut.
+//
+//   nghieng 12 do -> cos = 0.978 -> mat 2.2% luc nang doc
+//   nghieng 15 do -> cos = 0.966 -> mat 3.4%
+//   nghieng 30 do -> cos = 0.866 -> mat 13.4%
+//
+// O muc 12 do (MOVE_MAX_TILT_DEG) thi 2.2% cua ~1000 duty = ~22 duty. Vong Vz
+// CO THE tu bu duoc bang I-term -- nhung phai mat vai tram ms de hoc, va trong
+// khoang do drone da tut roi. Bu cos la FEEDFORWARD: dung ngay tick dau, khong
+// cho I hoc.
+//
+// ⚠ TRAN BU -- BAT BUOC, khong duoc bo:
+// 1/cos phan ky khi theta -> 90 do. Mot lan attitude estimate loi (va no CO
+// loi luc va cham / rung manh) se cho ra he so khong lo -> ga full. Tran nay
+// la thu duy nhat dung giua mot sai so cam bien va full throttle.
+//
+// 1.10 = du cho toi ~24 do nghieng, gap doi gioi han bay thuc te 12 do.
+#define TILT_COMP_ENABLED           1
+#define TILT_COMP_MAX_FACTOR        1.10f
+
+// Duoi nguong nay coi nhu khong nghieng -> khong bu. Tranh rung nhe quanh 0 do
+// bi khuech dai thanh nhieu tren duong ga.
+#define TILT_COMP_MIN_COS           0.30f
+
+// ============================================================================
+// PHASE E2 -- EXPO TREN CAN NGHIENG
+// ============================================================================
+//     expo(x) = e*x^3 + (1-e)*x        voi x, ket qua trong [-1, 1]
+//
+// Giu nguyen hai dau mut: expo(0)=0, expo(1)=1. Chi lam VUNG GIUA thoai hon,
+// nen chinh nhe quanh diem can bang de hon ma van voi toi duoc goc nghieng toi
+// da khi day het can.
+//
+//   e = 0.0 -> tuyen tinh (hanh vi cu, khong doi gi)
+//   e = 0.4 -> tai 50% can: 0.4*0.125 + 0.6*0.5 = 0.35 (thay vi 0.50)
+//   e = 1.0 -> thuan bac ba, vung giua qua "chet", kho bay
+//
+// 0.40: bay trong nha, can chinh tinh o goc nho. Dat 0.0 de tat han.
+#define MOVE_TILT_EXPO              0.40f
+
 
 // ============================================================================
 // 3) TAKEOFF (takeoff_land.h) — PID + slew-rate-limited target:
@@ -555,7 +655,7 @@ extern "C" {
 // khoảng cách còn lại, nên sai số độ cao (ToF nhiễu, nền không phẳng) chỉ làm
 // tốc độ lệch một chút, KHÔNG làm drone chạm đất ở tốc độ sai. Theo thời gian
 // thì một lần ToF trễ là drone tiếp đất nhanh gấp đôi.
-#define LAND_DESCENT_VZ             0.5f    // m/s, tốc độ hạ pha DESCEND
+#define LAND_DESCENT_VZ             0.35f    // m/s, tốc độ hạ pha DESCEND
 #define LAND_FLARE_ALT_M            0.50f    // m, ngưỡng vào FLARE
 #define LAND_FLARE_VZ                0.12f   // m/s, tốc độ hạ lúc gần chạm
 #define LAND_TOUCHDOWN_ALT_M        0.080f   // m, ToF height tren floor
@@ -797,44 +897,6 @@ _Static_assert(TRIM_PITCH_DEG_DEFAULT >= -TRIM_MAX_DEG &&
 // chỉ kéo dài 15s rồi báo cùng một lỗi. Trượt -> nói rõ lý do -> người dùng đặt
 // lại drone rồi gõ `calib_gyro`.
 #define GYRO_CAL_MIN_VALID_FRACTION             0.80f
-// ============================================================================
-// RE-CALIB GYRO LUC ARM (chong troi bias theo NHIET)
-// ============================================================================
-// VAN DE: bias gyro MPU6050 troi theo nhiet die. Bias trong NVS duoc chot o
-// mot nhiet do nao do (GCALTEMP), con luc bay die da am len — sai lech do di
-// thang vao Mahony va tich phan thanh troi yaw/attitude.
-//
-// GIAI PHAP: moi lan ARM, do lai bias TAI NHIET HIEN TAI truoc khi motor quay.
-//
-// ⚠ VI SAO KHONG LAM LUC TAKEOFF (da can nhac va bo):
-//   - luc TAKEOFF, FSM da o ARMED va MOTOR DANG QUAY -> rung co khi di thang
-//     vao gyro; trung binh cua so se "hoc" luon ca rung, cho ra bias TE HON
-//     cai dang co.
-//   - gyro_calibration_start() goi motor_driver_all_off() + mahony_init():
-//     cat motor giua chung va xoa attitude — khong chap nhan duoc khi da armed.
-// Luc ARM thi ca hai van de deu khong ton tai: motor chua quay, va reset
-// Mahony la vo hai (chua bay).
-//
-// THOI GIAN: ngan hon calib day du (SETTLE 1500 + COLLECT 3000 = 4.5s) vi day
-// KHONG phai calib tu dau — chip da chay on dinh hang phut, khong con transient
-// sau DEVICE_RESET. Chi can du mau de trung binh hoa nhieu.
-//
-// 250Hz * 1000ms = 250 mau. Nhieu gyro MPU6050 ~0.05 dps RMS -> sai so chuan
-// cua trung binh ~ 0.05/sqrt(250) = 0.003 dps. Du chinh xac.
-#define GYRO_ARM_RECAL_SETTLE_MS               200
-#define GYRO_ARM_RECAL_DURATION_MS            1000
-
-// Bat/tat tinh nang. 0 = ARM khong re-calib (hanh vi cu, dung bias NVS).
-#define GYRO_ARM_RECAL_ENABLED                   1
-
-// Chenh lech toi da cho phep giua bias MOI (vua do luc ARM) va bias CU.
-// Vuot nguong = nghi drone dang bi cam/rung chu khong phai troi nhiet -> TU
-// CHOI ARM thay vi nhan mot bias sai vao he.
-//
-// 5.0 dps: troi nhiet thuc te tren MPU6050 vao khoang 0.01..0.05 dps/degC, tuc
-// chenh 30degC moi cho ~1.5 dps. 5.0 rong gap 3 lan nen khong chan oan, nhung
-// van bat duoc truong hop cam drone tren tay (thuong >20 dps).
-#define GYRO_ARM_RECAL_MAX_DELTA_DPS            5.0f
 
 // Tỉ lệ mẫu "nghi động" TỐI ĐA cho phép trong một cửa sổ. Thay cho việc cắt
 // ngang ngay khi gặp MỘT mẫu xấu — cách cũ biến mọi nhiễu lẻ tẻ (một cú gõ bàn,

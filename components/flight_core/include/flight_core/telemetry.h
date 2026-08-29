@@ -507,6 +507,16 @@ typedef struct {
     //         định drone có đâm vào bàn hay không, KHÔNG phải ALTm.
     // FRAME = 0 DATUM (giữ độ cao so với sàn) / 1 AGL (terrain following).
     float    terrain_off_m;
+    // TPEND = dang NGHI co bac, chua xac nhan.
+    // TCMT  = so lan da COMMIT offset.  TREJ = so lan bi TU CHOI (sanity fail).
+    // TTMO  = so lan nghi ngo bi HUY vi het han TERR_PENDING_TIMEOUT_MS.
+    //         ⚠ SO QUAN TRONG NHAT khi debug terrain: xem app_config.h.
+    // TRES  = residual mau gan nhat (m) -- de tune TERR_JUMP_THRESH_M.
+    bool     terr_pending;
+    uint32_t terr_commit_count;
+    uint16_t terr_reject_count;
+    uint16_t terr_timeout_count;
+    float    terr_residual_m;
     bool     terrain_pending;
     uint32_t terrain_commits;
     float    terrain_residual_m;

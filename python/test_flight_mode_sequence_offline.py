@@ -202,6 +202,27 @@ if m_hr:
           "TAKEOFF_HOLD_Z_TOL_M" not in TKO_CODE,
           "ve nay tung lam takeoff khong bao gio ban giao duoc")
 
+# =============================================================================
+# (6) TARGET DO CAO PHAI DUOC XOA KHI RESET BO DIEU KHIEN
+# =============================================================================
+# Loi nguoi dung phat hien: disarm xong, tab Manual VAN hien 'tgt 1.54m' cua
+# chuyen bay truoc. Khong chi la hien thi -- s_alt_target_m la trang thai THAT,
+# nen lan ARM ke tiep alt_hold khoi dong voi mot target cu ma nguoi lai khong
+# he dat.
+#
+# GUI khong the tu sua: no hien thang truong TGT= tu telemetry, khong giu
+# trang thai rieng. Nen cho sua BAT BUOC nam o firmware.
+print("\n== (6) Reset target do cao ==")
+
+CORE_CODE = strip_c_comments(CORE_C)
+m_reset = re.search(r'static void reset_all_controllers' + chr(92) + '(void' + chr(92) + ')' + chr(92) + 's*' + chr(92) + '{(.*?)' + chr(92) + 'n' + chr(92) + '}', CORE_CODE, re.S)
+check("tim thay reset_all_controllers()", m_reset is not None)
+if m_reset:
+    body = m_reset.group(1)
+    check("reset xoa s_alt_target_m", "s_alt_target_m = 0.0f;" in body,
+          "khong xoa -> target cua chuyen bay truoc song sot qua lan ARM sau")
+    check("reset xoa ca s_alt_request_m", "s_alt_request_m = 0.0f;" in body,
+          "request la nguon ma target truot theo -- xoa mot cai khong du")
 print("")
 if fails:
     print("KET QUA: %d FAIL -- %s" % (len(fails), ", ".join(fails)))

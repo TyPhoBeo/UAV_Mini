@@ -101,7 +101,46 @@
 //     firmware vẫn nghĩ còn 0.4m nữa mới chạm
 // Ba thứ đó giờ là việc của NGƯỜI LÁI. Đổi lại: bay qua vật thể không còn tự
 // hạ cánh giữa chừng.
-#define TERRAIN_OFFSET_ENABLED   0
+// ============================================================================
+// BAT LAI (=1) SAU KHI DA VA LOI DEADLOCK -- doc ky truoc khi tat lai
+// ============================================================================
+// Lan truoc tat vi vong luan quan: terr_pending=1 -> tof_fusable=false ->
+// khong co mau -> confirm_cnt khong tang cung khong reset -> pending KET o 1
+// vinh vien -> ALTSRC=4 -> soft-fault -> LANDING giua chuyen.
+//
+// DA SUA (alt_estimator.c, muc "LOI THOAT BAT BUOC"):
+//   1. TERR_PENDING_TIMEOUT_MS = 200ms -- het han thi HUY nghi ngo (khong
+//      commit) va fuse lai binh thuong. Co _Static_assert bat buoc no phai
+//      NGAN HON ALT_EST_TOF_LOST_MS (300ms), tuc loi thoat luon chay TRUOC
+//      khi soft-fault kip no.
+//   2. Khoi loi thoat nam NGOAI if(tof_new) -- neu nam trong thi no cung chi
+//      chay khi co mau moi, dung cai dieu kien ma no sinh ra de sua.
+//   3. terr_timeout_count trong telemetry de theo doi tan suat.
+//
+// ⚠ NEU BAY LAI VAN THAY TPEND=1 KEO DAI: kiem TTMO (terr_timeout_count).
+//   TTMO tang deu  -> loi thoat DANG chay, nguong TERR_JUMP_THRESH_M qua thap
+//   TTMO dung yen  -> loi thoat KHONG chay, dung tat lai o day, di tim tiep
+#define TERRAIN_OFFSET_ENABLED   1
+
+
+// ---- BENCH MODE — chay FULL logic nhung KHONG xuat ra motor ----
+// 1 = moi thu chay y het chuyen bay that: estimator, ca hai tang cascade,
+//     attitude PID, mixer, FSM, failsafe, telemetry. CHI mot dieu khac: lop
+//     cuoi cung ghi xuong LEDC luon ghi 0. 4 dong co KHONG BAO GIO quay.
+// 0 = bay that (mac dinh).
+//
+// DE LAM GI: tune va doc log tren ban ma khong can thao canh quat. Nhin duoc
+// THR/VZI/TOFF/TTMO phan ung ra sao voi mot vat the dua qua duoi ToF, khong co
+// rui ro drone nhay len.
+//
+// ⚠ CHAN O DAU: motor_driver_set_duties() -- lop THAP NHAT, cung cho voi
+// hardware armed gate. Co y KHONG chan o flight_core.c: o do co BA cho goi
+// set_duties() va them cho thu tu la se co nguoi quen mot cho. Chan o day thi
+// KHONG CO duong nao vong qua duoc.
+//
+// ⚠ Khi = 1, firmware in canh bao moi 5s trong log boot va STATUS co BENCH=1.
+// Dung de quen no o 1 roi tuong drone hong.
+#define BENCH_MODE_ENABLED       0
 
 // ================= MỨC CHI TIẾT DÒNG STATUS (telemetry_format.c) =================
 // Dòng STATUS có 157 field. Phần lớn là số debug của các giai đoạn đã xong

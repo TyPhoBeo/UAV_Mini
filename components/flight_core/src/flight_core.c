@@ -78,6 +78,13 @@ _Static_assert(STABILIZE_TASK_CORE == 1, "stabilize_task phai pin core 1");
 // Vận tốc quay / nghiêng tối đa cho move()/set_yaw() (100% pct). Copy tinh
 // thần TILT step / YAW step của GUI UAV-Mini — CHỈNH LẠI khi bay thật.
 #define MOVE_MAX_TILT_DEG   12.0f
+
+// PHASE E2 -- expo can nghieng. Xem tuning.h muc "PHASE E2".
+// Nhan x trong [-1,1], tra ve trong [-1,1], giu nguyen dau va hai dau mut.
+static inline float move_expo(float x) {
+    const float e = MOVE_TILT_EXPO;
+    return e * x * x * x + (1.0f - e) * x;
+}
 #define MOVE_MAX_YAW_DPS    60.0f
 
 // ================= Ground-station UDP setpoint (CMD_SET_ATTITUDE) =================
@@ -205,6 +212,12 @@ static int     s_flying_throttle_latch = -1;
 // Can vi 150 duty/s * dt(4ms) = 0.6 duty — lam tron nguyen se ra 0 va tran bien
 // thanh khoa cung. Cong don phan le qua cac tick roi moi tieu tung duty nguyen.
 static float   s_flying_rise_credit = 0.0f;
+// PHASE A: da nap I cho vong Vz cua lan vao FLYING nay chua.
+// Tach RIENG khoi (s_flying_throttle_latch < 0) vi latch gio duoc GHI LAI moi
+// tick (no duoi theo output cascade), nen no khong con dung lam co "tick dau"
+// duoc nua. Dung chung mot co se nap lai I moi tick -> I bi ghi de lien tuc ->
+// vong Vz mat hoan toan phan tich phan.
+static bool    s_flying_vz_engaged = false;
 
 // Duty mà alt_hold xuất ở tick HOLDING gần nhất — nguồn để chốt latch ở trên.
 // Cần biến RIÊNG vì throttle_cmd là biến CỤC BỘ, bị gán 0 ở đầu bước 9 mỗi
@@ -349,14 +362,6 @@ static gyro_cal_window_t s_gcal_win;
 static int              s_gcal_bad_samples = 0;
 static vec3f_t          s_gcal_candidate_bias;
 static float            s_gcal_temp_c = 0.0f;
-// ---- RE-CALIB LUC ARM (chong troi bias theo nhiet, xem tuning.h) ----
-// true = lan calib DANG chay la re-calib nhanh luc ARM (cua so ngan hon, va
-// khi xong se TU DONG thu ARM lai). false = calib day du luc boot / `calib_gyro`.
-static bool             s_gcal_is_arm_recal = false;
-// Bias TRUOC khi re-calib — de so sanh do lech va khoi phuc neu tu choi.
-static vec3f_t          s_gcal_prev_bias = {0};
-// Lenh ARM dang cho re-calib xong. Xoa khi ARM thanh cong hoac bi tu choi.
-static bool             s_arm_pending_recal = false;
 static const char      *s_gcal_fail_reason = "";
 
 static vec3f_t s_gcal_last_raw_mean;
@@ -509,12 +514,10 @@ static void gyro_cal_set_runtime_bias(vec3f_t bias) {
 }
 
 static void gyro_cal_enter_collect(void) {
-    const int collect_ms = s_gcal_is_arm_recal ? GYRO_ARM_RECAL_DURATION_MS
-                                               : GYRO_CAL_DURATION_MS;
-    gyro_cal_window_reset(&s_gcal_win, gyro_cal_ticks(collect_ms));
+    gyro_cal_window_reset(&s_gcal_win, gyro_cal_ticks(GYRO_CAL_DURATION_MS));
     s_gcal_bad_samples = 0;
     s_gcal_state = GCAL_COLLECT;
-    ESP_LOGI(TAG, "GYRO CAL: COLLECT RAW %dms — GIU YEN drone", collect_ms);
+    ESP_LOGI(TAG, "GYRO CAL: COLLECT RAW %dms — GIU YEN drone", GYRO_CAL_DURATION_MS);
 }
 
 static void gyro_cal_finish_fail(gyro_cal_fail_t fail, const char *reason) {
@@ -575,14 +578,10 @@ static void gyro_calibration_start(void) {
     }
 
     s_calib_gyro_active = true;
-    const int settle_ms = s_gcal_is_arm_recal ? GYRO_ARM_RECAL_SETTLE_MS
-                                              : GYRO_CAL_SETTLE_MS;
-    gyro_cal_window_reset(&s_gcal_win, gyro_cal_ticks(settle_ms));
+    gyro_cal_window_reset(&s_gcal_win, gyro_cal_ticks(GYRO_CAL_SETTLE_MS));
     s_gcal_state = GCAL_SETTLING;
-    ESP_LOGW(TAG, "GYRO CAL start (%s): settle=%dms -> collect=%dms",
-             s_gcal_is_arm_recal ? "RE-CAL luc ARM" : "day du",
-             settle_ms,
-             s_gcal_is_arm_recal ? GYRO_ARM_RECAL_DURATION_MS : GYRO_CAL_DURATION_MS);
+    ESP_LOGW(TAG, "GYRO CAL start: settle=%dms -> collect=%dms (NO VALIDATE, chi lay mau va tinh bias)",
+             GYRO_CAL_SETTLE_MS, GYRO_CAL_DURATION_MS);
 }
 
 // Gọi mỗi tick TRƯỚC Mahony. Validation tự tính raw-candidate, không dùng
@@ -607,8 +606,7 @@ static bool gyro_calibration_tick(const imu_sample_t *imu, bool imu_updated) {
             }
             if (--s_gcal_win.ticks_left > 0) return true;
 
-            const int expected = gyro_cal_ticks(
-                s_gcal_is_arm_recal ? GYRO_ARM_RECAL_DURATION_MS : GYRO_CAL_DURATION_MS);
+            const int expected = gyro_cal_ticks(GYRO_CAL_DURATION_MS);
             if ((float)s_gcal_win.count < (float)expected * GYRO_CAL_MIN_VALID_FRACTION) {
                 gyro_cal_finish_fail(GCAL_FAIL_TOO_FEW_SAMPLES,
                                      "qua it mau IMU trong COLLECT");
@@ -847,6 +845,17 @@ static float wrap_deg_180(float deg) {
 
 static void reset_all_controllers(void) {
     attitude_state_reset(&s_att_state);
+    // ⚠ XOA TARGET DO CAO. Truoc day KHONG co dong nay, va do la mot loi
+    // nhin thay duoc tren GUI: disarm xong, tab Manual van hien 'tgt 1.54m'
+    // cua chuyen bay TRUOC. Te hon la no khong chi la hien thi — s_alt_target_m
+    // la trang thai THAT, nen lan ARM ke tiep alt_hold khoi dong voi mot target
+    // cu ma nguoi lai khong he dat.
+    //
+    // Ve 0 chu khong ve alt hien tai: luc reset drone dang o dat, va moi duong
+    // vao bay (CMD_TAKEOFF / CMD_SET_ALTITUDE / vao HOLDING) deu tu dat lai
+    // target truoc khi PID chay. 0 la 'chua co target', dung nghia nhat.
+    s_alt_target_m = 0.0f;
+    s_alt_request_m = 0.0f;
     alt_hold_reset(&s_hold_state);
     takeoff_reset(&s_tko_state);
     landing_reset(&s_land_state);
@@ -1670,17 +1679,21 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
             break;
         }
         case CMD_MOVE: {
-            const float pct = clampf((float)cmd->as.move.pct, 0.0f, 100.0f) / 100.0f;
+            const float pct_raw = clampf((float)cmd->as.move.pct, 0.0f, 100.0f) / 100.0f;
+            // Expo CHI ap cho ROLL/PITCH (goc nghieng). KHONG ap cho:
+            //   - MOVE_UP/DOWN: buoc do cao 10cm phai la 10cm, khong cong bang
+            //   - yaw: toc do quay tuyen tinh de doan hon khi ngam huong
+            const float pct = move_expo(pct_raw);
             float roll = 0.0f, pitch = 0.0f, yaw_rate = 0.0f;
             switch (cmd->as.move.dir) {
                 case MOVE_FORWARD: pitch = -MOVE_MAX_TILT_DEG * pct; break;
                 case MOVE_BACK:    pitch =  MOVE_MAX_TILT_DEG * pct; break;
                 case MOVE_LEFT:    roll  =  MOVE_MAX_TILT_DEG * pct; break;
                 case MOVE_RIGHT:   roll  = -MOVE_MAX_TILT_DEG * pct; break;
-                case MOVE_UP:      s_alt_request_m += 0.10f * pct; break;
-                case MOVE_DOWN:    s_alt_request_m -= 0.10f * pct; break;
-                case MOVE_CW:      yaw_rate = -MOVE_MAX_YAW_DPS * pct; break;
-                case MOVE_CCW:     yaw_rate =  MOVE_MAX_YAW_DPS * pct; break;
+                case MOVE_UP:      s_alt_request_m += 0.10f * pct_raw; break;
+                case MOVE_DOWN:    s_alt_request_m -= 0.10f * pct_raw; break;
+                case MOVE_CW:      yaw_rate = -MOVE_MAX_YAW_DPS * pct_raw; break;
+                case MOVE_CCW:     yaw_rate =  MOVE_MAX_YAW_DPS * pct_raw; break;
             }
             s_alt_request_m = commander_clamp_altitude(&s_cmd_cfg, s_alt_request_m);
             if (roll != 0.0f || pitch != 0.0f || yaw_rate != 0.0f) {
@@ -3474,6 +3487,7 @@ static void stabilize_task(void *arg) {
         // chuyển state và chỉ cần bỏ sót MỘT chỗ là lần vào FLYING sau sẽ dùng
         // lại con số của chuyến bay trước — đúng loại lỗi im lặng khó lần nhất.
         // Một điều kiện duy nhất, kiểm mỗi tick, không thể bỏ sót.
+        if (s_fsm.state != FSM_FLYING) s_flying_vz_engaged = false;
         if (s_fsm.state != FSM_FLYING && s_flying_throttle_latch >= 0) {
             ESP_LOGI(TAG, "roi FLYING -> xoa latch ga (%d duty), alt_hold nhan lai quyen giu do cao",
                       s_flying_throttle_latch);
@@ -3481,6 +3495,15 @@ static void stabilize_task(void *arg) {
             // Xoa CUNG voi latch: credit con lai cua chuyen truoc se cho phep
             // mot buoc nhay ngay tick dau cua lan vao FLYING sau.
             s_flying_rise_credit = 0.0f;
+            // ---- PHASE A4: BAN GIAO FLYING -> HOLDING LA BUMPLESS SAN ----
+            // KHONG dung toi s_hold_state.vz_integral o day, VA DO LA CO Y.
+            // Vong Vz trong FLYING vua chay tren CHINH bien I do, nen no dang
+            // giu dung luong ga can de vz = 0. alt_hold_run() o tick sau thay
+            // st->engaged == true nen KHONG goi alt_hold_preload() -- no tiep
+            // tuc tu chinh gia tri nay. Do la dinh nghia cua bumpless.
+            //
+            // Reset I ve 0 o day se lam ga tut ~mot cuc hover ngay tick dau
+            // cua HOLDING -> drone hut xuong dung luc vua tha can.
         }
 
         switch (s_fsm.state) {
@@ -3752,7 +3775,48 @@ static void stabilize_task(void *arg) {
                                       "(attitude PID/mixer/estimator/failsafe VAN chay)",
                                   s_flying_throttle_latch);
                     }
+                    // ====================================================
+                    // PHASE A: TANG TRONG (vz -> throttle) VAN CHAY
+                    // ====================================================
+                    // Xem tuning.h muc "PHASE A" de biet ly do day du.
+                    // Tom tat: tang NGOAI (alt -> vz_target) tat vi range
+                    // khong dang tin khi bay qua vat the; tang TRONG khong
+                    // doc range nen van dung -> giu vz = 0 thay vi tha troi.
+                    //
+                    // Latch la FEEDFORWARD nen (hover that da hoc o HOLDING).
+                    // Cascade tinh quanh tune->hover, nen phan chenh giua latch
+                    // va hover phai duoc NAP vao I -- dung nguyen tac bumpless
+                    // cua alt_hold_preload(): I = throttle_muon_co - hover.
+#if FLYING_VZ_HOLD_ENABLED
+                    if (!s_flying_vz_engaged) {
+                        // Tick DAU vao FLYING: nap I sao cho output tick nay
+                        // bang DUNG latch (vz_err ~ 0 -> P ~ 0).
+                        s_hold_state.vz_integral =
+                            clampf((float)s_flying_throttle_latch - s_hold_tune.hover,
+                                   -FLYING_VZ_ILIMIT_DUTY, FLYING_VZ_ILIMIT_DUTY);
+                        s_flying_vz_engaged = true;
+                    }
+                    // vz NGUON ACCEL-ONLY: khong dinh ToF, nen cu nhay range
+                    // khi bay qua ban khong bom van toc gia vao vong nay.
+#if FLYING_VZ_USE_ACCEL_ONLY
+                    const float fly_vz_meas = s_alt_est.vz_accel_only_ms;
+#else
+                    const float fly_vz_meas = s_alt_est.vz_ms;
+#endif
+                    throttle_cmd = alt_hold_vz_cascade(
+                        &s_hold_state, &s_hold_tune,
+                        0.0f /* vz_target = GIU YEN DO CAO */,
+                        fly_vz_meas, dt,
+                        false /* I chay, nhung tran siet lai ben duoi */,
+                        FLYING_VZ_ILIMIT_DUTY,
+                        ALT_HOLD_MIN_THROTTLE_DUTY, MOTOR_SAFE_MAX_DUTY);
+                    // Latch DUOI THEO output: khi tha can ve HOLDING, va khi
+                    // guard khoang ho doc latch, ca hai deu thay ga THUC TE
+                    // dang dung chu khong phai so chot tu luc vao FLYING.
+                    s_flying_throttle_latch = throttle_cmd;
+#else
                     throttle_cmd = s_flying_throttle_latch;
+#endif
                     // hr phải phản ánh đúng những gì đang xảy ra: alt_hold KHÔNG
                     // lái throttle nữa. hold_driving=false chặn khối W/S bên dưới
                     // đi vào nhánh "hoàn tác I" (không có gì để hoàn tác) — W/S
@@ -3787,16 +3851,35 @@ static void stabilize_task(void *arg) {
                     // throttle cua TICK NAY. Nha phim -> s_bench_throttle_offset
                     // ve 0 (GUI gui, va firmware co watchdog stale rieng) ->
                     // throttle tu dong tro lai dung ga nen.
+                    // ⚠ THU TU O DAY LA MOT PHAN CUA HOP DONG, KHONG DOI DUOC.
+                    // Offset W/S phai cong vao SAU khi s_flying_throttle_latch
+                    // da duoc ghi tu output cascade (ngay tren). Neu cong TRUOC
+                    // thi tick sau cascade se coi ga-co-offset la ga nen va
+                    // cong tiep -> chinh la loi cong don da do duoc tren log:
+                    //     THR=999 -> 1799 -> 2000 (giu nguyen sau khi nha phim)
+                    // GUI gui keepalive moi 100ms nen moi goi lai cong them mot
+                    // lan nua. Keepalive la "GIU lenh song", khong phai lenh MOI.
                     if (s_bench_throttle_offset != 0) {
                         int ws_duty = s_bench_throttle_offset;
                         const float fly_alt_max = commander_clamp_altitude(&s_cmd_cfg, s_cmd_cfg.alt_max_m);
                         if (ws_duty > 0 && s_alt_est.alt_m >= fly_alt_max) ws_duty = 0;
                         if (ws_duty < 0 && s_alt_est.alt_m <= s_cmd_cfg.alt_min_m) ws_duty = 0;
-                        // KHONG dung toi s_flying_throttle_latch.
+                        // Cong vao throttle cua TICK NAY thoi. s_flying_throttle_latch
+                        // (= ga nen do vong Vz giu) KHONG bi dung toi.
                         throttle_cmd = clampi(s_flying_throttle_latch + ws_duty,
                                               ALT_HOLD_MIN_THROTTLE_DUTY,
                                               MOTOR_SAFE_MAX_DUTY);
                         hr.throttle_duty = throttle_cmd;
+                        // ⚠ VONG Vz SE CHONG LAI OFFSET NAY -- va do la CO Y.
+                        // Giu W -> drone leo -> vz > 0 -> cascade ha I xuong de
+                        // keo ve vz=0. Nha phim -> ga nen da thap hon truoc mot
+                        // chut -> drone on dinh lai o do cao MOI. Do dung la
+                        // hanh vi mong muon: W/S doi DO CAO, khong phai doi
+                        // vinh vien mot con so ga.
+                        //
+                        // FREEZE I trong luc giu phim thi drone se tro lai DUNG
+                        // do cao cu khi nha -- tuc W/S khong con tac dung gi.
+                        // Nen KHONG freeze.
                     }
                     // ============================================================
                     // NEO TARGET BẰNG SỐ ĐO ToF TƯƠI (yêu cầu người dùng)
@@ -3936,11 +4019,35 @@ static void stabilize_task(void *arg) {
                                             s_alt_est.tof_fusable &&
                                             agl_now_m < TERR_MIN_CLEARANCE_M;
                 if (clearance_low) {
-                    s_hold_state.vz_integral = vz_i_before;   // xem khối W/S: tránh tích phân 2 lần
+                    // ⚠ HOAN TAC I -- CHI o nhanh HOLDING, KHONG o FLYING.
+                    // vz_i_before duoc chup TRUOC khoi tinh throttle. O HOLDING
+                    // no dung: alt_hold_run() da tich phan mot lan, guard sap
+                    // tich phan lan nua tren CUNG mot tick -> phai tra ve moc
+                    // cu de khong dem hai lan.
+                    //
+                    // O FLYING thi NGUOC LAI: tu Phase A, vong Vz chay ngay
+                    // trong nhanh FLYING va vz_integral luc nay CHINH LA trang
+                    // thai da hoc cua no (nap bumpless o tick dau, roi tu chinh
+                    // dan). Ghi de bang vz_i_before se vut bo dung cai do va ep
+                    // vong Vz hoc lai tu dau MOI TICK guard con kich hoat --
+                    // tuc la lam te di dung luc dang sap va cham.
+                    if (!flying_no_alt_pid) {
+                        s_hold_state.vz_integral = vz_i_before;
+                    }
                     const float esc_vz = fmaxf(alt_target_vz_ms, TERR_ESCAPE_VZ_MS);
+                    // Nguon vz phai KHOP voi nhanh dang chay, neu khong thi
+                    // guard va vong Vz cua FLYING dieu khien tren hai so do
+                    // khac nhau va se danh nhau.
+#if FLYING_VZ_HOLD_ENABLED && FLYING_VZ_USE_ACCEL_ONLY
+                    const float esc_vz_meas = flying_no_alt_pid
+                        ? s_alt_est.vz_accel_only_ms : s_alt_est.vz_ms;
+#else
+                    const float esc_vz_meas = s_alt_est.vz_ms;
+#endif
                     throttle_cmd = alt_hold_vz_cascade(
-                        &s_hold_state, &s_hold_tune, esc_vz, s_alt_est.vz_ms, dt,
-                        false, s_hold_tune.vz_ilimit,
+                        &s_hold_state, &s_hold_tune, esc_vz, esc_vz_meas, dt,
+                        false,
+                        flying_no_alt_pid ? FLYING_VZ_ILIMIT_DUTY : s_hold_tune.vz_ilimit,
                         ALT_HOLD_MIN_THROTTLE_DUTY, MOTOR_SAFE_MAX_DUTY);
                     alt_target_vz_ms = esc_vz;
                     // Đang FLYING: guard vừa tính một duty CAO HƠN để thoát lên.
@@ -4074,6 +4181,35 @@ static void stabilize_task(void *arg) {
         // base_throttle_duty giữ lại (giờ == throttle_cmd) vì telemetry BTHR=
         // và GUI vẫn đọc; battery_comp giữ hằng 1.0 cho field BCOMP= để dòng
         // STATUS không đổi format (GUI cũ khỏi vỡ regex, xem telemetry_format.c).
+        // ====================================================================
+        // PHASE E3: BU cos(tilt) -- FEEDFORWARD, chay TRUOC khi chot base
+        // ====================================================================
+        // Xem tuning.h muc "PHASE E3" de biet ly do va bang so.
+        //
+        // rzz = phan tu (3,3) cua ma tran xoay = cos cua goc giua truc Z than
+        // va truc Z the gioi -- chinh la cos(tilt) tong hop cua ca roll lan
+        // pitch. Lay TRUC TIEP tu quaternion, khong phai cosf(roll)*cosf(pitch)
+        // (cong thuc do chi dung khi mot trong hai goc bang 0, va no goi 2 ham
+        // luong giac trong vong dieu khien 250Hz).
+        //
+        // alt_estimator da tinh dung bieu thuc nay moi tick cho ToF -- dung lai
+        // de khong tinh hai lan va khong the lech nhau.
+        //
+        // ⚠ CHI BU KHI DANG THUC SU LAI DONG CO. throttle_cmd == 0 nghia la
+        // disarmed / landing cutoff / abort -- nhan 1.02 vao 0 van la 0 nhung
+        // de ro dieu kien de khong ai vo tinh lam no "hoi sinh" ga bang mot
+        // thay doi sau nay.
+#if TILT_COMP_ENABLED
+        if (throttle_cmd > 0) {
+            const float tilt_cos = s_alt_est.tilt_cos;
+            if (isfinite(tilt_cos) && tilt_cos > TILT_COMP_MIN_COS && tilt_cos < 1.0f) {
+                const float f = clampf(1.0f / tilt_cos, 1.0f, TILT_COMP_MAX_FACTOR);
+                throttle_cmd = clampi((int)((float)throttle_cmd * f),
+                                      0, MOTOR_SAFE_MAX_DUTY);
+            }
+        }
+#endif
+
         const int base_throttle_duty = throttle_cmd;
 
         // battery_comp giữ hằng 1.0: bù throttle theo pin đã BỎ (xem khối trên).
@@ -4198,6 +4334,11 @@ static void stabilize_task(void *arg) {
         s_telemetry.state = s_fsm.state;
         s_telemetry.armed = (s_fsm.state != FSM_DISARMED);
         s_telemetry.terrain_off_m      = s_alt_est.terrain_off_m;
+        s_telemetry.terr_pending       = s_alt_est.terr_pending;
+        s_telemetry.terr_commit_count  = s_alt_est.terr_commit_count;
+        s_telemetry.terr_reject_count  = s_alt_est.terr_reject_count;
+        s_telemetry.terr_timeout_count = s_alt_est.terr_timeout_count;
+        s_telemetry.terr_residual_m    = s_alt_est.terr_residual_m;
         s_telemetry.terrain_pending    = s_alt_est.terr_pending;
         s_telemetry.terrain_commits    = s_alt_est.terr_commit_count;
         s_telemetry.terrain_residual_m = s_alt_est.terr_residual_m;
@@ -4577,6 +4718,15 @@ static esp_err_t init_i2c_bus(const flight_core_board_config_t *cfg, i2c_master_
 
 esp_err_t flight_core_start(const flight_core_board_config_t *board_cfg) {
     s_board = *board_cfg;
+
+#if FC_FEATURE_BENCH_MODE
+    // Khong the bo qua duoc: in 5 dong lien tiep luc boot. BENCH_MODE bi bo
+    // quen o 1 nghia la drone khong bao gio quay dong co va nguoi dung se di
+    // tim loi phan cung.
+    for (int i = 0; i < 5; i++) {
+        ESP_LOGW(TAG, "*** BENCH MODE BAT (BENCH_MODE_ENABLED=1) -- DONG CO SE KHONG BAO GIO QUAY ***");
+    }
+#endif
 
     s_att_gains = attitude_default_gains();
     s_hold_tune = alt_hold_default_tune();

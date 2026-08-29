@@ -78,6 +78,19 @@
 
 // Terrain offset (alt_estimator.h mục TERRAIN). Cùng cơ chế, cùng lý do: đổi
 // cờ ở app_config.h là đủ, tắt thì code không được biên dịch vào.
+// FC_FEATURE_BENCH_MODE — chay full logic, KHONG xuat ra motor.
+// Xem app_config.h muc BENCH_MODE_ENABLED.
+#ifndef FC_FEATURE_BENCH_MODE
+#  ifdef BENCH_MODE_ENABLED
+#    define FC_FEATURE_BENCH_MODE  BENCH_MODE_ENABLED
+#  else
+// Mac dinh 0 -- KHAC voi cac co cam bien o tren (mac dinh 1).
+// Ly do: "khong thay app_config.h" phai co nghia la BAY THAT. Mac dinh 1 se
+// lam mot build doc lap im lang khong quay dong co nao va rat kho doan ra.
+#    define FC_FEATURE_BENCH_MODE  0
+#  endif
+#endif
+
 #ifndef FC_FEATURE_TERRAIN_OFFSET
 #  ifdef TERRAIN_OFFSET_ENABLED
 #    define FC_FEATURE_TERRAIN_OFFSET  TERRAIN_OFFSET_ENABLED
@@ -134,6 +147,7 @@
     (FC_FEATURE_BATTERY != 0 && FC_FEATURE_BATTERY != 1) || \
     (FC_FEATURE_HOVER_LATCH != 0 && FC_FEATURE_HOVER_LATCH != 1) || \
     (FC_FEATURE_FLOOR_GATE != 0 && FC_FEATURE_FLOOR_GATE != 1) || \
-    (FC_FEATURE_TERRAIN_OFFSET != 0 && FC_FEATURE_TERRAIN_OFFSET != 1)
+    (FC_FEATURE_TERRAIN_OFFSET != 0 && FC_FEATURE_TERRAIN_OFFSET != 1) || \
+    (FC_FEATURE_BENCH_MODE != 0 && FC_FEATURE_BENCH_MODE != 1)
 #error "FC_FEATURE_* (tu SENSOR_*_ENABLED trong app_config.h) chi duoc la 0 hoac 1"
 #endif

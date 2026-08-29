@@ -5,6 +5,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "flight_core/types.h"
+#include "flight_core/fc_features.h"   // FC_FEATURE_BENCH_MODE
 
 static const char *TAG = "motor_driver";
 
@@ -187,8 +188,18 @@ void motor_driver_set_duties(int m1, int m2, int m3, int m4) {
     // ĐỌC GATE VÀ GHI DUTY TRONG CÙNG MỘT VÙNG GĂNG. Tách ra ("đọc gate, ra
     // khỏi khoá, rồi ghi") là đúng cái race đã sửa: KILL từ lõi kia lọt vào
     // khe giữa hai bước và bị chính lần ghi này xoá sạch.
+    // ---- BENCH MODE (app_config.h BENCH_MODE_ENABLED) ----
+    // Chan o DAY, lop thap nhat, cung cho voi armed gate: khong co duong nao
+    // trong firmware vong qua duoc. Van GHI 0 xuong LEDC (khong return som) —
+    // cung ly do voi armed gate ngay duoi.
+#if FC_FEATURE_BENCH_MODE
+    const bool bench_block = true;
+#else
+    const bool bench_block = false;
+#endif
+
     portENTER_CRITICAL(&s_mux);
-    const bool armed = s_armed;
+    const bool armed = s_armed && !bench_block;
     for (int i = 0; i < 4; i++) {
         const int duty = armed ? d[i] : 0;
         write_channel(i, duty);
