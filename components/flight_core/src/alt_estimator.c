@@ -5,10 +5,25 @@
 
 #include "flight_core/fc_features.h"   // FC_FEATURE_FLOOR_GATE
 
+// Nghi ngo terrain lam tof_fusable=false, tuc KHONG co correction trong suot
+// thoi gian do. Hai nguong ben duoi la hai cach khac nhau de mot khoang
+// "khong correction" bien thanh SOFT FAULT -> LANDING:
+//
+//   ALT_EST_NO_CORRECTION_DEGRADED_MS : degraded=true -> commander fault
+//   ALT_EST_TOF_LOST_MS               : (chi khi chip IM han, khong ap o day)
+//
+// terr_pending PHAI tu huy TRUOC ca hai, neu khong thi bay qua vat the =
+// tu dong ha canh. Do dung la trieu chung da lam TERRAIN_OFFSET_ENABLED bi
+// tat, va cung la lo hong cua chinh ban va nay o phien ban dau (assert cu chi
+// so voi ALT_EST_TOF_LOST_MS trong khi nguong THAT SU chan truoc la
+// ALT_EST_NO_CORRECTION_DEGRADED_MS).
+_Static_assert(TERR_PENDING_TIMEOUT_MS < ALT_EST_NO_CORRECTION_DEGRADED_MS,
+    "TERR_PENDING_TIMEOUT_MS >= ALT_EST_NO_CORRECTION_DEGRADED_MS: nghi ngo terrain "
+    "keo dai qua nguong 'khong co correction' -> degraded=true -> commander SOFT FAULT "
+    "-> LANDING giua chuyen, TRUOC khi loi thoat kip chay.");
 _Static_assert(TERR_PENDING_TIMEOUT_MS < ALT_EST_TOF_LOST_MS,
-    "TERR_PENDING_TIMEOUT_MS >= ALT_EST_TOF_LOST_MS: nghi ngo terrain se keo dai qua "
-    "nguong mat ToF -> valid=false -> soft-fault -> LANDING giua chuyen, TRUOC khi loi "
-    "thoat kip chay. Day dung la loi da lam TERRAIN_OFFSET_ENABLED bi tat.");
+    "TERR_PENDING_TIMEOUT_MS >= ALT_EST_TOF_LOST_MS: nghi ngo terrain keo dai qua "
+    "nguong mat ToF.");
 
 static const float GRAVITY_MS2 = 9.80665f;
 static const float TWO_PI = 6.28318530718f;
@@ -232,12 +247,45 @@ static void update_age(alt_estimator_t *e, bool airborne, bool tof_hw_alive,
         e->degraded = false;
         e->active_source = ALT_SRC_TOF_FUSED;
     } else {
-        // Chip do nhung mau khong dung duoc (ngoai tam / hap thu / sat san).
-        // Coast bang IMU. VAN valid — day khong phai loi.
+        // Chip do nhung mau khong dung duoc (ngoai tam / hap thu / sat san /
+        // dang nghi co bac terrain). Coast bang IMU. VAN valid — khong phai loi.
         e->tof_track_state = ALT_TOF_BRIDGE;
         e->valid = true;
-        e->degraded = true;
         e->active_source = ALT_SRC_IMU_PREDICT_ONLY;
+
+        // ====================================================================
+        // degraded = "QUA LAU khong co correction", KHONG phai "tick nay khong
+        // co correction". Do la HOP DONG viet trong commander.h muc
+        // alt_estimator_degraded, va truoc ban va nay code KHONG giu dung no.
+        // ====================================================================
+        // Commander fault NGAY tick dau khi thay degraded (commander.c, nhanh
+        // "ToF correction mat qua lau"), KHONG co debounce nao o do. Nen dat
+        // degraded=true ngay o mau dau tien khong fusable co nghia la:
+        //
+        //   MOT mau ToF khong dung duoc  ->  SOFT FAULT  ->  LANDING
+        //
+        // Ma "mau khong dung duoc" la chuyen BINH THUONG voi ToF: ngoai tam,
+        // be mat hap thu, nang manh, va — tu khi bat FC_FEATURE_TERRAIN_OFFSET
+        // — moi lan terr_pending len 1 vi nghi co bac dia hinh.
+        //
+        // ⚠ HAU QUA CU THE DA SUYT XAY RA: bay qua ban -> terr_pending=1 ->
+        // tof_fusable=false -> degraded=true -> LANDING GIUA CHUYEN. Dung
+        // trieu chung da lam TERRAIN_OFFSET_ENABLED bi tat lan truoc, chi khac
+        // nguyen nhan. TERR_PENDING_TIMEOUT_MS (200ms) KHONG cuu duoc vi fault
+        // no o tick dau tien, rat lau truoc 200ms.
+        //
+        // GIO: dem tu moc correction cuoi cung. Coast vai chuc ms bang IMU la
+        // an toan (sai so bac hai theo thoi gian, o 200ms van rat nho); chi khi
+        // vuot ALT_EST_NO_CORRECTION_DEGRADED_MS moi that su la "Z dang troi
+        // tu do" va luc do bao degraded moi dung nghia.
+        //
+        // last_tof_accept_us == 0 = CHUA TUNG co correction nao trong ca chuyen
+        // bay -> khong co moc de dem -> coi la degraded ngay. Do la truong hop
+        // ToF chet han, phai bao.
+        const int64_t since_corr_ms = e->last_tof_accept_us
+            ? (now_us - e->last_tof_accept_us) / 1000
+            : (int64_t)ALT_EST_NO_CORRECTION_DEGRADED_MS;
+        e->degraded = since_corr_ms >= (int64_t)ALT_EST_NO_CORRECTION_DEGRADED_MS;
     }
 }
 

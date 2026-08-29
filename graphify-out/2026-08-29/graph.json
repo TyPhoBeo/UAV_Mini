@@ -1093,7 +1093,7 @@
       "file_type": "code",
       "norm_label": "flight_core_get_task_stats()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4391"
+      "source_location": "L4536"
     },
     {
       "id": "components_flight_core_src_flight_core_flight_core_i2c_scan",
@@ -1105,7 +1105,7 @@
       "file_type": "code",
       "norm_label": "flight_core_i2c_scan()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4367"
+      "source_location": "L4512"
     },
     {
       "id": "components_flight_core_src_flight_core_flight_core_tof_reinit",
@@ -1117,7 +1117,7 @@
       "file_type": "code",
       "norm_label": "flight_core_tof_reinit()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4404"
+      "source_location": "L4549"
     },
     {
       "id": "components_flight_core_src_sensor_hub_mark_err",
@@ -1240,18 +1240,6 @@
       "source_location": "L516"
     },
     {
-      "id": "components_flight_core_src_sensor_hub_sensor_hub_set_imu_calib",
-      "label": "sensor_hub_set_imu_calib()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "sensor_hub.c",
-      "file_type": "code",
-      "norm_label": "sensor_hub_set_imu_calib()",
-      "source_file": "components/flight_core/src/sensor_hub.c",
-      "source_location": "L483"
-    },
-    {
       "id": "components_flight_core_src_sensor_hub_sensor_hub_set_tof_present",
       "label": "sensor_hub_set_tof_present()",
       "_callable": true,
@@ -1286,18 +1274,6 @@
       "norm_label": "sensor_hub_stack_total_bytes()",
       "source_file": "components/flight_core/src/sensor_hub.c",
       "source_location": "L495"
-    },
-    {
-      "id": "components_flight_core_src_sensor_hub_sensor_hub_start",
-      "label": "sensor_hub_start()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "sensor_hub.c",
-      "file_type": "code",
-      "norm_label": "sensor_hub_start()",
-      "source_file": "components/flight_core/src/sensor_hub.c",
-      "source_location": "L420"
     },
     {
       "id": "components_flight_core_src_sensor_hub_sensor_hub_suspend",
@@ -1360,16 +1336,28 @@
       "source_location": "L863"
     },
     {
+      "id": "components_flight_core_include_flight_core_types_clampf",
+      "label": "clampf()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 10,
+      "community_name": "stabilize_task",
+      "file_type": "code",
+      "norm_label": "clampf()",
+      "source_file": "components/flight_core/include/flight_core/types.h",
+      "source_location": "L26"
+    },
+    {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_agl_m",
       "label": "alt_estimator_agl_m()",
       "_callable": true,
       "_origin": "ast",
       "community": 10,
-      "community_name": "alt_estimator.c",
+      "community_name": "stabilize_task",
       "file_type": "code",
       "norm_label": "alt_estimator_agl_m()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L141"
+      "source_location": "L149"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_confirm_liftoff",
@@ -1377,11 +1365,11 @@
       "_callable": true,
       "_origin": "ast",
       "community": 10,
-      "community_name": "alt_estimator.c",
+      "community_name": "stabilize_task",
       "file_type": "code",
       "norm_label": "alt_estimator_confirm_liftoff()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L115"
+      "source_location": "L123"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_correct_velocity",
@@ -1389,11 +1377,11 @@
       "_callable": true,
       "_origin": "ast",
       "community": 10,
-      "community_name": "alt_estimator.c",
+      "community_name": "stabilize_task",
       "file_type": "code",
       "norm_label": "alt_estimator_correct_velocity()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L562"
+      "source_location": "L638"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_floor_ready",
@@ -1401,11 +1389,11 @@
       "_callable": true,
       "_origin": "ast",
       "community": 10,
-      "community_name": "alt_estimator.c",
+      "community_name": "stabilize_task",
       "file_type": "code",
       "norm_label": "alt_estimator_floor_ready()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L49"
+      "source_location": "L55"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_height_above_landing_surface",
@@ -1413,11 +1401,11 @@
       "_callable": true,
       "_origin": "ast",
       "community": 10,
-      "community_name": "alt_estimator.c",
+      "community_name": "stabilize_task",
       "file_type": "code",
       "norm_label": "alt_estimator_height_above_landing_surface()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L137"
+      "source_location": "L145"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_lock_floor",
@@ -1425,11 +1413,11 @@
       "_callable": true,
       "_origin": "ast",
       "community": 10,
-      "community_name": "alt_estimator.c",
+      "community_name": "stabilize_task",
       "file_type": "code",
       "norm_label": "alt_estimator_lock_floor()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L83"
+      "source_location": "L90"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_lock_floor_at_zero",
@@ -1437,11 +1425,11 @@
       "_callable": true,
       "_origin": "ast",
       "community": 10,
-      "community_name": "alt_estimator.c",
+      "community_name": "stabilize_task",
       "file_type": "code",
       "norm_label": "alt_estimator_lock_floor_at_zero()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L95"
+      "source_location": "L102"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_lock_floor_fallback",
@@ -1449,11 +1437,11 @@
       "_callable": true,
       "_origin": "ast",
       "community": 10,
-      "community_name": "alt_estimator.c",
+      "community_name": "stabilize_task",
       "file_type": "code",
       "norm_label": "alt_estimator_lock_floor_fallback()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L89"
+      "source_location": "L96"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_prepare_takeoff",
@@ -1461,11 +1449,11 @@
       "_callable": true,
       "_origin": "ast",
       "community": 10,
-      "community_name": "alt_estimator.c",
+      "community_name": "stabilize_task",
       "file_type": "code",
       "norm_label": "alt_estimator_prepare_takeoff()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L103"
+      "source_location": "L110"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_reset",
@@ -1473,11 +1461,11 @@
       "_callable": true,
       "_origin": "ast",
       "community": 10,
-      "community_name": "alt_estimator.c",
+      "community_name": "stabilize_task",
       "file_type": "code",
       "norm_label": "alt_estimator_reset()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L38"
+      "source_location": "L44"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_select_landing_surface",
@@ -1485,11 +1473,11 @@
       "_callable": true,
       "_origin": "ast",
       "community": 10,
-      "community_name": "alt_estimator.c",
+      "community_name": "stabilize_task",
       "file_type": "code",
       "norm_label": "alt_estimator_select_landing_surface()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L127"
+      "source_location": "L135"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_terrain_rebase",
@@ -1497,11 +1485,11 @@
       "_callable": true,
       "_origin": "ast",
       "community": 10,
-      "community_name": "alt_estimator.c",
+      "community_name": "stabilize_task",
       "file_type": "code",
       "norm_label": "alt_estimator_terrain_rebase()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L149"
+      "source_location": "L157"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_tof_agl_m",
@@ -1509,11 +1497,11 @@
       "_callable": true,
       "_origin": "ast",
       "community": 10,
-      "community_name": "alt_estimator.c",
+      "community_name": "stabilize_task",
       "file_type": "code",
       "norm_label": "alt_estimator_tof_agl_m()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L145"
+      "source_location": "L153"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_unlock_floor",
@@ -1521,11 +1509,11 @@
       "_callable": true,
       "_origin": "ast",
       "community": 10,
-      "community_name": "alt_estimator.c",
+      "community_name": "stabilize_task",
       "file_type": "code",
       "norm_label": "alt_estimator_unlock_floor()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L99"
+      "source_location": "L106"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_update",
@@ -1533,11 +1521,11 @@
       "_callable": true,
       "_origin": "ast",
       "community": 10,
-      "community_name": "alt_estimator.c",
+      "community_name": "stabilize_task",
       "file_type": "code",
       "norm_label": "alt_estimator_update()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L235"
+      "source_location": "L244"
     },
     {
       "id": "components_flight_core_src_alt_estimator_clear_runtime",
@@ -1545,11 +1533,11 @@
       "_callable": true,
       "_origin": "ast",
       "community": 10,
-      "community_name": "alt_estimator.c",
+      "community_name": "stabilize_task",
       "file_type": "code",
       "norm_label": "clear_runtime()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L16"
+      "source_location": "L21"
     },
     {
       "id": "components_flight_core_src_alt_estimator_lock_floor_at",
@@ -1557,11 +1545,11 @@
       "_callable": true,
       "_origin": "ast",
       "community": 10,
-      "community_name": "alt_estimator.c",
+      "community_name": "stabilize_task",
       "file_type": "code",
       "norm_label": "lock_floor_at()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L56"
+      "source_location": "L62"
     },
     {
       "id": "components_flight_core_src_alt_estimator_lpf_alpha",
@@ -1569,11 +1557,11 @@
       "_callable": true,
       "_origin": "ast",
       "community": 10,
-      "community_name": "alt_estimator.c",
+      "community_name": "stabilize_task",
       "file_type": "code",
       "norm_label": "lpf_alpha()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L11"
+      "source_location": "L16"
     },
     {
       "id": "components_flight_core_src_alt_estimator_update_age",
@@ -1581,11 +1569,35 @@
       "_callable": true,
       "_origin": "ast",
       "community": 10,
-      "community_name": "alt_estimator.c",
+      "community_name": "stabilize_task",
       "file_type": "code",
       "norm_label": "update_age()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L200"
+      "source_location": "L209"
+    },
+    {
+      "id": "components_flight_core_src_flight_core_stabilize_task",
+      "label": "stabilize_task()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 10,
+      "community_name": "stabilize_task",
+      "file_type": "code",
+      "norm_label": "stabilize_task()",
+      "source_file": "components/flight_core/src/flight_core.c",
+      "source_location": "L2332"
+    },
+    {
+      "id": "components_flight_core_include_flight_core_sensor_hub_sensor_hub_age_us",
+      "label": "sensor_hub_age_us()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 100,
+      "community_name": "sensor_hub_age_us",
+      "file_type": "code",
+      "norm_label": "sensor_hub_age_us()",
+      "source_file": "components/flight_core/include/flight_core/sensor_hub.h",
+      "source_location": "L210"
     },
     {
       "id": "components_flight_core_src_drivers_vl53l1x_driver_l1x_check_ready",
@@ -1816,28 +1828,16 @@
       "source_location": "L591"
     },
     {
-      "id": "components_flight_core_src_flight_core_flight_core_get_setpoint",
-      "label": "flight_core_get_setpoint()",
+      "id": "components_flight_core_src_flight_core_flight_core_get_alt_hold_tune",
+      "label": "flight_core_get_alt_hold_tune()",
       "_callable": true,
       "_origin": "ast",
       "community": 13,
       "community_name": "command_parser.c",
       "file_type": "code",
-      "norm_label": "flight_core_get_setpoint()",
+      "norm_label": "flight_core_get_alt_hold_tune()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4505"
-    },
-    {
-      "id": "components_flight_core_src_flight_core_flight_core_get_trim",
-      "label": "flight_core_get_trim()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 13,
-      "community_name": "command_parser.c",
-      "file_type": "code",
-      "norm_label": "flight_core_get_trim()",
-      "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4490"
+      "source_location": "L4659"
     },
     {
       "id": "src_command_parser_append",
@@ -1876,6 +1876,18 @@
       "source_location": "L47"
     },
     {
+      "id": "src_command_parser_handle_alt",
+      "label": "handle_alt()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 13,
+      "community_name": "command_parser.c",
+      "file_type": "code",
+      "norm_label": "handle_alt()",
+      "source_file": "src/command_parser.c",
+      "source_location": "L233"
+    },
+    {
       "id": "src_command_parser_handle_cal",
       "label": "handle_cal()",
       "_callable": true,
@@ -1910,18 +1922,6 @@
       "norm_label": "handle_hover()",
       "source_file": "src/command_parser.c",
       "source_location": "L531"
-    },
-    {
-      "id": "src_command_parser_handle_land",
-      "label": "handle_land()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 13,
-      "community_name": "command_parser.c",
-      "file_type": "code",
-      "norm_label": "handle_land()",
-      "source_file": "src/command_parser.c",
-      "source_location": "L478"
     },
     {
       "id": "src_command_parser_handle_line",
@@ -2068,18 +2068,6 @@
       "source_location": "L32"
     },
     {
-      "id": "components_flight_core_include_flight_core_commander_commander_clamp_altitude",
-      "label": "commander_clamp_altitude()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 14,
-      "community_name": "apply_command",
-      "file_type": "code",
-      "norm_label": "commander_clamp_altitude()",
-      "source_file": "components/flight_core/include/flight_core/commander.h",
-      "source_location": "L94"
-    },
-    {
       "id": "components_flight_core_include_flight_core_flight_state_machine_fsm_transition",
       "label": "fsm_transition()",
       "_callable": true,
@@ -2101,7 +2089,7 @@
       "file_type": "code",
       "norm_label": "abort_landing_to_hold()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1229"
+      "source_location": "L1242"
     },
     {
       "id": "components_flight_core_src_flight_core_apply_command",
@@ -2113,7 +2101,31 @@
       "file_type": "code",
       "norm_label": "apply_command()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1245"
+      "source_location": "L1258"
+    },
+    {
+      "id": "components_flight_core_src_flight_core_finalize_mag_calibration",
+      "label": "finalize_mag_calibration()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 14,
+      "community_name": "apply_command",
+      "file_type": "code",
+      "norm_label": "finalize_mag_calibration()",
+      "source_file": "components/flight_core/src/flight_core.c",
+      "source_location": "L877"
+    },
+    {
+      "id": "components_flight_core_src_flight_core_recompute_uncalibrated",
+      "label": "recompute_uncalibrated()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 14,
+      "community_name": "apply_command",
+      "file_type": "code",
+      "norm_label": "recompute_uncalibrated()",
+      "source_file": "components/flight_core/src/flight_core.c",
+      "source_location": "L493"
     },
     {
       "id": "components_flight_core_src_flight_state_machine_fsm_on_arm_request",
@@ -2944,24 +2956,12 @@
       "source_location": "L163"
     },
     {
-      "id": "components_flight_core_include_flight_core_types_clampf",
-      "label": "clampf()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 19,
-      "community_name": "clampf",
-      "file_type": "code",
-      "norm_label": "clampf()",
-      "source_file": "components/flight_core/include/flight_core/types.h",
-      "source_location": "L26"
-    },
-    {
       "id": "components_flight_core_src_alt_hold_alt_hold_default_tune",
       "label": "alt_hold_default_tune()",
       "_callable": true,
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "alt_hold_default_tune()",
       "source_file": "components/flight_core/src/alt_hold.c",
@@ -2973,7 +2973,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "alt_hold_preload()",
       "source_file": "components/flight_core/src/alt_hold.c",
@@ -2985,7 +2985,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "alt_hold_run()",
       "source_file": "components/flight_core/src/alt_hold.c",
@@ -2997,23 +2997,11 @@
       "_callable": true,
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "alt_hold_vz_cascade()",
       "source_file": "components/flight_core/src/alt_hold.c",
       "source_location": "L20"
-    },
-    {
-      "id": "components_flight_core_src_flight_core_apply_set_param",
-      "label": "apply_set_param()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 19,
-      "community_name": "clampf",
-      "file_type": "code",
-      "norm_label": "apply_set_param()",
-      "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L944"
     },
     {
       "id": "components_flight_core_src_flight_core_flight_core_get_landing_tune",
@@ -3021,11 +3009,11 @@
       "_callable": true,
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "flight_core_get_landing_tune()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4528"
+      "source_location": "L4673"
     },
     {
       "id": "components_flight_core_src_flight_core_flight_core_get_takeoff_tune",
@@ -3033,11 +3021,11 @@
       "_callable": true,
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "flight_core_get_takeoff_tune()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4521"
+      "source_location": "L4666"
     },
     {
       "id": "components_flight_core_src_takeoff_land_landing_default_tune",
@@ -3045,7 +3033,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "landing_default_tune()",
       "source_file": "components/flight_core/src/takeoff_land.c",
@@ -3057,7 +3045,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "landing_run()",
       "source_file": "components/flight_core/src/takeoff_land.c",
@@ -3069,7 +3057,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "takeoff_default_tune()",
       "source_file": "components/flight_core/src/takeoff_land.c",
@@ -3081,7 +3069,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "takeoff_run()",
       "source_file": "components/flight_core/src/takeoff_land.c",
@@ -3093,7 +3081,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "tko_abort()",
       "source_file": "components/flight_core/src/takeoff_land.c",
@@ -3105,7 +3093,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "tko_enter_phase()",
       "source_file": "components/flight_core/src/takeoff_land.c",
@@ -3117,7 +3105,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "tko_handoff()",
       "source_file": "components/flight_core/src/takeoff_land.c",
@@ -3129,11 +3117,23 @@
       "_callable": true,
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "tko_latch_window()",
       "source_file": "components/flight_core/src/takeoff_land.c",
       "source_location": "L46"
+    },
+    {
+      "id": "components_flight_core_include_flight_core_telemetry_telemetry_snapshot_init",
+      "label": "telemetry_snapshot_init()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "fc_module.c",
+      "file_type": "code",
+      "norm_label": "telemetry_snapshot_init()",
+      "source_file": "components/flight_core/include/flight_core/telemetry.h",
+      "source_location": "L527"
     },
     {
       "id": "micropython_module_fc_fc_bridge_fc_bridge_get_control_input",
@@ -3805,7 +3805,7 @@
       "file_type": "code",
       "norm_label": "flight_core_get_attitude_gains()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4472"
+      "source_location": "L4617"
     },
     {
       "id": "components_flight_core_src_pid_clamp_dt",
@@ -3877,7 +3877,19 @@
       "file_type": "code",
       "norm_label": "flight_core_read_telemetry()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4463"
+      "source_location": "L4608"
+    },
+    {
+      "id": "src_command_parser_handle_land",
+      "label": "handle_land()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 22,
+      "community_name": "flight_core_read_telemetry",
+      "file_type": "code",
+      "norm_label": "handle_land()",
+      "source_file": "src/command_parser.c",
+      "source_location": "L478"
     },
     {
       "id": "src_command_parser_handle_single_char",
@@ -4120,6 +4132,18 @@
       "source_location": "L82"
     },
     {
+      "id": "components_flight_core_src_flight_core_apply_set_param",
+      "label": "apply_set_param()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 24,
+      "community_name": "flight_core.c",
+      "file_type": "code",
+      "norm_label": "apply_set_param()",
+      "source_file": "components/flight_core/src/flight_core.c",
+      "source_location": "L957"
+    },
+    {
       "id": "components_flight_core_src_flight_core_enter_kill_latch",
       "label": "enter_kill_latch()",
       "_callable": true,
@@ -4129,7 +4153,7 @@
       "file_type": "code",
       "norm_label": "enter_kill_latch()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L796"
+      "source_location": "L809"
     },
     {
       "id": "components_flight_core_src_flight_core_enter_kill_latch_ex",
@@ -4141,7 +4165,7 @@
       "file_type": "code",
       "norm_label": "enter_kill_latch_ex()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L782"
+      "source_location": "L795"
     },
     {
       "id": "components_flight_core_src_flight_core_flight_core_get_control_input",
@@ -4153,7 +4177,31 @@
       "file_type": "code",
       "norm_label": "flight_core_get_control_input()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4542"
+      "source_location": "L4687"
+    },
+    {
+      "id": "components_flight_core_src_flight_core_flight_core_get_setpoint",
+      "label": "flight_core_get_setpoint()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 24,
+      "community_name": "flight_core.c",
+      "file_type": "code",
+      "norm_label": "flight_core_get_setpoint()",
+      "source_file": "components/flight_core/src/flight_core.c",
+      "source_location": "L4650"
+    },
+    {
+      "id": "components_flight_core_src_flight_core_flight_core_get_trim",
+      "label": "flight_core_get_trim()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 24,
+      "community_name": "flight_core.c",
+      "file_type": "code",
+      "norm_label": "flight_core_get_trim()",
+      "source_file": "components/flight_core/src/flight_core.c",
+      "source_location": "L4635"
     },
     {
       "id": "components_flight_core_src_flight_core_flight_core_kill_now",
@@ -4165,7 +4213,7 @@
       "file_type": "code",
       "norm_label": "flight_core_kill_now()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4353"
+      "source_location": "L4498"
     },
     {
       "id": "components_flight_core_src_flight_core_gyro_cal_enter_collect",
@@ -4177,7 +4225,7 @@
       "file_type": "code",
       "norm_label": "gyro_cal_enter_collect()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L503"
+      "source_location": "L516"
     },
     {
       "id": "components_flight_core_src_flight_core_gyro_cal_finish_fail",
@@ -4189,7 +4237,7 @@
       "file_type": "code",
       "norm_label": "gyro_cal_finish_fail()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L510"
+      "source_location": "L523"
     },
     {
       "id": "components_flight_core_src_flight_core_gyro_cal_sample_stationary",
@@ -4201,7 +4249,7 @@
       "file_type": "code",
       "norm_label": "gyro_cal_sample_stationary()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L406"
+      "source_location": "L419"
     },
     {
       "id": "components_flight_core_src_flight_core_gyro_cal_set_runtime_bias",
@@ -4213,7 +4261,7 @@
       "file_type": "code",
       "norm_label": "gyro_cal_set_runtime_bias()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L496"
+      "source_location": "L509"
     },
     {
       "id": "components_flight_core_src_flight_core_gyro_cal_ticks",
@@ -4225,7 +4273,7 @@
       "file_type": "code",
       "norm_label": "gyro_cal_ticks()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L491"
+      "source_location": "L504"
     },
     {
       "id": "components_flight_core_src_flight_core_gyro_cal_window_add",
@@ -4237,7 +4285,7 @@
       "file_type": "code",
       "norm_label": "gyro_cal_window_add()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L377"
+      "source_location": "L390"
     },
     {
       "id": "components_flight_core_src_flight_core_gyro_cal_window_mean",
@@ -4249,7 +4297,7 @@
       "file_type": "code",
       "norm_label": "gyro_cal_window_mean()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L387"
+      "source_location": "L400"
     },
     {
       "id": "components_flight_core_src_flight_core_gyro_cal_window_reset",
@@ -4261,7 +4309,7 @@
       "file_type": "code",
       "norm_label": "gyro_cal_window_reset()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L366"
+      "source_location": "L379"
     },
     {
       "id": "components_flight_core_src_flight_core_gyro_cal_window_std",
@@ -4273,7 +4321,7 @@
       "file_type": "code",
       "norm_label": "gyro_cal_window_std()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L391"
+      "source_location": "L404"
     },
     {
       "id": "components_flight_core_src_flight_core_gyro_calibration_start",
@@ -4285,7 +4333,7 @@
       "file_type": "code",
       "norm_label": "gyro_calibration_start()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L532"
+      "source_location": "L545"
     },
     {
       "id": "components_flight_core_src_flight_core_gyro_calibration_tick",
@@ -4297,7 +4345,31 @@
       "file_type": "code",
       "norm_label": "gyro_calibration_tick()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L576"
+      "source_location": "L589"
+    },
+    {
+      "id": "components_flight_core_src_flight_core_move_expo",
+      "label": "move_expo()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 24,
+      "community_name": "flight_core.c",
+      "file_type": "code",
+      "norm_label": "move_expo()",
+      "source_file": "components/flight_core/src/flight_core.c",
+      "source_location": "L84"
+    },
+    {
+      "id": "components_flight_core_src_flight_core_publish_kill_tick_telemetry",
+      "label": "publish_kill_tick_telemetry()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 24,
+      "community_name": "flight_core.c",
+      "file_type": "code",
+      "norm_label": "publish_kill_tick_telemetry()",
+      "source_file": "components/flight_core/src/flight_core.c",
+      "source_location": "L2319"
     },
     {
       "id": "components_flight_core_src_flight_core_vec3_finite",
@@ -4309,7 +4381,19 @@
       "file_type": "code",
       "norm_label": "vec3_finite()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L402"
+      "source_location": "L415"
+    },
+    {
+      "id": "components_flight_core_src_flight_core_wait_next_control_tick",
+      "label": "wait_next_control_tick()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 24,
+      "community_name": "flight_core.c",
+      "file_type": "code",
+      "norm_label": "wait_next_control_tick()",
+      "source_file": "components/flight_core/src/flight_core.c",
+      "source_location": "L2289"
     },
     {
       "id": "components_flight_core_src_flight_core_welford_axis",
@@ -4321,7 +4405,19 @@
       "file_type": "code",
       "norm_label": "welford_axis()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L371"
+      "source_location": "L384"
+    },
+    {
+      "id": "components_flight_core_src_flight_core_wrap_deg_180",
+      "label": "wrap_deg_180()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 24,
+      "community_name": "flight_core.c",
+      "file_type": "code",
+      "norm_label": "wrap_deg_180()",
+      "source_file": "components/flight_core/src/flight_core.c",
+      "source_location": "L840"
     },
     {
       "id": "components_flight_core_include_flight_core_types_clampi",
@@ -4345,7 +4441,7 @@
       "file_type": "code",
       "norm_label": "configure_channel()",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L57"
+      "source_location": "L58"
     },
     {
       "id": "components_flight_core_src_drivers_motor_driver_motor_driver_all_off",
@@ -4357,7 +4453,7 @@
       "file_type": "code",
       "norm_label": "motor_driver_all_off()",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L172"
+      "source_location": "L173"
     },
     {
       "id": "components_flight_core_src_drivers_motor_driver_motor_driver_arm",
@@ -4369,7 +4465,7 @@
       "file_type": "code",
       "norm_label": "motor_driver_arm()",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L135"
+      "source_location": "L136"
     },
     {
       "id": "components_flight_core_src_drivers_motor_driver_motor_driver_disarm",
@@ -4381,7 +4477,7 @@
       "file_type": "code",
       "norm_label": "motor_driver_disarm()",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L143"
+      "source_location": "L144"
     },
     {
       "id": "components_flight_core_src_drivers_motor_driver_motor_driver_get_last_duty",
@@ -4393,7 +4489,7 @@
       "file_type": "code",
       "norm_label": "motor_driver_get_last_duty()",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L207"
+      "source_location": "L218"
     },
     {
       "id": "components_flight_core_src_drivers_motor_driver_motor_driver_init",
@@ -4405,7 +4501,7 @@
       "file_type": "code",
       "norm_label": "motor_driver_init()",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L104"
+      "source_location": "L105"
     },
     {
       "id": "components_flight_core_src_drivers_motor_driver_motor_driver_is_armed",
@@ -4417,7 +4513,7 @@
       "file_type": "code",
       "norm_label": "motor_driver_is_armed()",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L148"
+      "source_location": "L149"
     },
     {
       "id": "components_flight_core_src_drivers_motor_driver_motor_driver_set_armed",
@@ -4429,7 +4525,7 @@
       "file_type": "code",
       "norm_label": "motor_driver_set_armed()",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L150"
+      "source_location": "L151"
     },
     {
       "id": "components_flight_core_src_drivers_motor_driver_motor_driver_set_duties",
@@ -4441,7 +4537,7 @@
       "file_type": "code",
       "norm_label": "motor_driver_set_duties()",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L177"
+      "source_location": "L178"
     },
     {
       "id": "components_flight_core_src_drivers_motor_driver_motor_driver_stop_all",
@@ -4453,7 +4549,7 @@
       "file_type": "code",
       "norm_label": "motor_driver_stop_all()",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L200"
+      "source_location": "L211"
     },
     {
       "id": "components_flight_core_src_drivers_motor_driver_stop_all_locked",
@@ -4465,7 +4561,7 @@
       "file_type": "code",
       "norm_label": "stop_all_locked()",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L94"
+      "source_location": "L95"
     },
     {
       "id": "components_flight_core_src_drivers_motor_driver_write_channel",
@@ -4477,7 +4573,7 @@
       "file_type": "code",
       "norm_label": "write_channel()",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L80"
+      "source_location": "L81"
     },
     {
       "id": "tools_uav_udp_console_pidtunerapp_handle_line",
@@ -4588,6 +4684,18 @@
       "source_location": "L23"
     },
     {
+      "id": "components_flight_core_include_flight_core_attitude_control_attitude_state_reset",
+      "label": "attitude_state_reset()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 27,
+      "community_name": "types.h",
+      "file_type": "code",
+      "norm_label": "attitude_state_reset()",
+      "source_file": "components/flight_core/include/flight_core/attitude_control.h",
+      "source_location": "L99"
+    },
+    {
       "id": "components_flight_core_include_flight_core_mahony_filter_mahony_quaternion",
       "label": "mahony_quaternion()",
       "_callable": true,
@@ -4598,6 +4706,30 @@
       "norm_label": "mahony_quaternion()",
       "source_file": "components/flight_core/include/flight_core/mahony_filter.h",
       "source_location": "L94"
+    },
+    {
+      "id": "components_flight_core_include_flight_core_pid_pid_reset",
+      "label": "pid_reset()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 27,
+      "community_name": "types.h",
+      "file_type": "code",
+      "norm_label": "pid_reset()",
+      "source_file": "components/flight_core/include/flight_core/pid.h",
+      "source_location": "L46"
+    },
+    {
+      "id": "components_flight_core_include_flight_core_pid_pid_state_init",
+      "label": "pid_state_init()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 27,
+      "community_name": "types.h",
+      "file_type": "code",
+      "norm_label": "pid_state_init()",
+      "source_file": "components/flight_core/include/flight_core/pid.h",
+      "source_location": "L29"
     },
     {
       "id": "python_test_trim_offline_attitude_target_old",
@@ -4828,6 +4960,30 @@
       "source_location": "L127"
     },
     {
+      "id": "components_flight_core_src_sensor_hub_sensor_hub_set_imu_calib",
+      "label": "sensor_hub_set_imu_calib()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 29,
+      "community_name": "imu_driver.c",
+      "file_type": "code",
+      "norm_label": "sensor_hub_set_imu_calib()",
+      "source_file": "components/flight_core/src/sensor_hub.c",
+      "source_location": "L483"
+    },
+    {
+      "id": "components_flight_core_src_sensor_hub_sensor_hub_start",
+      "label": "sensor_hub_start()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 29,
+      "community_name": "imu_driver.c",
+      "file_type": "code",
+      "norm_label": "sensor_hub_start()",
+      "source_file": "components/flight_core/src/sensor_hub.c",
+      "source_location": "L420"
+    },
+    {
       "id": "components_flight_core_include_flight_core_types_vec3f_zero",
       "label": "vec3f_zero()",
       "_callable": true,
@@ -4849,7 +5005,7 @@
       "file_type": "code",
       "norm_label": "flight_core_get_mahony_config()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4479"
+      "source_location": "L4624"
     },
     {
       "id": "components_flight_core_src_mahony_filter_apply_feedback_and_integrate",
@@ -6268,52 +6424,40 @@
       "source_location": "L922"
     },
     {
-      "id": "components_flight_core_include_flight_core_flight_state_machine_fsm_init",
-      "label": "fsm_init()",
+      "id": "python_test_flying_vz_hold_offline_check",
+      "label": "check()",
       "_callable": true,
       "_origin": "ast",
       "community": 4,
-      "community_name": "flight_core_start",
+      "community_name": "test_flying_vz_hold_offline.py",
       "file_type": "code",
-      "norm_label": "fsm_init()",
-      "source_file": "components/flight_core/include/flight_core/flight_state_machine.h",
-      "source_location": "L87"
+      "norm_label": "check()",
+      "source_file": "python/test_flying_vz_hold_offline.py",
+      "source_location": "L41"
     },
     {
-      "id": "components_flight_core_include_flight_core_telemetry_telemetry_snapshot_init",
-      "label": "telemetry_snapshot_init()",
+      "id": "python_test_flying_vz_hold_offline_const_of",
+      "label": "const_of()",
       "_callable": true,
       "_origin": "ast",
       "community": 4,
-      "community_name": "flight_core_start",
+      "community_name": "test_flying_vz_hold_offline.py",
       "file_type": "code",
-      "norm_label": "telemetry_snapshot_init()",
-      "source_file": "components/flight_core/include/flight_core/telemetry.h",
-      "source_location": "L517"
+      "norm_label": "const_of()",
+      "source_file": "python/test_flying_vz_hold_offline.py",
+      "source_location": "L59"
     },
     {
-      "id": "components_flight_core_src_flight_core_flight_core_start",
-      "label": "flight_core_start()",
+      "id": "python_test_flying_vz_hold_offline_strip_c_comments",
+      "label": "strip_c_comments()",
       "_callable": true,
       "_origin": "ast",
       "community": 4,
-      "community_name": "flight_core_start",
+      "community_name": "test_flying_vz_hold_offline.py",
       "file_type": "code",
-      "norm_label": "flight_core_start()",
-      "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4574"
-    },
-    {
-      "id": "components_flight_core_src_flight_core_init_i2c_bus",
-      "label": "init_i2c_bus()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 4,
-      "community_name": "flight_core_start",
-      "file_type": "code",
-      "norm_label": "init_i2c_bus()",
-      "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4559"
+      "norm_label": "strip_c_comments()",
+      "source_file": "python/test_flying_vz_hold_offline.py",
+      "source_location": "L49"
     },
     {
       "id": "tools_uav_udp_console_plotpanel_clear",
@@ -6844,6 +6988,30 @@
       "source_location": "L1102"
     },
     {
+      "id": "src_telemetry_format_telemetry_format_alt_mode",
+      "label": "telemetry_format_alt_mode()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 49,
+      "community_name": "app_config.h",
+      "file_type": "code",
+      "norm_label": "telemetry_format_alt_mode()",
+      "source_file": "src/telemetry_format.c",
+      "source_location": "L38"
+    },
+    {
+      "id": "src_telemetry_format_telemetry_format_status_line",
+      "label": "telemetry_format_status_line()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 49,
+      "community_name": "app_config.h",
+      "file_type": "code",
+      "norm_label": "telemetry_format_status_line()",
+      "source_file": "src/telemetry_format.c",
+      "source_location": "L48"
+    },
+    {
       "id": "components_flight_core_src_drivers_vl53l0x_driver_calc_macro_period_ns",
       "label": "calc_macro_period_ns()",
       "_callable": true,
@@ -7300,16 +7468,16 @@
       "source_location": "L10"
     },
     {
-      "id": "components_flight_core_include_flight_core_alt_hold_alt_hold_reset",
-      "label": "alt_hold_reset()",
+      "id": "components_flight_core_include_flight_core_commander_commander_clamp_altitude",
+      "label": "commander_clamp_altitude()",
       "_callable": true,
       "_origin": "ast",
       "community": 6,
-      "community_name": "tuning.h",
+      "community_name": "commander.h",
       "file_type": "code",
-      "norm_label": "alt_hold_reset()",
-      "source_file": "components/flight_core/include/flight_core/alt_hold.h",
-      "source_location": "L48"
+      "norm_label": "commander_clamp_altitude()",
+      "source_file": "components/flight_core/include/flight_core/commander.h",
+      "source_location": "L94"
     },
     {
       "id": "components_flight_core_include_flight_core_commander_commander_credit_stall",
@@ -7317,7 +7485,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 6,
-      "community_name": "tuning.h",
+      "community_name": "commander.h",
       "file_type": "code",
       "norm_label": "commander_credit_stall()",
       "source_file": "components/flight_core/include/flight_core/commander.h",
@@ -7329,7 +7497,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 6,
-      "community_name": "tuning.h",
+      "community_name": "commander.h",
       "file_type": "code",
       "norm_label": "commander_heartbeat()",
       "source_file": "components/flight_core/include/flight_core/commander.h",
@@ -7341,7 +7509,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 6,
-      "community_name": "tuning.h",
+      "community_name": "commander.h",
       "file_type": "code",
       "norm_label": "commander_init()",
       "source_file": "components/flight_core/include/flight_core/commander.h",
@@ -7861,7 +8029,7 @@
       "file_type": "code",
       "norm_label": "flight_core_push_command()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4335"
+      "source_location": "L4480"
     },
     {
       "id": "src_main_cmd_alt",
@@ -8401,7 +8569,7 @@
       "file_type": "code",
       "norm_label": "flight_core_get_commander_cfg()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4535"
+      "source_location": "L4680"
     },
     {
       "id": "python_test_flight_mode_sequence_offline_check",
@@ -8500,16 +8668,28 @@
       "source_location": "L157"
     },
     {
-      "id": "components_flight_core_include_flight_core_sensor_hub_sensor_hub_age_us",
-      "label": "sensor_hub_age_us()",
+      "id": "components_flight_core_include_flight_core_alt_hold_alt_hold_reset",
+      "label": "alt_hold_reset()",
       "_callable": true,
       "_origin": "ast",
       "community": 93,
-      "community_name": "stabilize_task",
+      "community_name": "flight_core_start",
       "file_type": "code",
-      "norm_label": "sensor_hub_age_us()",
-      "source_file": "components/flight_core/include/flight_core/sensor_hub.h",
-      "source_location": "L210"
+      "norm_label": "alt_hold_reset()",
+      "source_file": "components/flight_core/include/flight_core/alt_hold.h",
+      "source_location": "L48"
+    },
+    {
+      "id": "components_flight_core_include_flight_core_flight_state_machine_fsm_init",
+      "label": "fsm_init()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 93,
+      "community_name": "flight_core_start",
+      "file_type": "code",
+      "norm_label": "fsm_init()",
+      "source_file": "components/flight_core/include/flight_core/flight_state_machine.h",
+      "source_location": "L87"
     },
     {
       "id": "components_flight_core_include_flight_core_takeoff_land_landing_reset",
@@ -8517,7 +8697,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 93,
-      "community_name": "stabilize_task",
+      "community_name": "flight_core_start",
       "file_type": "code",
       "norm_label": "landing_reset()",
       "source_file": "components/flight_core/include/flight_core/takeoff_land.h",
@@ -8529,7 +8709,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 93,
-      "community_name": "stabilize_task",
+      "community_name": "flight_core_start",
       "file_type": "code",
       "norm_label": "takeoff_airborne()",
       "source_file": "components/flight_core/include/flight_core/takeoff_land.h",
@@ -8541,7 +8721,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 93,
-      "community_name": "stabilize_task",
+      "community_name": "flight_core_start",
       "file_type": "code",
       "norm_label": "takeoff_begin()",
       "source_file": "components/flight_core/include/flight_core/takeoff_land.h",
@@ -8553,7 +8733,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 93,
-      "community_name": "stabilize_task",
+      "community_name": "flight_core_start",
       "file_type": "code",
       "norm_label": "takeoff_control_active()",
       "source_file": "components/flight_core/include/flight_core/takeoff_land.h",
@@ -8565,47 +8745,35 @@
       "_callable": true,
       "_origin": "ast",
       "community": 93,
-      "community_name": "stabilize_task",
+      "community_name": "flight_core_start",
       "file_type": "code",
       "norm_label": "takeoff_reset()",
       "source_file": "components/flight_core/include/flight_core/takeoff_land.h",
       "source_location": "L189"
     },
     {
-      "id": "components_flight_core_src_flight_core_finalize_mag_calibration",
-      "label": "finalize_mag_calibration()",
+      "id": "components_flight_core_src_flight_core_flight_core_start",
+      "label": "flight_core_start()",
       "_callable": true,
       "_origin": "ast",
       "community": 93,
-      "community_name": "stabilize_task",
+      "community_name": "flight_core_start",
       "file_type": "code",
-      "norm_label": "finalize_mag_calibration()",
+      "norm_label": "flight_core_start()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L864"
+      "source_location": "L4719"
     },
     {
-      "id": "components_flight_core_src_flight_core_publish_kill_tick_telemetry",
-      "label": "publish_kill_tick_telemetry()",
+      "id": "components_flight_core_src_flight_core_init_i2c_bus",
+      "label": "init_i2c_bus()",
       "_callable": true,
       "_origin": "ast",
       "community": 93,
-      "community_name": "stabilize_task",
+      "community_name": "flight_core_start",
       "file_type": "code",
-      "norm_label": "publish_kill_tick_telemetry()",
+      "norm_label": "init_i2c_bus()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2302"
-    },
-    {
-      "id": "components_flight_core_src_flight_core_recompute_uncalibrated",
-      "label": "recompute_uncalibrated()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 93,
-      "community_name": "stabilize_task",
-      "file_type": "code",
-      "norm_label": "recompute_uncalibrated()",
-      "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L480"
+      "source_location": "L4704"
     },
     {
       "id": "components_flight_core_src_flight_core_reset_all_controllers",
@@ -8613,131 +8781,83 @@
       "_callable": true,
       "_origin": "ast",
       "community": 93,
-      "community_name": "stabilize_task",
+      "community_name": "flight_core_start",
       "file_type": "code",
       "norm_label": "reset_all_controllers()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L833"
+      "source_location": "L846"
     },
     {
-      "id": "components_flight_core_src_flight_core_stabilize_task",
-      "label": "stabilize_task()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 93,
-      "community_name": "stabilize_task",
-      "file_type": "code",
-      "norm_label": "stabilize_task()",
-      "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2315"
-    },
-    {
-      "id": "components_flight_core_src_flight_core_wait_next_control_tick",
-      "label": "wait_next_control_tick()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 93,
-      "community_name": "stabilize_task",
-      "file_type": "code",
-      "norm_label": "wait_next_control_tick()",
-      "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2272"
-    },
-    {
-      "id": "components_flight_core_src_flight_core_wrap_deg_180",
-      "label": "wrap_deg_180()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 93,
-      "community_name": "stabilize_task",
-      "file_type": "code",
-      "norm_label": "wrap_deg_180()",
-      "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L827"
-    },
-    {
-      "id": "components_flight_core_src_flight_core_flight_core_get_alt_hold_tune",
-      "label": "flight_core_get_alt_hold_tune()",
+      "id": "python_test_terrain_deadlock_offline_check",
+      "label": "check()",
       "_callable": true,
       "_origin": "ast",
       "community": 94,
-      "community_name": "handle_alt",
+      "community_name": "test_terrain_deadlock_offline.py",
       "file_type": "code",
-      "norm_label": "flight_core_get_alt_hold_tune()",
-      "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4514"
+      "norm_label": "check()",
+      "source_file": "python/test_terrain_deadlock_offline.py",
+      "source_location": "L33"
     },
     {
-      "id": "src_command_parser_handle_alt",
-      "label": "handle_alt()",
+      "id": "python_test_terrain_deadlock_offline_const_of",
+      "label": "const_of()",
       "_callable": true,
       "_origin": "ast",
       "community": 94,
-      "community_name": "handle_alt",
+      "community_name": "test_terrain_deadlock_offline.py",
       "file_type": "code",
-      "norm_label": "handle_alt()",
-      "source_file": "src/command_parser.c",
-      "source_location": "L233"
+      "norm_label": "const_of()",
+      "source_file": "python/test_terrain_deadlock_offline.py",
+      "source_location": "L50"
     },
     {
-      "id": "src_telemetry_format_telemetry_format_alt_mode",
-      "label": "telemetry_format_alt_mode()",
+      "id": "python_test_terrain_deadlock_offline_strip_c_comments",
+      "label": "strip_c_comments()",
       "_callable": true,
       "_origin": "ast",
       "community": 94,
-      "community_name": "handle_alt",
+      "community_name": "test_terrain_deadlock_offline.py",
       "file_type": "code",
-      "norm_label": "telemetry_format_alt_mode()",
-      "source_file": "src/telemetry_format.c",
-      "source_location": "L38"
+      "norm_label": "strip_c_comments()",
+      "source_file": "python/test_terrain_deadlock_offline.py",
+      "source_location": "L41"
     },
     {
-      "id": "src_telemetry_format_telemetry_format_status_line",
-      "label": "telemetry_format_status_line()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 94,
-      "community_name": "handle_alt",
-      "file_type": "code",
-      "norm_label": "telemetry_format_status_line()",
-      "source_file": "src/telemetry_format.c",
-      "source_location": "L48"
-    },
-    {
-      "id": "components_flight_core_include_flight_core_attitude_control_attitude_state_reset",
-      "label": "attitude_state_reset()",
+      "id": "python_test_tilt_comp_expo_offline_check",
+      "label": "check()",
       "_callable": true,
       "_origin": "ast",
       "community": 95,
-      "community_name": "attitude_state_reset",
+      "community_name": "test_tilt_comp_expo_offline.py",
       "file_type": "code",
-      "norm_label": "attitude_state_reset()",
-      "source_file": "components/flight_core/include/flight_core/attitude_control.h",
-      "source_location": "L99"
+      "norm_label": "check()",
+      "source_file": "python/test_tilt_comp_expo_offline.py",
+      "source_location": "L34"
     },
     {
-      "id": "components_flight_core_include_flight_core_pid_pid_reset",
-      "label": "pid_reset()",
+      "id": "python_test_tilt_comp_expo_offline_const_of",
+      "label": "const_of()",
       "_callable": true,
       "_origin": "ast",
       "community": 95,
-      "community_name": "attitude_state_reset",
+      "community_name": "test_tilt_comp_expo_offline.py",
       "file_type": "code",
-      "norm_label": "pid_reset()",
-      "source_file": "components/flight_core/include/flight_core/pid.h",
-      "source_location": "L46"
+      "norm_label": "const_of()",
+      "source_file": "python/test_tilt_comp_expo_offline.py",
+      "source_location": "L52"
     },
     {
-      "id": "components_flight_core_include_flight_core_pid_pid_state_init",
-      "label": "pid_state_init()",
+      "id": "python_test_tilt_comp_expo_offline_strip_c_comments",
+      "label": "strip_c_comments()",
       "_callable": true,
       "_origin": "ast",
       "community": 95,
-      "community_name": "attitude_state_reset",
+      "community_name": "test_tilt_comp_expo_offline.py",
       "file_type": "code",
-      "norm_label": "pid_state_init()",
-      "source_file": "components/flight_core/include/flight_core/pid.h",
-      "source_location": "L29"
+      "norm_label": "strip_c_comments()",
+      "source_file": "python/test_tilt_comp_expo_offline.py",
+      "source_location": "L42"
     },
     {
       "id": "python_test_tof_alive_vs_valid_offline_check",
@@ -8833,7 +8953,7 @@
       "file_type": "code",
       "norm_label": "gyro_cal_state_active()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L487"
+      "source_location": "L500"
     },
     {
       "id": "components_flight_core_src_flight_core_prearm_check",
@@ -8845,7 +8965,7 @@
       "file_type": "code",
       "norm_label": "prearm_check()",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1042"
+      "source_location": "L1055"
     },
     {
       "id": "python_test_gui_tof_health_offline_check",
@@ -9025,28 +9145,6 @@
       "source_location": ""
     },
     {
-      "id": "components_flight_core_src_sensor_hub_c_esp_err_t",
-      "label": "esp_err_t",
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "sensor_hub.c",
-      "file_type": "code",
-      "norm_label": "esp_err_t",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "components_flight_core_src_sensor_hub_c_imu_calib_t",
-      "label": "imu_calib_t",
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "sensor_hub.c",
-      "file_type": "code",
-      "norm_label": "imu_calib_t",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
       "id": "components_flight_core_src_sensor_hub_c_imu_sample_t",
       "label": "imu_sample_t",
       "_origin": "ast",
@@ -9076,17 +9174,6 @@
       "community_name": "sensor_hub.c",
       "file_type": "code",
       "norm_label": "sensor_health_t",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "components_flight_core_src_sensor_hub_c_taskhandle_t",
-      "label": "TaskHandle_t",
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "sensor_hub.c",
-      "file_type": "code",
-      "norm_label": "taskhandle_t",
       "source_file": "",
       "source_location": ""
     },
@@ -9139,7 +9226,7 @@
       "label": "alt_estimator_t",
       "_origin": "ast",
       "community": 10,
-      "community_name": "alt_estimator.c",
+      "community_name": "stabilize_task",
       "file_type": "code",
       "norm_label": "alt_estimator_t",
       "source_file": "",
@@ -9150,7 +9237,7 @@
       "label": "alt_estimator.c",
       "_origin": "ast",
       "community": 10,
-      "community_name": "alt_estimator.c",
+      "community_name": "stabilize_task",
       "file_type": "code",
       "norm_label": "alt_estimator.c",
       "source_file": "components/flight_core/src/alt_estimator.c",
@@ -9161,7 +9248,7 @@
       "label": "quat_t",
       "_origin": "ast",
       "community": 10,
-      "community_name": "alt_estimator.c",
+      "community_name": "stabilize_task",
       "file_type": "code",
       "norm_label": "quat_t",
       "source_file": "",
@@ -9172,7 +9259,7 @@
       "label": "vec3f_t",
       "_origin": "ast",
       "community": 10,
-      "community_name": "alt_estimator.c",
+      "community_name": "stabilize_task",
       "file_type": "code",
       "norm_label": "vec3f_t",
       "source_file": "",
@@ -9183,9 +9270,31 @@
       "label": "FC_FEATURE_BARO",
       "_origin": "ast",
       "community": 10,
-      "community_name": "alt_estimator.c",
+      "community_name": "stabilize_task",
       "file_type": "code",
       "norm_label": "fc_feature_baro",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "components_flight_core_include_flight_core_sensor_hub",
+      "label": "sensor_hub.h",
+      "_origin": "ast",
+      "community": 100,
+      "community_name": "sensor_hub_age_us",
+      "file_type": "code",
+      "norm_label": "sensor_hub.h",
+      "source_file": "components/flight_core/include/flight_core/sensor_hub.h",
+      "source_location": "L1"
+    },
+    {
+      "id": "components_flight_core_include_flight_core_sensor_hub_h_sensor_health_t",
+      "label": "sensor_health_t",
+      "_origin": "ast",
+      "community": 100,
+      "community_name": "sensor_hub_age_us",
+      "file_type": "code",
+      "norm_label": "sensor_health_t",
       "source_file": "",
       "source_location": ""
     },
@@ -9629,6 +9738,17 @@
       "source_location": ""
     },
     {
+      "id": "components_flight_core_src_flight_core_c_alt_hold_tune_t",
+      "label": "alt_hold_tune_t",
+      "_origin": "ast",
+      "community": 13,
+      "community_name": "command_parser.c",
+      "file_type": "code",
+      "norm_label": "alt_hold_tune_t",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
       "id": "src_command_parser_c_move_dir_t",
       "label": "move_dir_t",
       "_origin": "ast",
@@ -9660,17 +9780,6 @@
       "norm_label": "command_parser.c",
       "source_file": "src/command_parser.c",
       "source_location": "L1"
-    },
-    {
-      "id": "components_flight_core_include_flight_core_commander_h_commander_config_t",
-      "label": "commander_config_t",
-      "_origin": "ast",
-      "community": 14,
-      "community_name": "apply_command",
-      "file_type": "code",
-      "norm_label": "commander_config_t",
-      "source_file": "",
-      "source_location": ""
     },
     {
       "id": "components_flight_core_src_flight_state_machine",
@@ -9908,7 +10017,7 @@
       "label": "alt_hold_result_t",
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "alt_hold_result_t",
       "source_file": "",
@@ -9919,7 +10028,7 @@
       "label": "alt_hold.c",
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "alt_hold.c",
       "source_file": "components/flight_core/src/alt_hold.c",
@@ -9930,7 +10039,7 @@
       "label": "alt_hold_state_t",
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "alt_hold_state_t",
       "source_file": "",
@@ -9941,7 +10050,7 @@
       "label": "alt_hold_tune_t",
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "alt_hold_tune_t",
       "source_file": "",
@@ -9952,7 +10061,7 @@
       "label": "landing_tune_t",
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "landing_tune_t",
       "source_file": "",
@@ -9963,7 +10072,7 @@
       "label": "takeoff_tune_t",
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "takeoff_tune_t",
       "source_file": "",
@@ -9974,7 +10083,7 @@
       "label": "takeoff_land.c",
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "takeoff_land.c",
       "source_file": "components/flight_core/src/takeoff_land.c",
@@ -9985,7 +10094,7 @@
       "label": "alt_hold_state_t",
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "alt_hold_state_t",
       "source_file": "",
@@ -9996,7 +10105,7 @@
       "label": "alt_hold_tune_t",
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "alt_hold_tune_t",
       "source_file": "",
@@ -10007,7 +10116,7 @@
       "label": "landing_state_t",
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "landing_state_t",
       "source_file": "",
@@ -10018,7 +10127,7 @@
       "label": "landing_tune_t",
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "landing_tune_t",
       "source_file": "",
@@ -10029,7 +10138,7 @@
       "label": "takeoff_state_t",
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "takeoff_state_t",
       "source_file": "",
@@ -10040,7 +10149,7 @@
       "label": "takeoff_tune_t",
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "takeoff_tune_t",
       "source_file": "",
@@ -10051,7 +10160,7 @@
       "label": "landing_result_t",
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "landing_result_t",
       "source_file": "",
@@ -10062,7 +10171,7 @@
       "label": "takeoff_abort_reason_t",
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "takeoff_abort_reason_t",
       "source_file": "",
@@ -10073,7 +10182,7 @@
       "label": "takeoff_phase_t",
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "takeoff_phase_t",
       "source_file": "",
@@ -10084,7 +10193,7 @@
       "label": "takeoff_result_t",
       "_origin": "ast",
       "community": 19,
-      "community_name": "clampf",
+      "community_name": "takeoff_run",
       "file_type": "code",
       "norm_label": "takeoff_result_t",
       "source_file": "",
@@ -10122,6 +10231,17 @@
       "norm_label": "telemetry.h",
       "source_file": "components/flight_core/include/flight_core/telemetry.h",
       "source_location": "L1"
+    },
+    {
+      "id": "components_flight_core_include_flight_core_telemetry_h_telemetry_snapshot_t",
+      "label": "telemetry_snapshot_t",
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "fc_module.c",
+      "file_type": "code",
+      "norm_label": "telemetry_snapshot_t",
+      "source_file": "",
+      "source_location": ""
     },
     {
       "id": "micropython_module_fc_fc_bridge_c_command_t",
@@ -10432,6 +10552,17 @@
       "source_location": ""
     },
     {
+      "id": "components_flight_core_src_flight_core_c_ticktype_t",
+      "label": "TickType_t",
+      "_origin": "ast",
+      "community": 24,
+      "community_name": "flight_core.c",
+      "file_type": "code",
+      "norm_label": "ticktype_t",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
       "id": "components_flight_core_src_flight_core_c_vec3f_t",
       "label": "vec3f_t",
       "_origin": "ast",
@@ -10564,6 +10695,39 @@
       "source_location": "L1"
     },
     {
+      "id": "components_flight_core_include_flight_core_alt_hold",
+      "label": "alt_hold.h",
+      "_origin": "ast",
+      "community": 27,
+      "community_name": "types.h",
+      "file_type": "code",
+      "norm_label": "alt_hold.h",
+      "source_file": "components/flight_core/include/flight_core/alt_hold.h",
+      "source_location": "L1"
+    },
+    {
+      "id": "components_flight_core_include_flight_core_attitude_control",
+      "label": "attitude_control.h",
+      "_origin": "ast",
+      "community": 27,
+      "community_name": "types.h",
+      "file_type": "code",
+      "norm_label": "attitude_control.h",
+      "source_file": "components/flight_core/include/flight_core/attitude_control.h",
+      "source_location": "L1"
+    },
+    {
+      "id": "components_flight_core_include_flight_core_attitude_control_h_attitude_state_t",
+      "label": "attitude_state_t",
+      "_origin": "ast",
+      "community": 27,
+      "community_name": "types.h",
+      "file_type": "code",
+      "norm_label": "attitude_state_t",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
       "id": "components_flight_core_include_flight_core_calibration",
       "label": "calibration.h",
       "_origin": "ast",
@@ -10641,6 +10805,17 @@
       "source_location": "L1"
     },
     {
+      "id": "components_flight_core_include_flight_core_hover_model",
+      "label": "hover_model.h",
+      "_origin": "ast",
+      "community": 27,
+      "community_name": "types.h",
+      "file_type": "code",
+      "norm_label": "hover_model.h",
+      "source_file": "components/flight_core/include/flight_core/hover_model.h",
+      "source_location": "L1"
+    },
+    {
       "id": "components_flight_core_include_flight_core_mahony_filter",
       "label": "mahony_filter.h",
       "_origin": "ast",
@@ -10672,6 +10847,39 @@
       "norm_label": "quat_t",
       "source_file": "",
       "source_location": ""
+    },
+    {
+      "id": "components_flight_core_include_flight_core_pid",
+      "label": "pid.h",
+      "_origin": "ast",
+      "community": 27,
+      "community_name": "types.h",
+      "file_type": "code",
+      "norm_label": "pid.h",
+      "source_file": "components/flight_core/include/flight_core/pid.h",
+      "source_location": "L1"
+    },
+    {
+      "id": "components_flight_core_include_flight_core_pid_h_pid_state_t",
+      "label": "pid_state_t",
+      "_origin": "ast",
+      "community": 27,
+      "community_name": "types.h",
+      "file_type": "code",
+      "norm_label": "pid_state_t",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "components_flight_core_include_flight_core_tuning",
+      "label": "tuning.h",
+      "_origin": "ast",
+      "community": 27,
+      "community_name": "types.h",
+      "file_type": "code",
+      "norm_label": "tuning.h",
+      "source_file": "components/flight_core/include/flight_core/tuning.h",
+      "source_location": "L1"
     },
     {
       "id": "components_flight_core_include_flight_core_types",
@@ -10802,6 +11010,39 @@
       "community_name": "imu_driver.c",
       "file_type": "code",
       "norm_label": "vec3f_t",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "components_flight_core_src_sensor_hub_c_esp_err_t",
+      "label": "esp_err_t",
+      "_origin": "ast",
+      "community": 29,
+      "community_name": "imu_driver.c",
+      "file_type": "code",
+      "norm_label": "esp_err_t",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "components_flight_core_src_sensor_hub_c_imu_calib_t",
+      "label": "imu_calib_t",
+      "_origin": "ast",
+      "community": 29,
+      "community_name": "imu_driver.c",
+      "file_type": "code",
+      "norm_label": "imu_calib_t",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "components_flight_core_src_sensor_hub_c_taskhandle_t",
+      "label": "TaskHandle_t",
+      "_origin": "ast",
+      "community": 29,
+      "community_name": "imu_driver.c",
+      "file_type": "code",
+      "norm_label": "taskhandle_t",
       "source_file": "",
       "source_location": ""
     },
@@ -11192,59 +11433,26 @@
       "source_location": "L864"
     },
     {
-      "id": "components_flight_core_include_flight_core_telemetry_h_telemetry_snapshot_t",
-      "label": "telemetry_snapshot_t",
+      "id": "python_test_flying_vz_hold_offline",
+      "label": "test_flying_vz_hold_offline.py",
       "_origin": "ast",
       "community": 4,
-      "community_name": "flight_core_start",
+      "community_name": "test_flying_vz_hold_offline.py",
       "file_type": "code",
-      "norm_label": "telemetry_snapshot_t",
-      "source_file": "",
-      "source_location": ""
+      "norm_label": "test_flying_vz_hold_offline.py",
+      "source_file": "python/test_flying_vz_hold_offline.py",
+      "source_location": "L1"
     },
     {
-      "id": "components_flight_core_src_flight_core_c_esp_err_t",
-      "label": "esp_err_t",
+      "id": "python_test_flying_vz_hold_offline_rationale_1",
+      "label": "PHASE A -- FLYING chay TANG TRONG cua cascade (vz -> throttle), vz_target = 0.\u2026",
       "_origin": "ast",
       "community": 4,
-      "community_name": "flight_core_start",
-      "file_type": "code",
-      "norm_label": "esp_err_t",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "components_flight_core_src_flight_core_c_flight_core_board_config_t",
-      "label": "flight_core_board_config_t",
-      "_origin": "ast",
-      "community": 4,
-      "community_name": "flight_core_start",
-      "file_type": "code",
-      "norm_label": "flight_core_board_config_t",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "components_flight_core_src_flight_core_c_i2c_master_bus_handle_t",
-      "label": "i2c_master_bus_handle_t",
-      "_origin": "ast",
-      "community": 4,
-      "community_name": "flight_core_start",
-      "file_type": "code",
-      "norm_label": "i2c_master_bus_handle_t",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "fsm_t",
-      "label": "fsm_t",
-      "_origin": "ast",
-      "community": 4,
-      "community_name": "flight_core_start",
-      "file_type": "code",
-      "norm_label": "fsm_t",
-      "source_file": "",
-      "source_location": ""
+      "community_name": "test_flying_vz_hold_offline.py",
+      "file_type": "rationale",
+      "norm_label": "phase a -- flying chay tang trong cua cascade (vz -> throttle), vz_target = 0....",
+      "source_file": "python/test_flying_vz_hold_offline.py",
+      "source_location": "L1"
     },
     {
       "id": "tools_uav_udp_console_rationale_681",
@@ -11421,6 +11629,39 @@
       "norm_label": "flight_core_board_config_t",
       "source_file": "",
       "source_location": ""
+    },
+    {
+      "id": "src_telemetry_format_c_fsm_state_t",
+      "label": "fsm_state_t",
+      "_origin": "ast",
+      "community": 49,
+      "community_name": "app_config.h",
+      "file_type": "code",
+      "norm_label": "fsm_state_t",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "src_telemetry_format_c_src_telemetry_format",
+      "label": "telemetry_format.c",
+      "_origin": "ast",
+      "community": 49,
+      "community_name": "app_config.h",
+      "file_type": "code",
+      "norm_label": "telemetry_format.c",
+      "source_file": "src/telemetry_format.c",
+      "source_location": "L1"
+    },
+    {
+      "id": "src_telemetry_format_h_src_telemetry_format",
+      "label": "telemetry_format.h",
+      "_origin": "ast",
+      "community": 49,
+      "community_name": "app_config.h",
+      "file_type": "code",
+      "norm_label": "telemetry_format.h",
+      "source_file": "src/telemetry_format.h",
+      "source_location": "L1"
     },
     {
       "id": "components_flight_core_src_drivers_vl53l0x_driver",
@@ -11797,70 +12038,37 @@
       "source_location": "L1"
     },
     {
-      "id": "components_flight_core_include_flight_core_alt_hold",
-      "label": "alt_hold.h",
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "tuning.h",
-      "file_type": "code",
-      "norm_label": "alt_hold.h",
-      "source_file": "components/flight_core/include/flight_core/alt_hold.h",
-      "source_location": "L1"
-    },
-    {
-      "id": "components_flight_core_include_flight_core_alt_hold_h_alt_hold_state_t",
-      "label": "alt_hold_state_t",
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "tuning.h",
-      "file_type": "code",
-      "norm_label": "alt_hold_state_t",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
       "id": "components_flight_core_include_flight_core_commander",
       "label": "commander.h",
       "_origin": "ast",
       "community": 6,
-      "community_name": "tuning.h",
+      "community_name": "commander.h",
       "file_type": "code",
       "norm_label": "commander.h",
       "source_file": "components/flight_core/include/flight_core/commander.h",
       "source_location": "L1"
     },
     {
-      "id": "components_flight_core_include_flight_core_commander_h_commander_state_t",
-      "label": "commander_state_t",
+      "id": "components_flight_core_include_flight_core_commander_h_commander_config_t",
+      "label": "commander_config_t",
       "_origin": "ast",
       "community": 6,
-      "community_name": "tuning.h",
+      "community_name": "commander.h",
       "file_type": "code",
-      "norm_label": "commander_state_t",
+      "norm_label": "commander_config_t",
       "source_file": "",
       "source_location": ""
     },
     {
-      "id": "components_flight_core_include_flight_core_hover_model",
-      "label": "hover_model.h",
+      "id": "components_flight_core_include_flight_core_commander_h_commander_state_t",
+      "label": "commander_state_t",
       "_origin": "ast",
       "community": 6,
-      "community_name": "tuning.h",
+      "community_name": "commander.h",
       "file_type": "code",
-      "norm_label": "hover_model.h",
-      "source_file": "components/flight_core/include/flight_core/hover_model.h",
-      "source_location": "L1"
-    },
-    {
-      "id": "components_flight_core_include_flight_core_tuning",
-      "label": "tuning.h",
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "tuning.h",
-      "file_type": "code",
-      "norm_label": "tuning.h",
-      "source_file": "components/flight_core/include/flight_core/tuning.h",
-      "source_location": "L1"
+      "norm_label": "commander_state_t",
+      "source_file": "",
+      "source_location": ""
     },
     {
       "id": "python_fc_api_rationale_183",
@@ -12909,24 +13117,13 @@
       "source_location": "L46"
     },
     {
-      "id": "components_flight_core_include_flight_core_sensor_hub",
-      "label": "sensor_hub.h",
+      "id": "components_flight_core_include_flight_core_alt_hold_h_alt_hold_state_t",
+      "label": "alt_hold_state_t",
       "_origin": "ast",
       "community": 93,
-      "community_name": "stabilize_task",
+      "community_name": "flight_core_start",
       "file_type": "code",
-      "norm_label": "sensor_hub.h",
-      "source_file": "components/flight_core/include/flight_core/sensor_hub.h",
-      "source_location": "L1"
-    },
-    {
-      "id": "components_flight_core_include_flight_core_sensor_hub_h_sensor_health_t",
-      "label": "sensor_health_t",
-      "_origin": "ast",
-      "community": 93,
-      "community_name": "stabilize_task",
-      "file_type": "code",
-      "norm_label": "sensor_health_t",
+      "norm_label": "alt_hold_state_t",
       "source_file": "",
       "source_location": ""
     },
@@ -12935,7 +13132,7 @@
       "label": "takeoff_land.h",
       "_origin": "ast",
       "community": 93,
-      "community_name": "stabilize_task",
+      "community_name": "flight_core_start",
       "file_type": "code",
       "norm_label": "takeoff_land.h",
       "source_file": "components/flight_core/include/flight_core/takeoff_land.h",
@@ -12946,7 +13143,7 @@
       "label": "landing_state_t",
       "_origin": "ast",
       "community": 93,
-      "community_name": "stabilize_task",
+      "community_name": "flight_core_start",
       "file_type": "code",
       "norm_label": "landing_state_t",
       "source_file": "",
@@ -12957,110 +13154,99 @@
       "label": "takeoff_state_t",
       "_origin": "ast",
       "community": 93,
-      "community_name": "stabilize_task",
+      "community_name": "flight_core_start",
       "file_type": "code",
       "norm_label": "takeoff_state_t",
       "source_file": "",
       "source_location": ""
     },
     {
-      "id": "components_flight_core_src_flight_core_c_ticktype_t",
-      "label": "TickType_t",
+      "id": "components_flight_core_src_flight_core_c_esp_err_t",
+      "label": "esp_err_t",
       "_origin": "ast",
       "community": 93,
-      "community_name": "stabilize_task",
+      "community_name": "flight_core_start",
       "file_type": "code",
-      "norm_label": "ticktype_t",
+      "norm_label": "esp_err_t",
       "source_file": "",
       "source_location": ""
     },
     {
-      "id": "components_flight_core_src_flight_core_c_alt_hold_tune_t",
-      "label": "alt_hold_tune_t",
+      "id": "components_flight_core_src_flight_core_c_flight_core_board_config_t",
+      "label": "flight_core_board_config_t",
       "_origin": "ast",
-      "community": 94,
-      "community_name": "handle_alt",
+      "community": 93,
+      "community_name": "flight_core_start",
       "file_type": "code",
-      "norm_label": "alt_hold_tune_t",
+      "norm_label": "flight_core_board_config_t",
       "source_file": "",
       "source_location": ""
     },
     {
-      "id": "src_telemetry_format_c_fsm_state_t",
-      "label": "fsm_state_t",
+      "id": "components_flight_core_src_flight_core_c_i2c_master_bus_handle_t",
+      "label": "i2c_master_bus_handle_t",
       "_origin": "ast",
-      "community": 94,
-      "community_name": "handle_alt",
+      "community": 93,
+      "community_name": "flight_core_start",
       "file_type": "code",
-      "norm_label": "fsm_state_t",
+      "norm_label": "i2c_master_bus_handle_t",
       "source_file": "",
       "source_location": ""
     },
     {
-      "id": "src_telemetry_format_c_src_telemetry_format",
-      "label": "telemetry_format.c",
+      "id": "fsm_t",
+      "label": "fsm_t",
+      "_origin": "ast",
+      "community": 93,
+      "community_name": "flight_core_start",
+      "file_type": "code",
+      "norm_label": "fsm_t",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "python_test_terrain_deadlock_offline",
+      "label": "test_terrain_deadlock_offline.py",
       "_origin": "ast",
       "community": 94,
-      "community_name": "handle_alt",
+      "community_name": "test_terrain_deadlock_offline.py",
       "file_type": "code",
-      "norm_label": "telemetry_format.c",
-      "source_file": "src/telemetry_format.c",
+      "norm_label": "test_terrain_deadlock_offline.py",
+      "source_file": "python/test_terrain_deadlock_offline.py",
       "source_location": "L1"
     },
     {
-      "id": "src_telemetry_format_h_src_telemetry_format",
-      "label": "telemetry_format.h",
+      "id": "python_test_terrain_deadlock_offline_rationale_1",
+      "label": "PHASE B -- terr_pending PHAI co loi thoat. Day la loi da lam terrain bi TAT.\u2026",
       "_origin": "ast",
       "community": 94,
-      "community_name": "handle_alt",
-      "file_type": "code",
-      "norm_label": "telemetry_format.h",
-      "source_file": "src/telemetry_format.h",
+      "community_name": "test_terrain_deadlock_offline.py",
+      "file_type": "rationale",
+      "norm_label": "phase b -- terr_pending phai co loi thoat. day la loi da lam terrain bi tat....",
+      "source_file": "python/test_terrain_deadlock_offline.py",
       "source_location": "L1"
     },
     {
-      "id": "components_flight_core_include_flight_core_attitude_control",
-      "label": "attitude_control.h",
+      "id": "python_test_tilt_comp_expo_offline",
+      "label": "test_tilt_comp_expo_offline.py",
       "_origin": "ast",
       "community": 95,
-      "community_name": "attitude_state_reset",
+      "community_name": "test_tilt_comp_expo_offline.py",
       "file_type": "code",
-      "norm_label": "attitude_control.h",
-      "source_file": "components/flight_core/include/flight_core/attitude_control.h",
+      "norm_label": "test_tilt_comp_expo_offline.py",
+      "source_file": "python/test_tilt_comp_expo_offline.py",
       "source_location": "L1"
     },
     {
-      "id": "components_flight_core_include_flight_core_attitude_control_h_attitude_state_t",
-      "label": "attitude_state_t",
+      "id": "python_test_tilt_comp_expo_offline_rationale_1",
+      "label": "PHASE E2/E3 -- expo can nghieng + bu cos(tilt) cho throttle. E3 -- VI SAO PHAI\u2026",
       "_origin": "ast",
       "community": 95,
-      "community_name": "attitude_state_reset",
-      "file_type": "code",
-      "norm_label": "attitude_state_t",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "components_flight_core_include_flight_core_pid",
-      "label": "pid.h",
-      "_origin": "ast",
-      "community": 95,
-      "community_name": "attitude_state_reset",
-      "file_type": "code",
-      "norm_label": "pid.h",
-      "source_file": "components/flight_core/include/flight_core/pid.h",
+      "community_name": "test_tilt_comp_expo_offline.py",
+      "file_type": "rationale",
+      "norm_label": "phase e2/e3 -- expo can nghieng + bu cos(tilt) cho throttle. e3 -- vi sao phai...",
+      "source_file": "python/test_tilt_comp_expo_offline.py",
       "source_location": "L1"
-    },
-    {
-      "id": "components_flight_core_include_flight_core_pid_h_pid_state_t",
-      "label": "pid_state_t",
-      "_origin": "ast",
-      "community": 95,
-      "community_name": "attitude_state_reset",
-      "file_type": "code",
-      "norm_label": "pid_state_t",
-      "source_file": "",
-      "source_location": ""
     },
     {
       "id": "python_test_tof_alive_vs_valid_offline",
@@ -13229,7 +13415,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L138",
+      "source_location": "L146",
       "weight": 1.0
     },
     {
@@ -13241,7 +13427,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L85",
+      "source_location": "L92",
       "weight": 1.0
     },
     {
@@ -13253,7 +13439,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L97",
+      "source_location": "L104",
       "weight": 1.0
     },
     {
@@ -13265,7 +13451,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L91",
+      "source_location": "L98",
       "weight": 1.0
     },
     {
@@ -13277,7 +13463,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L38",
+      "source_location": "L44",
       "weight": 1.0
     },
     {
@@ -13289,7 +13475,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L100",
+      "source_location": "L107",
       "weight": 1.0
     },
     {
@@ -13301,7 +13487,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L384",
+      "source_location": "L421",
       "weight": 1.0
     },
     {
@@ -13313,7 +13499,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L517",
+      "source_location": "L593",
       "weight": 1.0
     },
     {
@@ -13325,7 +13511,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L528",
+      "source_location": "L604",
       "weight": 1.0
     },
     {
@@ -13337,7 +13523,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L552",
+      "source_location": "L628",
       "weight": 1.0
     },
     {
@@ -14093,7 +14279,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L174",
+      "source_location": "L175",
       "weight": 1.0
     },
     {
@@ -14105,7 +14291,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L140",
+      "source_location": "L141",
       "weight": 1.0
     },
     {
@@ -14117,7 +14303,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L145",
+      "source_location": "L146",
       "weight": 1.0
     },
     {
@@ -14129,7 +14315,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L121",
+      "source_location": "L122",
       "weight": 1.0
     },
     {
@@ -14141,7 +14327,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L127",
+      "source_location": "L128",
       "weight": 1.0
     },
     {
@@ -14153,7 +14339,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L156",
+      "source_location": "L157",
       "weight": 1.0
     },
     {
@@ -14165,7 +14351,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L194",
+      "source_location": "L205",
       "weight": 1.0
     },
     {
@@ -14177,7 +14363,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L204",
+      "source_location": "L215",
       "weight": 1.0
     },
     {
@@ -14189,7 +14375,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L98",
+      "source_location": "L99",
       "weight": 1.0
     },
     {
@@ -15029,7 +15215,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1266",
+      "source_location": "L1279",
       "weight": 1.0
     },
     {
@@ -15041,7 +15227,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1365",
+      "source_location": "L1378",
       "weight": 1.0
     },
     {
@@ -15053,24 +15239,12 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1411",
+      "source_location": "L1424",
       "weight": 1.0
     },
     {
       "source": "components_flight_core_src_flight_core_apply_command",
       "target": "components_flight_core_src_flight_core_enter_kill_latch",
-      "relation": "calls",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "call",
-      "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1425",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_flight_core_apply_command",
-      "target": "components_flight_core_src_flight_core_abort_landing_to_hold",
       "relation": "calls",
       "_origin": "ast",
       "confidence": "EXTRACTED",
@@ -15082,6 +15256,30 @@
     },
     {
       "source": "components_flight_core_src_flight_core_apply_command",
+      "target": "components_flight_core_src_flight_core_abort_landing_to_hold",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "components/flight_core/src/flight_core.c",
+      "source_location": "L1451",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_flight_core_apply_command",
+      "target": "components_flight_core_src_flight_core_move_expo",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "components/flight_core/src/flight_core.c",
+      "source_location": "L1686",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_flight_core_apply_command",
       "target": "components_flight_core_src_flight_core_apply_set_param",
       "relation": "calls",
       "_origin": "ast",
@@ -15089,7 +15287,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1705",
+      "source_location": "L1722",
       "weight": 1.0
     },
     {
@@ -15101,7 +15299,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2047",
+      "source_location": "L2064",
       "weight": 1.0
     },
     {
@@ -15113,7 +15311,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2051",
+      "source_location": "L2068",
       "weight": 1.0
     },
     {
@@ -15125,7 +15323,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2052",
+      "source_location": "L2069",
       "weight": 1.0
     },
     {
@@ -15137,7 +15335,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2126",
+      "source_location": "L2143",
       "weight": 1.0
     },
     {
@@ -15149,7 +15347,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2150",
+      "source_location": "L2167",
       "weight": 1.0
     },
     {
@@ -15161,7 +15359,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L797",
+      "source_location": "L810",
       "weight": 1.0
     },
     {
@@ -15173,7 +15371,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L919",
+      "source_location": "L932",
       "weight": 1.0
     },
     {
@@ -15185,7 +15383,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4354",
+      "source_location": "L4499",
       "weight": 1.0
     },
     {
@@ -15197,7 +15395,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4345",
+      "source_location": "L4490",
       "weight": 1.0
     },
     {
@@ -15209,7 +15407,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4634",
+      "source_location": "L4788",
       "weight": 1.0
     },
     {
@@ -15221,7 +15419,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4665",
+      "source_location": "L4819",
       "weight": 1.0
     },
     {
@@ -15233,7 +15431,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4809",
+      "source_location": "L4963",
       "weight": 1.0
     },
     {
@@ -15245,7 +15443,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L504",
+      "source_location": "L517",
       "weight": 1.0
     },
     {
@@ -15257,7 +15455,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L504",
+      "source_location": "L517",
       "weight": 1.0
     },
     {
@@ -15269,7 +15467,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L516",
+      "source_location": "L529",
       "weight": 1.0
     },
     {
@@ -15281,7 +15479,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L407",
+      "source_location": "L420",
       "weight": 1.0
     },
     {
@@ -15293,7 +15491,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L379",
+      "source_location": "L392",
       "weight": 1.0
     },
     {
@@ -15305,7 +15503,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L555",
+      "source_location": "L568",
       "weight": 1.0
     },
     {
@@ -15317,7 +15515,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L559",
+      "source_location": "L572",
       "weight": 1.0
     },
     {
@@ -15329,7 +15527,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L568",
+      "source_location": "L581",
       "weight": 1.0
     },
     {
@@ -15341,7 +15539,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L568",
+      "source_location": "L581",
       "weight": 1.0
     },
     {
@@ -15353,7 +15551,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L584",
+      "source_location": "L597",
       "weight": 1.0
     },
     {
@@ -15365,7 +15563,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L591",
+      "source_location": "L604",
       "weight": 1.0
     },
     {
@@ -15377,48 +15575,12 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L596",
+      "source_location": "L609",
       "weight": 1.0
     },
     {
       "source": "components_flight_core_src_flight_core_gyro_calibration_tick",
       "target": "components_flight_core_src_flight_core_gyro_cal_finish_fail",
-      "relation": "calls",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "call",
-      "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L598",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_flight_core_gyro_calibration_tick",
-      "target": "components_flight_core_src_flight_core_gyro_cal_window_mean",
-      "relation": "calls",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "call",
-      "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L603",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_flight_core_gyro_calibration_tick",
-      "target": "components_flight_core_src_flight_core_gyro_cal_window_std",
-      "relation": "calls",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "call",
-      "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L604",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_flight_core_gyro_calibration_tick",
-      "target": "components_flight_core_src_flight_core_vec3_finite",
       "relation": "calls",
       "_origin": "ast",
       "confidence": "EXTRACTED",
@@ -15430,6 +15592,42 @@
     },
     {
       "source": "components_flight_core_src_flight_core_gyro_calibration_tick",
+      "target": "components_flight_core_src_flight_core_gyro_cal_window_mean",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "components/flight_core/src/flight_core.c",
+      "source_location": "L616",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_flight_core_gyro_calibration_tick",
+      "target": "components_flight_core_src_flight_core_gyro_cal_window_std",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "components/flight_core/src/flight_core.c",
+      "source_location": "L617",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_flight_core_gyro_calibration_tick",
+      "target": "components_flight_core_src_flight_core_vec3_finite",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "components/flight_core/src/flight_core.c",
+      "source_location": "L624",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_flight_core_gyro_calibration_tick",
       "target": "components_flight_core_src_flight_core_gyro_cal_set_runtime_bias",
       "relation": "calls",
       "_origin": "ast",
@@ -15437,7 +15635,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L618",
+      "source_location": "L631",
       "weight": 1.0
     },
     {
@@ -15449,7 +15647,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1120",
+      "source_location": "L1133",
       "weight": 1.0
     },
     {
@@ -15461,7 +15659,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2324",
+      "source_location": "L2341",
       "weight": 1.0
     },
     {
@@ -15473,7 +15671,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2539",
+      "source_location": "L2556",
       "weight": 1.0
     },
     {
@@ -15485,7 +15683,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2559",
+      "source_location": "L2576",
       "weight": 1.0
     },
     {
@@ -15497,7 +15695,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2560",
+      "source_location": "L2577",
       "weight": 1.0
     },
     {
@@ -15509,7 +15707,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2573",
+      "source_location": "L2590",
       "weight": 1.0
     },
     {
@@ -15521,7 +15719,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2582",
+      "source_location": "L2599",
       "weight": 1.0
     },
     {
@@ -15533,7 +15731,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2689",
+      "source_location": "L2706",
       "weight": 1.0
     },
     {
@@ -15545,7 +15743,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2735",
+      "source_location": "L2752",
       "weight": 1.0
     },
     {
@@ -15557,7 +15755,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3027",
+      "source_location": "L3044",
       "weight": 1.0
     },
     {
@@ -15569,7 +15767,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3204",
+      "source_location": "L3221",
       "weight": 1.0
     },
     {
@@ -15581,7 +15779,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3251",
+      "source_location": "L3268",
       "weight": 1.0
     },
     {
@@ -15593,7 +15791,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3256",
+      "source_location": "L3273",
       "weight": 1.0
     },
     {
@@ -15605,7 +15803,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3372",
+      "source_location": "L3389",
       "weight": 1.0
     },
     {
@@ -20193,6 +20391,18 @@
       "weight": 1.0
     },
     {
+      "source": "components_flight_core_src_drivers_motor_driver",
+      "target": "components_flight_core_include_flight_core_fc_features",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "components/flight_core/src/drivers/motor_driver.c",
+      "source_location": "L8",
+      "weight": 1.0
+    },
+    {
       "source": "components_flight_core_src_drivers_tof_backend",
       "target": "main_board_config",
       "relation": "imports",
@@ -20765,7 +20975,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/include/flight_core/telemetry.h",
-      "source_location": "L517",
+      "source_location": "L527",
       "weight": 1.0
     },
     {
@@ -20777,7 +20987,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L141",
+      "source_location": "L149",
       "weight": 1.0
     },
     {
@@ -20789,7 +20999,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L115",
+      "source_location": "L123",
       "weight": 1.0
     },
     {
@@ -20801,7 +21011,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L562",
+      "source_location": "L638",
       "weight": 1.0
     },
     {
@@ -20813,7 +21023,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L49",
+      "source_location": "L55",
       "weight": 1.0
     },
     {
@@ -20825,7 +21035,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L137",
+      "source_location": "L145",
       "weight": 1.0
     },
     {
@@ -20837,7 +21047,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L83",
+      "source_location": "L90",
       "weight": 1.0
     },
     {
@@ -20849,7 +21059,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L95",
+      "source_location": "L102",
       "weight": 1.0
     },
     {
@@ -20861,7 +21071,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L89",
+      "source_location": "L96",
       "weight": 1.0
     },
     {
@@ -20873,7 +21083,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L103",
+      "source_location": "L110",
       "weight": 1.0
     },
     {
@@ -20885,7 +21095,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L38",
+      "source_location": "L44",
       "weight": 1.0
     },
     {
@@ -20897,7 +21107,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L127",
+      "source_location": "L135",
       "weight": 1.0
     },
     {
@@ -20909,7 +21119,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L149",
+      "source_location": "L157",
       "weight": 1.0
     },
     {
@@ -20921,7 +21131,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L145",
+      "source_location": "L153",
       "weight": 1.0
     },
     {
@@ -20933,7 +21143,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L99",
+      "source_location": "L106",
       "weight": 1.0
     },
     {
@@ -20945,7 +21155,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L235",
+      "source_location": "L244",
       "weight": 1.0
     },
     {
@@ -20957,7 +21167,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L235",
+      "source_location": "L244",
       "weight": 1.0
     },
     {
@@ -20969,7 +21179,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L235",
+      "source_location": "L244",
       "weight": 1.0
     },
     {
@@ -20981,7 +21191,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L235",
+      "source_location": "L244",
       "weight": 1.0
     },
     {
@@ -20993,7 +21203,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L16",
+      "source_location": "L21",
       "weight": 1.0
     },
     {
@@ -21005,7 +21215,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L56",
+      "source_location": "L62",
       "weight": 1.0
     },
     {
@@ -21017,7 +21227,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L200",
+      "source_location": "L209",
       "weight": 1.0
     },
     {
@@ -22073,7 +22283,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1245",
+      "source_location": "L1258",
       "weight": 1.0
     },
     {
@@ -22085,7 +22295,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4514",
+      "source_location": "L4659",
       "weight": 1.0
     },
     {
@@ -22097,7 +22307,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4472",
+      "source_location": "L4617",
       "weight": 1.0
     },
     {
@@ -22109,7 +22319,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4535",
+      "source_location": "L4680",
       "weight": 1.0
     },
     {
@@ -22121,7 +22331,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4528",
+      "source_location": "L4673",
       "weight": 1.0
     },
     {
@@ -22133,7 +22343,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4479",
+      "source_location": "L4624",
       "weight": 1.0
     },
     {
@@ -22145,7 +22355,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4521",
+      "source_location": "L4666",
       "weight": 1.0
     },
     {
@@ -22157,7 +22367,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4391",
+      "source_location": "L4536",
       "weight": 1.0
     },
     {
@@ -22169,7 +22379,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4335",
+      "source_location": "L4480",
       "weight": 1.0
     },
     {
@@ -22181,7 +22391,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4463",
+      "source_location": "L4608",
       "weight": 1.0
     },
     {
@@ -22193,7 +22403,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4574",
+      "source_location": "L4719",
       "weight": 1.0
     },
     {
@@ -22205,7 +22415,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L510",
+      "source_location": "L523",
       "weight": 1.0
     },
     {
@@ -22217,7 +22427,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L406",
+      "source_location": "L419",
       "weight": 1.0
     },
     {
@@ -22229,7 +22439,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L496",
+      "source_location": "L509",
       "weight": 1.0
     },
     {
@@ -22241,7 +22451,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L487",
+      "source_location": "L500",
       "weight": 1.0
     },
     {
@@ -22253,7 +22463,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L377",
+      "source_location": "L390",
       "weight": 1.0
     },
     {
@@ -22265,7 +22475,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L377",
+      "source_location": "L390",
       "weight": 1.0
     },
     {
@@ -22277,7 +22487,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L387",
+      "source_location": "L400",
       "weight": 1.0
     },
     {
@@ -22289,7 +22499,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L366",
+      "source_location": "L379",
       "weight": 1.0
     },
     {
@@ -22301,7 +22511,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L391",
+      "source_location": "L404",
       "weight": 1.0
     },
     {
@@ -22313,7 +22523,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L576",
+      "source_location": "L589",
       "weight": 1.0
     },
     {
@@ -22325,7 +22535,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4559",
+      "source_location": "L4704",
       "weight": 1.0
     },
     {
@@ -22337,7 +22547,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4559",
+      "source_location": "L4704",
       "weight": 1.0
     },
     {
@@ -22349,7 +22559,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L402",
+      "source_location": "L415",
       "weight": 1.0
     },
     {
@@ -22361,7 +22571,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2272",
+      "source_location": "L2289",
       "weight": 1.0
     },
     {
@@ -24065,7 +24275,7 @@
       "confidence_score": 1.0,
       "context": "return_type",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L57",
+      "source_location": "L58",
       "weight": 1.0
     },
     {
@@ -24077,7 +24287,7 @@
       "confidence_score": 1.0,
       "context": "return_type",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L104",
+      "source_location": "L105",
       "weight": 1.0
     },
     {
@@ -24089,7 +24299,7 @@
       "confidence_score": 1.0,
       "context": "return_type",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L80",
+      "source_location": "L81",
       "weight": 1.0
     },
     {
@@ -24593,7 +24803,7 @@
       "confidence_score": 1.0,
       "context": "return_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4574",
+      "source_location": "L4719",
       "weight": 1.0
     },
     {
@@ -24605,7 +24815,7 @@
       "confidence_score": 1.0,
       "context": "return_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L387",
+      "source_location": "L400",
       "weight": 1.0
     },
     {
@@ -24617,7 +24827,7 @@
       "confidence_score": 1.0,
       "context": "return_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L391",
+      "source_location": "L404",
       "weight": 1.0
     },
     {
@@ -24629,7 +24839,7 @@
       "confidence_score": 1.0,
       "context": "return_type",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4559",
+      "source_location": "L4704",
       "weight": 1.0
     },
     {
@@ -25278,7 +25488,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/include/flight_core/telemetry.h",
-      "source_location": "L517",
+      "source_location": "L527",
       "weight": 1.0
     },
     {
@@ -25316,24 +25526,35 @@
     },
     {
       "source": "components_flight_core_src_alt_estimator",
+      "target": "components_flight_core_src_alt_estimator_alt_estimator_lock_floor_at_zero",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "components/flight_core/src/alt_estimator.c",
+      "source_location": "L102",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_alt_estimator",
+      "target": "components_flight_core_src_alt_estimator_alt_estimator_unlock_floor",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "components/flight_core/src/alt_estimator.c",
+      "source_location": "L106",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_alt_estimator",
       "target": "components_flight_core_src_alt_estimator_alt_estimator_prepare_takeoff",
       "relation": "contains",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L103",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_alt_estimator",
-      "target": "components_flight_core_src_alt_estimator_lpf_alpha",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L11",
+      "source_location": "L110",
       "weight": 1.0
     },
     {
@@ -25344,7 +25565,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L115",
+      "source_location": "L123",
       "weight": 1.0
     },
     {
@@ -25355,7 +25576,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L127",
+      "source_location": "L135",
       "weight": 1.0
     },
     {
@@ -25366,7 +25587,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L137",
+      "source_location": "L145",
       "weight": 1.0
     },
     {
@@ -25377,7 +25598,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L141",
+      "source_location": "L149",
       "weight": 1.0
     },
     {
@@ -25388,7 +25609,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L145",
+      "source_location": "L153",
       "weight": 1.0
     },
     {
@@ -25399,12 +25620,12 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L149",
+      "source_location": "L157",
       "weight": 1.0
     },
     {
       "source": "components_flight_core_src_alt_estimator",
-      "target": "components_flight_core_src_alt_estimator_clear_runtime",
+      "target": "components_flight_core_src_alt_estimator_lpf_alpha",
       "relation": "contains",
       "_origin": "ast",
       "confidence": "EXTRACTED",
@@ -25421,7 +25642,18 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L200",
+      "source_location": "L209",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_alt_estimator",
+      "target": "components_flight_core_src_alt_estimator_clear_runtime",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "components/flight_core/src/alt_estimator.c",
+      "source_location": "L21",
       "weight": 1.0
     },
     {
@@ -25432,7 +25664,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L235",
+      "source_location": "L244",
       "weight": 1.0
     },
     {
@@ -25443,7 +25675,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L38",
+      "source_location": "L44",
       "weight": 1.0
     },
     {
@@ -25454,7 +25686,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L49",
+      "source_location": "L55",
       "weight": 1.0
     },
     {
@@ -25465,7 +25697,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L56",
+      "source_location": "L62",
       "weight": 1.0
     },
     {
@@ -25476,7 +25708,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L562",
+      "source_location": "L638",
       "weight": 1.0
     },
     {
@@ -25487,7 +25719,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L83",
+      "source_location": "L90",
       "weight": 1.0
     },
     {
@@ -25498,29 +25730,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L89",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_alt_estimator",
-      "target": "components_flight_core_src_alt_estimator_alt_estimator_lock_floor_at_zero",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L95",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_alt_estimator",
-      "target": "components_flight_core_src_alt_estimator_alt_estimator_unlock_floor",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L99",
+      "source_location": "L96",
       "weight": 1.0
     },
     {
@@ -26224,7 +26434,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L104",
+      "source_location": "L105",
       "weight": 1.0
     },
     {
@@ -26235,7 +26445,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L135",
+      "source_location": "L136",
       "weight": 1.0
     },
     {
@@ -26246,7 +26456,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L143",
+      "source_location": "L144",
       "weight": 1.0
     },
     {
@@ -26257,7 +26467,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L148",
+      "source_location": "L149",
       "weight": 1.0
     },
     {
@@ -26268,7 +26478,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L150",
+      "source_location": "L151",
       "weight": 1.0
     },
     {
@@ -26279,7 +26489,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L172",
+      "source_location": "L173",
       "weight": 1.0
     },
     {
@@ -26290,7 +26500,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L177",
+      "source_location": "L178",
       "weight": 1.0
     },
     {
@@ -26301,7 +26511,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L200",
+      "source_location": "L211",
       "weight": 1.0
     },
     {
@@ -26312,7 +26522,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L207",
+      "source_location": "L218",
       "weight": 1.0
     },
     {
@@ -26323,7 +26533,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L57",
+      "source_location": "L58",
       "weight": 1.0
     },
     {
@@ -26334,7 +26544,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L80",
+      "source_location": "L81",
       "weight": 1.0
     },
     {
@@ -26345,7 +26555,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L94",
+      "source_location": "L95",
       "weight": 1.0
     },
     {
@@ -26983,7 +27193,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1042",
+      "source_location": "L1055",
       "weight": 1.0
     },
     {
@@ -26994,7 +27204,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1229",
+      "source_location": "L1242",
       "weight": 1.0
     },
     {
@@ -27005,7 +27215,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1245",
+      "source_location": "L1258",
       "weight": 1.0
     },
     {
@@ -27016,7 +27226,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2272",
+      "source_location": "L2289",
       "weight": 1.0
     },
     {
@@ -27027,7 +27237,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2302",
+      "source_location": "L2319",
       "weight": 1.0
     },
     {
@@ -27038,7 +27248,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2315",
+      "source_location": "L2332",
       "weight": 1.0
     },
     {
@@ -27049,7 +27259,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L366",
+      "source_location": "L379",
       "weight": 1.0
     },
     {
@@ -27060,7 +27270,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L371",
+      "source_location": "L384",
       "weight": 1.0
     },
     {
@@ -27071,7 +27281,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L377",
+      "source_location": "L390",
       "weight": 1.0
     },
     {
@@ -27082,7 +27292,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L387",
+      "source_location": "L400",
       "weight": 1.0
     },
     {
@@ -27093,7 +27303,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L391",
+      "source_location": "L404",
       "weight": 1.0
     },
     {
@@ -27104,7 +27314,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L402",
+      "source_location": "L415",
       "weight": 1.0
     },
     {
@@ -27115,7 +27325,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L406",
+      "source_location": "L419",
       "weight": 1.0
     },
     {
@@ -27126,7 +27336,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4335",
+      "source_location": "L4480",
       "weight": 1.0
     },
     {
@@ -27137,7 +27347,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4353",
+      "source_location": "L4498",
       "weight": 1.0
     },
     {
@@ -27148,7 +27358,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4367",
+      "source_location": "L4512",
       "weight": 1.0
     },
     {
@@ -27159,7 +27369,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4391",
+      "source_location": "L4536",
       "weight": 1.0
     },
     {
@@ -27170,7 +27380,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4404",
+      "source_location": "L4549",
       "weight": 1.0
     },
     {
@@ -27181,7 +27391,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4463",
+      "source_location": "L4608",
       "weight": 1.0
     },
     {
@@ -27192,7 +27402,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4472",
+      "source_location": "L4617",
       "weight": 1.0
     },
     {
@@ -27203,7 +27413,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4479",
+      "source_location": "L4624",
       "weight": 1.0
     },
     {
@@ -27214,7 +27424,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4490",
+      "source_location": "L4635",
       "weight": 1.0
     },
     {
@@ -27225,7 +27435,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4505",
+      "source_location": "L4650",
       "weight": 1.0
     },
     {
@@ -27236,7 +27446,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4514",
+      "source_location": "L4659",
       "weight": 1.0
     },
     {
@@ -27247,7 +27457,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4521",
+      "source_location": "L4666",
       "weight": 1.0
     },
     {
@@ -27258,7 +27468,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4528",
+      "source_location": "L4673",
       "weight": 1.0
     },
     {
@@ -27269,7 +27479,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4535",
+      "source_location": "L4680",
       "weight": 1.0
     },
     {
@@ -27280,7 +27490,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4542",
+      "source_location": "L4687",
       "weight": 1.0
     },
     {
@@ -27291,7 +27501,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4559",
+      "source_location": "L4704",
       "weight": 1.0
     },
     {
@@ -27302,7 +27512,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4574",
+      "source_location": "L4719",
       "weight": 1.0
     },
     {
@@ -27313,7 +27523,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L480",
+      "source_location": "L493",
       "weight": 1.0
     },
     {
@@ -27324,7 +27534,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L487",
+      "source_location": "L500",
       "weight": 1.0
     },
     {
@@ -27335,7 +27545,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L491",
+      "source_location": "L504",
       "weight": 1.0
     },
     {
@@ -27346,7 +27556,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L496",
+      "source_location": "L509",
       "weight": 1.0
     },
     {
@@ -27357,7 +27567,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L503",
+      "source_location": "L516",
       "weight": 1.0
     },
     {
@@ -27368,7 +27578,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L510",
+      "source_location": "L523",
       "weight": 1.0
     },
     {
@@ -27379,7 +27589,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L532",
+      "source_location": "L545",
       "weight": 1.0
     },
     {
@@ -27390,7 +27600,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L576",
+      "source_location": "L589",
       "weight": 1.0
     },
     {
@@ -27401,7 +27611,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L782",
+      "source_location": "L795",
       "weight": 1.0
     },
     {
@@ -27412,7 +27622,18 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L796",
+      "source_location": "L809",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_flight_core",
+      "target": "components_flight_core_src_flight_core_move_expo",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "components/flight_core/src/flight_core.c",
+      "source_location": "L84",
       "weight": 1.0
     },
     {
@@ -27423,7 +27644,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L827",
+      "source_location": "L840",
       "weight": 1.0
     },
     {
@@ -27434,7 +27655,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L833",
+      "source_location": "L846",
       "weight": 1.0
     },
     {
@@ -27445,7 +27666,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L864",
+      "source_location": "L877",
       "weight": 1.0
     },
     {
@@ -27456,7 +27677,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L944",
+      "source_location": "L957",
       "weight": 1.0
     },
     {
@@ -30001,6 +30222,39 @@
       "weight": 1.0
     },
     {
+      "source": "python_test_flying_vz_hold_offline",
+      "target": "python_test_flying_vz_hold_offline_check",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "python/test_flying_vz_hold_offline.py",
+      "source_location": "L41",
+      "weight": 1.0
+    },
+    {
+      "source": "python_test_flying_vz_hold_offline",
+      "target": "python_test_flying_vz_hold_offline_strip_c_comments",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "python/test_flying_vz_hold_offline.py",
+      "source_location": "L49",
+      "weight": 1.0
+    },
+    {
+      "source": "python_test_flying_vz_hold_offline",
+      "target": "python_test_flying_vz_hold_offline_const_of",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "python/test_flying_vz_hold_offline.py",
+      "source_location": "L59",
+      "weight": 1.0
+    },
+    {
       "source": "python_test_flying_ws_no_accumulate_offline",
       "target": "python_test_flying_ws_no_accumulate_offline_tick_dung",
       "relation": "contains",
@@ -30185,6 +30439,72 @@
       "confidence_score": 1.0,
       "source_file": "python/test_takeoff_gate_offline.py",
       "source_location": "L42",
+      "weight": 1.0
+    },
+    {
+      "source": "python_test_terrain_deadlock_offline",
+      "target": "python_test_terrain_deadlock_offline_check",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "python/test_terrain_deadlock_offline.py",
+      "source_location": "L33",
+      "weight": 1.0
+    },
+    {
+      "source": "python_test_terrain_deadlock_offline",
+      "target": "python_test_terrain_deadlock_offline_strip_c_comments",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "python/test_terrain_deadlock_offline.py",
+      "source_location": "L41",
+      "weight": 1.0
+    },
+    {
+      "source": "python_test_terrain_deadlock_offline",
+      "target": "python_test_terrain_deadlock_offline_const_of",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "python/test_terrain_deadlock_offline.py",
+      "source_location": "L50",
+      "weight": 1.0
+    },
+    {
+      "source": "python_test_tilt_comp_expo_offline",
+      "target": "python_test_tilt_comp_expo_offline_check",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "python/test_tilt_comp_expo_offline.py",
+      "source_location": "L34",
+      "weight": 1.0
+    },
+    {
+      "source": "python_test_tilt_comp_expo_offline",
+      "target": "python_test_tilt_comp_expo_offline_strip_c_comments",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "python/test_tilt_comp_expo_offline.py",
+      "source_location": "L42",
+      "weight": 1.0
+    },
+    {
+      "source": "python_test_tilt_comp_expo_offline",
+      "target": "python_test_tilt_comp_expo_offline_const_of",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "python/test_tilt_comp_expo_offline.py",
+      "source_location": "L52",
       "weight": 1.0
     },
     {
@@ -34522,6 +34842,17 @@
       "weight": 1.0
     },
     {
+      "source": "python_test_flying_vz_hold_offline_rationale_1",
+      "target": "python_test_flying_vz_hold_offline",
+      "relation": "rationale_for",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "python/test_flying_vz_hold_offline.py",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
       "source": "python_test_flying_ws_no_accumulate_offline_rationale_1",
       "target": "python_test_flying_ws_no_accumulate_offline",
       "relation": "rationale_for",
@@ -34650,6 +34981,28 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "python/test_takeoff_gate_offline.py",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "python_test_terrain_deadlock_offline_rationale_1",
+      "target": "python_test_terrain_deadlock_offline",
+      "relation": "rationale_for",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "python/test_terrain_deadlock_offline.py",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "python_test_tilt_comp_expo_offline_rationale_1",
+      "target": "python_test_tilt_comp_expo_offline",
+      "relation": "rationale_for",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "python/test_tilt_comp_expo_offline.py",
       "source_location": "L1",
       "weight": 1.0
     },
@@ -35126,7 +35479,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L564",
+      "source_location": "L640",
       "weight": 1.0
     },
     {
@@ -35138,7 +35491,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L453",
+      "source_location": "L528",
       "weight": 1.0
     },
     {
@@ -35150,7 +35503,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L13",
+      "source_location": "L18",
       "weight": 1.0
     },
     {
@@ -35258,7 +35611,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L195",
+      "source_location": "L206",
       "weight": 1.0
     },
     {
@@ -35270,7 +35623,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/drivers/motor_driver.c",
-      "source_location": "L81",
+      "source_location": "L82",
       "weight": 1.0
     },
     {
@@ -35282,7 +35635,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1230",
+      "source_location": "L1243",
       "weight": 1.0
     },
     {
@@ -35294,7 +35647,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1235",
+      "source_location": "L1248",
       "weight": 1.0
     },
     {
@@ -35306,7 +35659,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1238",
+      "source_location": "L1251",
       "weight": 1.0
     },
     {
@@ -35318,7 +35671,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1239",
+      "source_location": "L1252",
       "weight": 1.0
     },
     {
@@ -35330,7 +35683,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1267",
+      "source_location": "L1280",
       "weight": 1.0
     },
     {
@@ -35342,7 +35695,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1293",
+      "source_location": "L1306",
       "weight": 1.0
     },
     {
@@ -35354,7 +35707,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1314",
+      "source_location": "L1327",
       "weight": 1.0
     },
     {
@@ -35366,7 +35719,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1315",
+      "source_location": "L1328",
       "weight": 1.0
     },
     {
@@ -35378,7 +35731,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1364",
+      "source_location": "L1377",
       "weight": 1.0
     },
     {
@@ -35390,7 +35743,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1366",
+      "source_location": "L1379",
       "weight": 1.0
     },
     {
@@ -35402,7 +35755,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1391",
+      "source_location": "L1404",
       "weight": 1.0
     },
     {
@@ -35414,7 +35767,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1398",
+      "source_location": "L1411",
       "weight": 1.0
     },
     {
@@ -35426,7 +35779,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1413",
+      "source_location": "L1426",
       "weight": 1.0
     },
     {
@@ -35438,7 +35791,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1436",
+      "source_location": "L1449",
       "weight": 1.0
     },
     {
@@ -35450,7 +35803,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1448",
+      "source_location": "L1461",
       "weight": 1.0
     },
     {
@@ -35462,7 +35815,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1502",
+      "source_location": "L1515",
       "weight": 1.0
     },
     {
@@ -35474,7 +35827,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1577",
+      "source_location": "L1590",
       "weight": 1.0
     },
     {
@@ -35486,7 +35839,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1592",
+      "source_location": "L1605",
       "weight": 1.0
     },
     {
@@ -35498,7 +35851,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1602",
+      "source_location": "L1615",
       "weight": 1.0
     },
     {
@@ -35510,7 +35863,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1611",
+      "source_location": "L1624",
       "weight": 1.0
     },
     {
@@ -35522,7 +35875,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1613",
+      "source_location": "L1626",
       "weight": 1.0
     },
     {
@@ -35534,7 +35887,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1624",
+      "source_location": "L1637",
       "weight": 1.0
     },
     {
@@ -35546,7 +35899,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1629",
+      "source_location": "L1642",
       "weight": 1.0
     },
     {
@@ -35558,7 +35911,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1634",
+      "source_location": "L1647",
       "weight": 1.0
     },
     {
@@ -35570,7 +35923,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1643",
+      "source_location": "L1656",
       "weight": 1.0
     },
     {
@@ -35582,7 +35935,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1665",
+      "source_location": "L1678",
       "weight": 1.0
     },
     {
@@ -35594,7 +35947,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1669",
+      "source_location": "L1682",
       "weight": 1.0
     },
     {
@@ -35606,7 +35959,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1701",
+      "source_location": "L1718",
       "weight": 1.0
     },
     {
@@ -35618,7 +35971,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1744",
+      "source_location": "L1761",
       "weight": 1.0
     },
     {
@@ -35630,7 +35983,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1762",
+      "source_location": "L1779",
       "weight": 1.0
     },
     {
@@ -35642,7 +35995,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1764",
+      "source_location": "L1781",
       "weight": 1.0
     },
     {
@@ -35654,7 +36007,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1765",
+      "source_location": "L1782",
       "weight": 1.0
     },
     {
@@ -35666,7 +36019,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1780",
+      "source_location": "L1797",
       "weight": 1.0
     },
     {
@@ -35678,7 +36031,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1828",
+      "source_location": "L1845",
       "weight": 1.0
     },
     {
@@ -35690,7 +36043,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1894",
+      "source_location": "L1911",
       "weight": 1.0
     },
     {
@@ -35702,7 +36055,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1929",
+      "source_location": "L1946",
       "weight": 1.0
     },
     {
@@ -35714,7 +36067,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1938",
+      "source_location": "L1955",
       "weight": 1.0
     },
     {
@@ -35726,7 +36079,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2070",
+      "source_location": "L2087",
       "weight": 1.0
     },
     {
@@ -35738,7 +36091,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2111",
+      "source_location": "L2128",
       "weight": 1.0
     },
     {
@@ -35750,7 +36103,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2147",
+      "source_location": "L2164",
       "weight": 1.0
     },
     {
@@ -35762,7 +36115,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2165",
+      "source_location": "L2182",
       "weight": 1.0
     },
     {
@@ -35774,7 +36127,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2173",
+      "source_location": "L2190",
       "weight": 1.0
     },
     {
@@ -35786,7 +36139,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2174",
+      "source_location": "L2191",
       "weight": 1.0
     },
     {
@@ -35798,7 +36151,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2210",
+      "source_location": "L2227",
       "weight": 1.0
     },
     {
@@ -35810,7 +36163,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2218",
+      "source_location": "L2235",
       "weight": 1.0
     },
     {
@@ -35822,7 +36175,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L968",
+      "source_location": "L981",
       "weight": 1.0
     },
     {
@@ -35834,7 +36187,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L790",
+      "source_location": "L803",
       "weight": 1.0
     },
     {
@@ -35846,7 +36199,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L918",
+      "source_location": "L931",
       "weight": 1.0
     },
     {
@@ -35858,7 +36211,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4515",
+      "source_location": "L4660",
       "weight": 1.0
     },
     {
@@ -35870,7 +36223,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4473",
+      "source_location": "L4618",
       "weight": 1.0
     },
     {
@@ -35882,7 +36235,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4536",
+      "source_location": "L4681",
       "weight": 1.0
     },
     {
@@ -35894,7 +36247,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4529",
+      "source_location": "L4674",
       "weight": 1.0
     },
     {
@@ -35906,7 +36259,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4480",
+      "source_location": "L4625",
       "weight": 1.0
     },
     {
@@ -35918,7 +36271,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4522",
+      "source_location": "L4667",
       "weight": 1.0
     },
     {
@@ -35930,7 +36283,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4398",
+      "source_location": "L4543",
       "weight": 1.0
     },
     {
@@ -35942,7 +36295,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4399",
+      "source_location": "L4544",
       "weight": 1.0
     },
     {
@@ -35954,7 +36307,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4375",
+      "source_location": "L4520",
       "weight": 1.0
     },
     {
@@ -35966,7 +36319,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4384",
+      "source_location": "L4529",
       "weight": 1.0
     },
     {
@@ -35978,7 +36331,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4464",
+      "source_location": "L4609",
       "weight": 1.0
     },
     {
@@ -35990,7 +36343,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4577",
+      "source_location": "L4731",
       "weight": 1.0
     },
     {
@@ -36002,7 +36355,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4578",
+      "source_location": "L4732",
       "weight": 1.0
     },
     {
@@ -36014,7 +36367,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4579",
+      "source_location": "L4733",
       "weight": 1.0
     },
     {
@@ -36026,7 +36379,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4580",
+      "source_location": "L4734",
       "weight": 1.0
     },
     {
@@ -36038,7 +36391,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4581",
+      "source_location": "L4735",
       "weight": 1.0
     },
     {
@@ -36050,7 +36403,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4604",
+      "source_location": "L4758",
       "weight": 1.0
     },
     {
@@ -36062,7 +36415,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4636",
+      "source_location": "L4790",
       "weight": 1.0
     },
     {
@@ -36074,7 +36427,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4637",
+      "source_location": "L4791",
       "weight": 1.0
     },
     {
@@ -36086,7 +36439,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4638",
+      "source_location": "L4792",
       "weight": 1.0
     },
     {
@@ -36098,7 +36451,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4639",
+      "source_location": "L4793",
       "weight": 1.0
     },
     {
@@ -36110,7 +36463,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4640",
+      "source_location": "L4794",
       "weight": 1.0
     },
     {
@@ -36122,7 +36475,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4641",
+      "source_location": "L4795",
       "weight": 1.0
     },
     {
@@ -36134,7 +36487,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4644",
+      "source_location": "L4798",
       "weight": 1.0
     },
     {
@@ -36146,7 +36499,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4645",
+      "source_location": "L4799",
       "weight": 1.0
     },
     {
@@ -36158,7 +36511,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4647",
+      "source_location": "L4801",
       "weight": 1.0
     },
     {
@@ -36170,7 +36523,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4658",
+      "source_location": "L4812",
       "weight": 1.0
     },
     {
@@ -36182,7 +36535,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4693",
+      "source_location": "L4847",
       "weight": 1.0
     },
     {
@@ -36194,7 +36547,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4709",
+      "source_location": "L4863",
       "weight": 1.0
     },
     {
@@ -36206,7 +36559,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4741",
+      "source_location": "L4895",
       "weight": 1.0
     },
     {
@@ -36218,7 +36571,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4754",
+      "source_location": "L4908",
       "weight": 1.0
     },
     {
@@ -36230,7 +36583,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4758",
+      "source_location": "L4912",
       "weight": 1.0
     },
     {
@@ -36242,7 +36595,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4776",
+      "source_location": "L4930",
       "weight": 1.0
     },
     {
@@ -36254,7 +36607,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4834",
+      "source_location": "L4988",
       "weight": 1.0
     },
     {
@@ -36266,7 +36619,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4424",
+      "source_location": "L4569",
       "weight": 1.0
     },
     {
@@ -36278,7 +36631,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4431",
+      "source_location": "L4576",
       "weight": 1.0
     },
     {
@@ -36290,7 +36643,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4438",
+      "source_location": "L4583",
       "weight": 1.0
     },
     {
@@ -36302,7 +36655,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4442",
+      "source_location": "L4587",
       "weight": 1.0
     },
     {
@@ -36314,7 +36667,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4445",
+      "source_location": "L4590",
       "weight": 1.0
     },
     {
@@ -36326,7 +36679,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4450",
+      "source_location": "L4595",
       "weight": 1.0
     },
     {
@@ -36338,7 +36691,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L516",
+      "source_location": "L529",
       "weight": 1.0
     },
     {
@@ -36350,7 +36703,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L500",
+      "source_location": "L513",
       "weight": 1.0
     },
     {
@@ -36362,7 +36715,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L392",
+      "source_location": "L405",
       "weight": 1.0
     },
     {
@@ -36374,7 +36727,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L534",
+      "source_location": "L547",
       "weight": 1.0
     },
     {
@@ -36386,7 +36739,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L539",
+      "source_location": "L552",
       "weight": 1.0
     },
     {
@@ -36398,7 +36751,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L541",
+      "source_location": "L554",
       "weight": 1.0
     },
     {
@@ -36410,7 +36763,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L556",
+      "source_location": "L569",
       "weight": 1.0
     },
     {
@@ -36422,7 +36775,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L608",
+      "source_location": "L621",
       "weight": 1.0
     },
     {
@@ -36434,7 +36787,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L627",
+      "source_location": "L640",
       "weight": 1.0
     },
     {
@@ -36446,36 +36799,12 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L1101",
+      "source_location": "L1114",
       "weight": 1.0
     },
     {
       "source": "components_flight_core_src_flight_core_reset_all_controllers",
       "target": "components_flight_core_include_flight_core_attitude_control_attitude_state_reset",
-      "relation": "calls",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.85,
-      "context": "call",
-      "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L834",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_flight_core_reset_all_controllers",
-      "target": "components_flight_core_include_flight_core_alt_hold_alt_hold_reset",
-      "relation": "calls",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.85,
-      "context": "call",
-      "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L846",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_flight_core_reset_all_controllers",
-      "target": "components_flight_core_include_flight_core_takeoff_land_takeoff_reset",
       "relation": "calls",
       "_origin": "ast",
       "confidence": "INFERRED",
@@ -36487,6 +36816,30 @@
     },
     {
       "source": "components_flight_core_src_flight_core_reset_all_controllers",
+      "target": "components_flight_core_include_flight_core_alt_hold_alt_hold_reset",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "context": "call",
+      "source_file": "components/flight_core/src/flight_core.c",
+      "source_location": "L859",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_flight_core_reset_all_controllers",
+      "target": "components_flight_core_include_flight_core_takeoff_land_takeoff_reset",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "context": "call",
+      "source_file": "components/flight_core/src/flight_core.c",
+      "source_location": "L860",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_flight_core_reset_all_controllers",
       "target": "components_flight_core_include_flight_core_takeoff_land_landing_reset",
       "relation": "calls",
       "_origin": "ast",
@@ -36494,7 +36847,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L848",
+      "source_location": "L861",
       "weight": 1.0
     },
     {
@@ -36506,7 +36859,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2343",
+      "source_location": "L2360",
       "weight": 1.0
     },
     {
@@ -36518,7 +36871,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2366",
+      "source_location": "L2383",
       "weight": 1.0
     },
     {
@@ -36530,7 +36883,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2382",
+      "source_location": "L2399",
       "weight": 1.0
     },
     {
@@ -36542,7 +36895,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2544",
+      "source_location": "L2561",
       "weight": 1.0
     },
     {
@@ -36554,7 +36907,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2567",
+      "source_location": "L2584",
       "weight": 1.0
     },
     {
@@ -36566,7 +36919,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2688",
+      "source_location": "L2705",
       "weight": 1.0
     },
     {
@@ -36578,7 +36931,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2810",
+      "source_location": "L2827",
       "weight": 1.0
     },
     {
@@ -36590,7 +36943,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2829",
+      "source_location": "L2846",
       "weight": 1.0
     },
     {
@@ -36602,7 +36955,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2852",
+      "source_location": "L2869",
       "weight": 1.0
     },
     {
@@ -36614,7 +36967,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2853",
+      "source_location": "L2870",
       "weight": 1.0
     },
     {
@@ -36626,7 +36979,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2905",
+      "source_location": "L2922",
       "weight": 1.0
     },
     {
@@ -36638,7 +36991,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2918",
+      "source_location": "L2935",
       "weight": 1.0
     },
     {
@@ -36650,7 +37003,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2918",
+      "source_location": "L2935",
       "weight": 1.0
     },
     {
@@ -36662,7 +37015,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2939",
+      "source_location": "L2956",
       "weight": 1.0
     },
     {
@@ -36674,7 +37027,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2977",
+      "source_location": "L2994",
       "weight": 1.0
     },
     {
@@ -36686,7 +37039,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L2981",
+      "source_location": "L2998",
       "weight": 1.0
     },
     {
@@ -36698,7 +37051,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3013",
+      "source_location": "L3030",
       "weight": 1.0
     },
     {
@@ -36710,7 +37063,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3014",
+      "source_location": "L3031",
       "weight": 1.0
     },
     {
@@ -36722,7 +37075,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3136",
+      "source_location": "L3153",
       "weight": 1.0
     },
     {
@@ -36734,7 +37087,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3137",
+      "source_location": "L3154",
       "weight": 1.0
     },
     {
@@ -36746,7 +37099,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3138",
+      "source_location": "L3155",
       "weight": 1.0
     },
     {
@@ -36758,7 +37111,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3212",
+      "source_location": "L3229",
       "weight": 1.0
     },
     {
@@ -36770,7 +37123,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3248",
+      "source_location": "L3265",
       "weight": 1.0
     },
     {
@@ -36782,7 +37135,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3250",
+      "source_location": "L3267",
       "weight": 1.0
     },
     {
@@ -36794,7 +37147,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3284",
+      "source_location": "L3301",
       "weight": 1.0
     },
     {
@@ -36806,7 +37159,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3333",
+      "source_location": "L3350",
       "weight": 1.0
     },
     {
@@ -36818,7 +37171,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3406",
+      "source_location": "L3423",
       "weight": 1.0
     },
     {
@@ -36830,7 +37183,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3410",
+      "source_location": "L3427",
       "weight": 1.0
     },
     {
@@ -36842,7 +37195,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3411",
+      "source_location": "L3428",
       "weight": 1.0
     },
     {
@@ -36854,7 +37207,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3421",
+      "source_location": "L3438",
       "weight": 1.0
     },
     {
@@ -36866,7 +37219,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3431",
+      "source_location": "L3448",
       "weight": 1.0
     },
     {
@@ -36878,7 +37231,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3441",
+      "source_location": "L3458",
       "weight": 1.0
     },
     {
@@ -36890,7 +37243,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3502",
+      "source_location": "L3529",
       "weight": 1.0
     },
     {
@@ -36902,7 +37255,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3519",
+      "source_location": "L3546",
       "weight": 1.0
     },
     {
@@ -36914,7 +37267,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3525",
+      "source_location": "L3552",
       "weight": 1.0
     },
     {
@@ -36926,7 +37279,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3665",
+      "source_location": "L3692",
       "weight": 1.0
     },
     {
@@ -36938,7 +37291,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3681",
+      "source_location": "L3708",
       "weight": 1.0
     },
     {
@@ -36950,7 +37303,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3838",
+      "source_location": "L3806",
       "weight": 1.0
     },
     {
@@ -36962,7 +37315,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3850",
+      "source_location": "L3937",
       "weight": 1.0
     },
     {
@@ -36974,7 +37327,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L3981",
+      "source_location": "L4092",
       "weight": 1.0
     },
     {
@@ -36986,7 +37339,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4019",
+      "source_location": "L4130",
       "weight": 1.0
     },
     {
@@ -36998,7 +37351,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4024",
+      "source_location": "L4135",
       "weight": 1.0
     },
     {
@@ -37010,7 +37363,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4025",
+      "source_location": "L4136",
       "weight": 1.0
     },
     {
@@ -37022,7 +37375,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4035",
+      "source_location": "L4146",
       "weight": 1.0
     },
     {
@@ -37034,7 +37387,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4038",
+      "source_location": "L4149",
       "weight": 1.0
     },
     {
@@ -37046,7 +37399,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4137",
+      "source_location": "L4277",
       "weight": 1.0
     },
     {
@@ -37058,7 +37411,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4139",
+      "source_location": "L4279",
       "weight": 1.0
     },
     {
@@ -37070,7 +37423,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4176",
+      "source_location": "L4316",
       "weight": 1.0
     },
     {
@@ -37082,7 +37435,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/flight_core.c",
-      "source_location": "L4294",
+      "source_location": "L4439",
       "weight": 1.0
     },
     {

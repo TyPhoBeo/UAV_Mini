@@ -102,8 +102,17 @@ if m_age:
         branch_coast = rest[i_else:] if i_else != -1 else ""
         check("chip do + khong fuse -> valid = true (KHONG fault)",
               "e->valid = true;" in branch_coast, branch_coast.strip()[:140])
-        check("chip do + khong fuse -> degraded = true (bao ra telemetry)",
-              "e->degraded = true;" in branch_coast)
+        # ⚠ TRUOC DAY test nay doi DUNG chuoi "e->degraded = true;".
+        # Da doi: gan cung true la mot LOI THAT (mot mau ToF khong fusable ->
+        # commander SOFT FAULT ngay tick dau -> LANDING giua chuyen; commander.c
+        # khong co debounce o nhanh do). Gio degraded duoc tinh theo THOI GIAN
+        # ke tu correction cuoi -- dung hop dong viet o commander.h.
+        # Kiem YEU CAU chu khong kiem CACH VIET.
+        check("chip do + khong fuse -> degraded tinh theo thoi gian (khong gan cung true)",
+              "e->degraded = true;" not in branch_coast and
+              "last_tof_accept_us" in branch_coast and
+              "ALT_EST_NO_CORRECTION_DEGRADED_MS" in branch_coast,
+              branch_coast.strip()[:200])
         check("chip do + khong fuse -> ALT_SRC_IMU_PREDICT_ONLY",
               "ALT_SRC_IMU_PREDICT_ONLY" in branch_coast)
 

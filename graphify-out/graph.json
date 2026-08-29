@@ -1357,7 +1357,7 @@
       "file_type": "code",
       "norm_label": "alt_estimator_agl_m()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L149"
+      "source_location": "L164"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_confirm_liftoff",
@@ -1369,7 +1369,7 @@
       "file_type": "code",
       "norm_label": "alt_estimator_confirm_liftoff()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L123"
+      "source_location": "L138"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_correct_velocity",
@@ -1381,7 +1381,7 @@
       "file_type": "code",
       "norm_label": "alt_estimator_correct_velocity()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L638"
+      "source_location": "L686"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_floor_ready",
@@ -1393,7 +1393,7 @@
       "file_type": "code",
       "norm_label": "alt_estimator_floor_ready()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L55"
+      "source_location": "L70"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_height_above_landing_surface",
@@ -1405,7 +1405,7 @@
       "file_type": "code",
       "norm_label": "alt_estimator_height_above_landing_surface()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L145"
+      "source_location": "L160"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_lock_floor",
@@ -1417,7 +1417,7 @@
       "file_type": "code",
       "norm_label": "alt_estimator_lock_floor()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L90"
+      "source_location": "L105"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_lock_floor_at_zero",
@@ -1429,7 +1429,7 @@
       "file_type": "code",
       "norm_label": "alt_estimator_lock_floor_at_zero()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L102"
+      "source_location": "L117"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_lock_floor_fallback",
@@ -1441,7 +1441,7 @@
       "file_type": "code",
       "norm_label": "alt_estimator_lock_floor_fallback()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L96"
+      "source_location": "L111"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_prepare_takeoff",
@@ -1453,7 +1453,7 @@
       "file_type": "code",
       "norm_label": "alt_estimator_prepare_takeoff()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L110"
+      "source_location": "L125"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_reset",
@@ -1465,7 +1465,7 @@
       "file_type": "code",
       "norm_label": "alt_estimator_reset()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L44"
+      "source_location": "L59"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_select_landing_surface",
@@ -1477,7 +1477,7 @@
       "file_type": "code",
       "norm_label": "alt_estimator_select_landing_surface()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L135"
+      "source_location": "L150"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_terrain_rebase",
@@ -1489,7 +1489,7 @@
       "file_type": "code",
       "norm_label": "alt_estimator_terrain_rebase()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L157"
+      "source_location": "L172"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_tof_agl_m",
@@ -1501,7 +1501,7 @@
       "file_type": "code",
       "norm_label": "alt_estimator_tof_agl_m()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L153"
+      "source_location": "L168"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_unlock_floor",
@@ -1513,7 +1513,7 @@
       "file_type": "code",
       "norm_label": "alt_estimator_unlock_floor()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L106"
+      "source_location": "L121"
     },
     {
       "id": "components_flight_core_src_alt_estimator_alt_estimator_update",
@@ -1525,7 +1525,7 @@
       "file_type": "code",
       "norm_label": "alt_estimator_update()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L244"
+      "source_location": "L292"
     },
     {
       "id": "components_flight_core_src_alt_estimator_clear_runtime",
@@ -1537,7 +1537,7 @@
       "file_type": "code",
       "norm_label": "clear_runtime()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L21"
+      "source_location": "L36"
     },
     {
       "id": "components_flight_core_src_alt_estimator_lock_floor_at",
@@ -1549,7 +1549,7 @@
       "file_type": "code",
       "norm_label": "lock_floor_at()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L62"
+      "source_location": "L77"
     },
     {
       "id": "components_flight_core_src_alt_estimator_lpf_alpha",
@@ -1561,7 +1561,7 @@
       "file_type": "code",
       "norm_label": "lpf_alpha()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L16"
+      "source_location": "L31"
     },
     {
       "id": "components_flight_core_src_alt_estimator_update_age",
@@ -1573,7 +1573,7 @@
       "file_type": "code",
       "norm_label": "update_age()",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L209"
+      "source_location": "L224"
     },
     {
       "id": "components_flight_core_src_flight_core_stabilize_task",
@@ -8005,7 +8005,7 @@
       "file_type": "code",
       "norm_label": "decide()",
       "source_file": "python/test_alt_validity_offline.py",
-      "source_location": "L139"
+      "source_location": "L148"
     },
     {
       "id": "python_test_alt_validity_offline_strip_comments",
@@ -8881,7 +8881,7 @@
       "file_type": "code",
       "norm_label": "decide()",
       "source_file": "python/test_tof_alive_vs_valid_offline.py",
-      "source_location": "L202"
+      "source_location": "L211"
     },
     {
       "id": "python_test_tof_alive_vs_valid_offline_strip_comments",
@@ -13271,7 +13271,7 @@
       "source_location": "L1"
     },
     {
-      "id": "python_test_tof_alive_vs_valid_offline_rationale_203",
+      "id": "python_test_tof_alive_vs_valid_offline_rationale_212",
       "label": "Mo phong dung logic update_age() da sua.",
       "_origin": "ast",
       "community": 96,
@@ -13279,7 +13279,7 @@
       "file_type": "rationale",
       "norm_label": "mo phong dung logic update_age() da sua.",
       "source_file": "python/test_tof_alive_vs_valid_offline.py",
-      "source_location": "L203"
+      "source_location": "L212"
     },
     {
       "id": "python_test_tof_alive_vs_valid_offline_rationale_43",
@@ -13415,7 +13415,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L146",
+      "source_location": "L161",
       "weight": 1.0
     },
     {
@@ -13427,7 +13427,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L92",
+      "source_location": "L107",
       "weight": 1.0
     },
     {
@@ -13439,7 +13439,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L104",
+      "source_location": "L119",
       "weight": 1.0
     },
     {
@@ -13451,7 +13451,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L98",
+      "source_location": "L113",
       "weight": 1.0
     },
     {
@@ -13463,7 +13463,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L44",
+      "source_location": "L59",
       "weight": 1.0
     },
     {
@@ -13475,7 +13475,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L107",
+      "source_location": "L122",
       "weight": 1.0
     },
     {
@@ -13487,7 +13487,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L421",
+      "source_location": "L469",
       "weight": 1.0
     },
     {
@@ -13499,7 +13499,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L593",
+      "source_location": "L641",
       "weight": 1.0
     },
     {
@@ -13511,7 +13511,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L604",
+      "source_location": "L652",
       "weight": 1.0
     },
     {
@@ -13523,7 +13523,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L628",
+      "source_location": "L676",
       "weight": 1.0
     },
     {
@@ -20987,7 +20987,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L149",
+      "source_location": "L164",
       "weight": 1.0
     },
     {
@@ -20999,7 +20999,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L123",
+      "source_location": "L138",
       "weight": 1.0
     },
     {
@@ -21011,7 +21011,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L638",
+      "source_location": "L686",
       "weight": 1.0
     },
     {
@@ -21023,7 +21023,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L55",
+      "source_location": "L70",
       "weight": 1.0
     },
     {
@@ -21035,7 +21035,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L145",
+      "source_location": "L160",
       "weight": 1.0
     },
     {
@@ -21047,7 +21047,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L90",
+      "source_location": "L105",
       "weight": 1.0
     },
     {
@@ -21059,7 +21059,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L102",
+      "source_location": "L117",
       "weight": 1.0
     },
     {
@@ -21071,7 +21071,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L96",
+      "source_location": "L111",
       "weight": 1.0
     },
     {
@@ -21083,7 +21083,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L110",
+      "source_location": "L125",
       "weight": 1.0
     },
     {
@@ -21095,7 +21095,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L44",
+      "source_location": "L59",
       "weight": 1.0
     },
     {
@@ -21107,7 +21107,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L135",
+      "source_location": "L150",
       "weight": 1.0
     },
     {
@@ -21119,7 +21119,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L157",
+      "source_location": "L172",
       "weight": 1.0
     },
     {
@@ -21131,7 +21131,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L153",
+      "source_location": "L168",
       "weight": 1.0
     },
     {
@@ -21143,7 +21143,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L106",
+      "source_location": "L121",
       "weight": 1.0
     },
     {
@@ -21155,7 +21155,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L244",
+      "source_location": "L292",
       "weight": 1.0
     },
     {
@@ -21167,7 +21167,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L244",
+      "source_location": "L292",
       "weight": 1.0
     },
     {
@@ -21179,7 +21179,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L244",
+      "source_location": "L292",
       "weight": 1.0
     },
     {
@@ -21191,7 +21191,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L244",
+      "source_location": "L292",
       "weight": 1.0
     },
     {
@@ -21203,7 +21203,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L21",
+      "source_location": "L36",
       "weight": 1.0
     },
     {
@@ -21215,7 +21215,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L62",
+      "source_location": "L77",
       "weight": 1.0
     },
     {
@@ -21227,7 +21227,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L209",
+      "source_location": "L224",
       "weight": 1.0
     },
     {
@@ -25526,200 +25526,13 @@
     },
     {
       "source": "components_flight_core_src_alt_estimator",
-      "target": "components_flight_core_src_alt_estimator_alt_estimator_lock_floor_at_zero",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L102",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_alt_estimator",
-      "target": "components_flight_core_src_alt_estimator_alt_estimator_unlock_floor",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L106",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_alt_estimator",
-      "target": "components_flight_core_src_alt_estimator_alt_estimator_prepare_takeoff",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L110",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_alt_estimator",
-      "target": "components_flight_core_src_alt_estimator_alt_estimator_confirm_liftoff",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L123",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_alt_estimator",
-      "target": "components_flight_core_src_alt_estimator_alt_estimator_select_landing_surface",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L135",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_alt_estimator",
-      "target": "components_flight_core_src_alt_estimator_alt_estimator_height_above_landing_surface",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L145",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_alt_estimator",
-      "target": "components_flight_core_src_alt_estimator_alt_estimator_agl_m",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L149",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_alt_estimator",
-      "target": "components_flight_core_src_alt_estimator_alt_estimator_tof_agl_m",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L153",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_alt_estimator",
-      "target": "components_flight_core_src_alt_estimator_alt_estimator_terrain_rebase",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L157",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_alt_estimator",
-      "target": "components_flight_core_src_alt_estimator_lpf_alpha",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L16",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_alt_estimator",
-      "target": "components_flight_core_src_alt_estimator_update_age",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L209",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_alt_estimator",
-      "target": "components_flight_core_src_alt_estimator_clear_runtime",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L21",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_alt_estimator",
-      "target": "components_flight_core_src_alt_estimator_alt_estimator_update",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L244",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_alt_estimator",
-      "target": "components_flight_core_src_alt_estimator_alt_estimator_reset",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L44",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_alt_estimator",
-      "target": "components_flight_core_src_alt_estimator_alt_estimator_floor_ready",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L55",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_alt_estimator",
-      "target": "components_flight_core_src_alt_estimator_lock_floor_at",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L62",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_alt_estimator",
-      "target": "components_flight_core_src_alt_estimator_alt_estimator_correct_velocity",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L638",
-      "weight": 1.0
-    },
-    {
-      "source": "components_flight_core_src_alt_estimator",
       "target": "components_flight_core_src_alt_estimator_alt_estimator_lock_floor",
       "relation": "contains",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L90",
+      "source_location": "L105",
       "weight": 1.0
     },
     {
@@ -25730,7 +25543,194 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L96",
+      "source_location": "L111",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_alt_estimator",
+      "target": "components_flight_core_src_alt_estimator_alt_estimator_lock_floor_at_zero",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "components/flight_core/src/alt_estimator.c",
+      "source_location": "L117",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_alt_estimator",
+      "target": "components_flight_core_src_alt_estimator_alt_estimator_unlock_floor",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "components/flight_core/src/alt_estimator.c",
+      "source_location": "L121",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_alt_estimator",
+      "target": "components_flight_core_src_alt_estimator_alt_estimator_prepare_takeoff",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "components/flight_core/src/alt_estimator.c",
+      "source_location": "L125",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_alt_estimator",
+      "target": "components_flight_core_src_alt_estimator_alt_estimator_confirm_liftoff",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "components/flight_core/src/alt_estimator.c",
+      "source_location": "L138",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_alt_estimator",
+      "target": "components_flight_core_src_alt_estimator_alt_estimator_select_landing_surface",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "components/flight_core/src/alt_estimator.c",
+      "source_location": "L150",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_alt_estimator",
+      "target": "components_flight_core_src_alt_estimator_alt_estimator_height_above_landing_surface",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "components/flight_core/src/alt_estimator.c",
+      "source_location": "L160",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_alt_estimator",
+      "target": "components_flight_core_src_alt_estimator_alt_estimator_agl_m",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "components/flight_core/src/alt_estimator.c",
+      "source_location": "L164",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_alt_estimator",
+      "target": "components_flight_core_src_alt_estimator_alt_estimator_tof_agl_m",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "components/flight_core/src/alt_estimator.c",
+      "source_location": "L168",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_alt_estimator",
+      "target": "components_flight_core_src_alt_estimator_alt_estimator_terrain_rebase",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "components/flight_core/src/alt_estimator.c",
+      "source_location": "L172",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_alt_estimator",
+      "target": "components_flight_core_src_alt_estimator_update_age",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "components/flight_core/src/alt_estimator.c",
+      "source_location": "L224",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_alt_estimator",
+      "target": "components_flight_core_src_alt_estimator_alt_estimator_update",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "components/flight_core/src/alt_estimator.c",
+      "source_location": "L292",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_alt_estimator",
+      "target": "components_flight_core_src_alt_estimator_lpf_alpha",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "components/flight_core/src/alt_estimator.c",
+      "source_location": "L31",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_alt_estimator",
+      "target": "components_flight_core_src_alt_estimator_clear_runtime",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "components/flight_core/src/alt_estimator.c",
+      "source_location": "L36",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_alt_estimator",
+      "target": "components_flight_core_src_alt_estimator_alt_estimator_reset",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "components/flight_core/src/alt_estimator.c",
+      "source_location": "L59",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_alt_estimator",
+      "target": "components_flight_core_src_alt_estimator_alt_estimator_correct_velocity",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "components/flight_core/src/alt_estimator.c",
+      "source_location": "L686",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_alt_estimator",
+      "target": "components_flight_core_src_alt_estimator_alt_estimator_floor_ready",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "components/flight_core/src/alt_estimator.c",
+      "source_location": "L70",
+      "weight": 1.0
+    },
+    {
+      "source": "components_flight_core_src_alt_estimator",
+      "target": "components_flight_core_src_alt_estimator_lock_floor_at",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "components/flight_core/src/alt_estimator.c",
+      "source_location": "L77",
       "weight": 1.0
     },
     {
@@ -29954,7 +29954,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "python/test_alt_validity_offline.py",
-      "source_location": "L139",
+      "source_location": "L148",
       "weight": 1.0
     },
     {
@@ -30515,7 +30515,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "python/test_tof_alive_vs_valid_offline.py",
-      "source_location": "L202",
+      "source_location": "L211",
       "weight": 1.0
     },
     {
@@ -35018,14 +35018,14 @@
       "weight": 1.0
     },
     {
-      "source": "python_test_tof_alive_vs_valid_offline_rationale_203",
+      "source": "python_test_tof_alive_vs_valid_offline_rationale_212",
       "target": "python_test_tof_alive_vs_valid_offline_decide",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "python/test_tof_alive_vs_valid_offline.py",
-      "source_location": "L203",
+      "source_location": "L212",
       "weight": 1.0
     },
     {
@@ -35479,7 +35479,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L640",
+      "source_location": "L688",
       "weight": 1.0
     },
     {
@@ -35491,7 +35491,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L528",
+      "source_location": "L576",
       "weight": 1.0
     },
     {
@@ -35503,7 +35503,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "components/flight_core/src/alt_estimator.c",
-      "source_location": "L18",
+      "source_location": "L33",
       "weight": 1.0
     },
     {
@@ -39360,5 +39360,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "308e2980a920ec0fad94f768e09aa8d12b4ab9a1"
+  "built_at_commit": "4ae9414f31d2f896477a3c4e857ff447ce6612c4"
 }

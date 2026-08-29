@@ -52,16 +52,30 @@ def const_of(src, name):
     return float(m.group(1)) if m else None
 
 
-print("== (1) Timeout ton tai va NGAN HON nguong mat ToF ==")
+print("== (1) Timeout NGAN HON MOI nguong bien 'khong correction' thanh fault ==")
 tmo = const_of(HDR, "TERR_PENDING_TIMEOUT_MS")
 lost = const_of(HDR, "ALT_EST_TOF_LOST_MS")
+# ⚠ ALT_EST_NO_CORRECTION_DEGRADED_MS moi la nguong chan TRUOC. Ban dau test
+# nay chi so voi ALT_EST_TOF_LOST_MS -- so NHAM, va da bo lot dung lo hong
+# no sinh ra de bat (xem muc (9)).
+degr = const_of(HDR, "ALT_EST_NO_CORRECTION_DEGRADED_MS")
+if degr is None:
+    # dinh nghia kieu alias: #define A  B
+    m = re.search(r"#define\s+ALT_EST_NO_CORRECTION_DEGRADED_MS\s+(\w+)", HDR)
+    if m and m.group(1) == "ALT_EST_TOF_LOST_MS":
+        degr = lost
 check("TERR_PENDING_TIMEOUT_MS co dinh nghia", tmo is not None)
 check("ALT_EST_TOF_LOST_MS co dinh nghia", lost is not None)
+check("ALT_EST_NO_CORRECTION_DEGRADED_MS giai duoc", degr is not None)
 if tmo is not None and lost is not None:
-    check("timeout < ALT_EST_TOF_LOST_MS",
-          tmo < lost,
-          "timeout=%s >= lost=%s: soft-fault no TRUOC loi thoat -> ban va vo dung"
-          % (tmo, lost))
+    check("timeout < ALT_EST_TOF_LOST_MS", tmo < lost,
+          "timeout=%s >= lost=%s" % (tmo, lost))
+if tmo is not None and degr is not None:
+    check("timeout < ALT_EST_NO_CORRECTION_DEGRADED_MS (nguong THAT SU)",
+          tmo < degr,
+          "timeout=%s >= degraded=%s: degraded=true -> commander SOFT FAULT -> "
+          "LANDING, TRUOC khi loi thoat kip chay" % (tmo, degr))
+if tmo is not None:
     check("timeout du dai cho TERR_CONFIRM_N mau (>= 120ms)",
           tmo >= 120,
           "qua ngan thi khong bao gio confirm kip, moi bac deu bi huy")
@@ -142,7 +156,29 @@ check("expected tinh tu vz_accel_only_ms",
       "khong bao gio duoc phat hien")
 
 print()
+print("== (9) terr_pending KHONG duoc bien thanh SOFT FAULT ngay tick dau ==")
+# CHUOI DAY DU phai lan theo, khong duoc dung o hai hang so:
+#   terr_pending -> tof_fusable=false -> update_age() nhanh BRIDGE
+#     -> degraded -> cin.alt_estimator_degraded -> commander FAULT_SOFT -> LANDING
+# Commander KHONG co debounce o nhanh do, nen neu update_age() dat
+# degraded=true ngay o mau dau khong fusable thi MOT mau ToF xau = ha canh.
+mbridge = re.search(r"ALT_TOF_BRIDGE(.*?)\n    \}", CODE, re.S)
+check("tim thay nhanh BRIDGE trong update_age()", mbridge is not None)
+if mbridge:
+    seg = mbridge.group(1)
+    check("BRIDGE KHONG gan degraded = true vo dieu kien",
+          re.search(r"degraded\s*=\s*true\s*;", seg) is None,
+          "gan cung true = mot mau ToF khong fusable (ngoai tam / hap thu / "
+          "terr_pending) se fault NGAY -> LANDING giua chuyen")
+    check("degraded tinh theo thoi gian tu correction cuoi",
+          "last_tof_accept_us" in seg and
+          "ALT_EST_NO_CORRECTION_DEGRADED_MS" in seg,
+          "phai dem tu moc correction cuoi, dung hop dong o commander.h")
+    check("van giu valid = true (coast bang IMU khong phai loi)",
+          re.search(r"valid\s*=\s*true", seg) is not None)
+
+print()
 if fails:
     print("KET QUA: %d FAIL -- %s" % (len(fails), ", ".join(fails)))
     sys.exit(1)
-print("KET QUA: ALL PASS -- terr_pending co loi thoat, khong the deadlock lai")
+print("KET QUA: ALL PASS -- terr_pending co loi thoat va khong gay fault tuc thi")

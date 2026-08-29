@@ -18,8 +18,8 @@
     "semantic_hash": "114b9a1e0f48f6c4fe2d5dc2ebf5cebd"
   },
   ".vscode/extensions.json": {
-    "mtime": 1787970233.3835726,
-    "seen": 1787970259.5832155,
+    "mtime": 1787983860.7319424,
+    "seen": 1787985364.8690605,
     "ast_hash": "44f666202f41bac94b47312982e097d9",
     "semantic_hash": "44f666202f41bac94b47312982e097d9"
   },
@@ -30,9 +30,9 @@
     "semantic_hash": "436c170a5c2fa62299b7dad8cb9bce61"
   },
   "components/flight_core/include/flight_core/alt_estimator.h": {
-    "mtime": 1787908168.3809426,
-    "seen": 1787970259.5832155,
-    "ast_hash": "0ea285f1aa09df09371f8fbdb8fc5c31",
+    "mtime": 1787984648.5917492,
+    "seen": 1787985364.8690605,
+    "ast_hash": "2e95bfd6ddbbe47f44ca0a2a59115a4c",
     "semantic_hash": ""
   },
   "components/flight_core/include/flight_core/alt_hold.h": {
@@ -102,9 +102,9 @@
     "semantic_hash": ""
   },
   "components/flight_core/include/flight_core/fc_features.h": {
-    "mtime": 1787798442.7271805,
-    "seen": 1787822194.8787842,
-    "ast_hash": "ee3308bb46f40824e6be5ed7a1b42c68",
+    "mtime": 1787984910.1499288,
+    "seen": 1787985364.8690605,
+    "ast_hash": "3323c51b49275c7c54bc572c753da4ae",
     "semantic_hash": ""
   },
   "components/flight_core/include/flight_core/flight_core.h": {
@@ -150,15 +150,15 @@
     "semantic_hash": ""
   },
   "components/flight_core/include/flight_core/telemetry.h": {
-    "mtime": 1787915394.8907027,
-    "seen": 1787970259.5840883,
-    "ast_hash": "0663ccefeee3705e3003c64abefb2b96",
+    "mtime": 1787984739.1026168,
+    "seen": 1787985364.8690605,
+    "ast_hash": "fb6c7162a1b24aa0076d1702714e68fe",
     "semantic_hash": ""
   },
   "components/flight_core/include/flight_core/tuning.h": {
-    "mtime": 1787920498.407129,
-    "seen": 1787970259.5840883,
-    "ast_hash": "aee1cc14dac9eec57148fb74e09a2cdd",
+    "mtime": 1787984205.5725064,
+    "seen": 1787985364.8690605,
+    "ast_hash": "fe8424ffc97b36290cceefff1d4d63df",
     "semantic_hash": ""
   },
   "components/flight_core/include/flight_core/types.h": {
@@ -168,9 +168,9 @@
     "semantic_hash": "a68ddf987c834c3c60283f3f6cd4f670"
   },
   "components/flight_core/src/alt_estimator.c": {
-    "mtime": 1787910144.739272,
-    "seen": 1787970259.5840883,
-    "ast_hash": "253a92e223af3d92a5eed96c9752d43c",
+    "mtime": 1787985229.8532386,
+    "seen": 1787985364.8690605,
+    "ast_hash": "9c0a2a6d6c5ff70510582d19a71f05ba",
     "semantic_hash": ""
   },
   "components/flight_core/src/alt_hold.c": {
@@ -222,10 +222,10 @@
     "semantic_hash": "52ef2bdc8c43ccee08801eb6e80d24ca"
   },
   "components/flight_core/src/drivers/motor_driver.c": {
-    "mtime": 1787213158.70163,
-    "seen": 1787748766.2360346,
-    "ast_hash": "21a6afff4e0d34f927f1d9250cc409d7",
-    "semantic_hash": "21a6afff4e0d34f927f1d9250cc409d7"
+    "mtime": 1787984869.880412,
+    "seen": 1787985364.8690605,
+    "ast_hash": "f618e043a7e3dbba4209ddd1e17afeaf",
+    "semantic_hash": ""
   },
   "components/flight_core/src/drivers/tof_backend.h": {
     "mtime": 1787905824.865486,
@@ -252,9 +252,9 @@
     "semantic_hash": ""
   },
   "components/flight_core/src/flight_core.c": {
-    "mtime": 1787920694.102802,
-    "seen": 1787970259.5840883,
-    "ast_hash": "52a63f07a20f85db60b629915de40cf6",
+    "mtime": 1787984928.8264217,
+    "seen": 1787985364.8690605,
+    "ast_hash": "afeb2bb3c806957f2060b6bfc68ed0c7",
     "semantic_hash": ""
   },
   "components/flight_core/src/flight_state_machine.c": {
@@ -294,9 +294,9 @@
     "semantic_hash": ""
   },
   "main/app_config.h": {
-    "mtime": 1787917720.5146449,
-    "seen": 1787970259.5840883,
-    "ast_hash": "e8d97dcc0fb29225c15bbe2c2ad6c105",
+    "mtime": 1787985111.814794,
+    "seen": 1787985364.8690605,
+    "ast_hash": "211ace14c9c023ebba27d9f6db60bbd7",
     "semantic_hash": ""
   },
   "main/board_config.h": {
@@ -462,9 +462,9 @@
     "semantic_hash": "b7ca16faed3f07ce87d700c114f88d85"
   },
   "src/telemetry_format.c": {
-    "mtime": 1787915493.699847,
-    "seen": 1787970259.5840883,
-    "ast_hash": "81badbf0d654ad9f3b0aa5009df99c99",
+    "mtime": 1787984759.0614758,
+    "seen": 1787985364.8690605,
+    "ast_hash": "670930a6529ffeebe9dd3b34ed279f5a",
     "semantic_hash": ""
   },
   "src/telemetry_format.h": {
@@ -555,6 +555,24 @@
     "mtime": 1787912934.5817695,
     "seen": 1787970259.5840883,
     "ast_hash": "09658951ec50daa301c12556f3cd0fe1",
+    "semantic_hash": ""
+  },
+  "python/test_flying_vz_hold_offline.py": {
+    "mtime": 1787985164.7254777,
+    "seen": 1787985364.8690605,
+    "ast_hash": "5e0346d4d87601017a8252b753a4f0d3",
+    "semantic_hash": ""
+  },
+  "python/test_terrain_deadlock_offline.py": {
+    "mtime": 1787985217.942471,
+    "seen": 1787985364.8690605,
+    "ast_hash": "633780d216918f770c1ed9cbfa701cae",
+    "semantic_hash": ""
+  },
+  "python/test_tilt_comp_expo_offline.py": {
+    "mtime": 1787985285.7784965,
+    "seen": 1787985364.8690605,
+    "ast_hash": "183ed390334a0c26589e01ae2b867e5b",
     "semantic_hash": ""
   }
 }
