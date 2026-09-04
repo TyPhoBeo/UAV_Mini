@@ -425,7 +425,7 @@ chiếm bus của một vòng bị **dồn cục**, làm mẫu IMU của vòng s
 | MAG (QMC5883P) | 5 | ~50Hz | ODR chip thấp hơn nhiều, đọc dày hơn vô ích |
 | BARO (BMP280) | 5, **lệch pha 2** | ~50Hz | khớp P×8 + IIR×8. Lệch pha để **không rơi cùng vòng với mag** |
 | Battery (ADC) | 25 | ~10Hz | không qua I2C. 10Hz vì sụt áp dưới tải xảy ra trong ~100ms — lấy mẫu 200ms/lần có thể bỏ lỡ hẳn đáy sụt mà failsafe pin cần thấy |
-| ToF (VL53L0X) | 8, **lệch pha 4** | ~31Hz | timing budget 33ms → chip chỉ đổi mẫu ~30Hz; đọc dày hơn chỉ lấy lại **cùng một** measurement. Lệch pha 4 để không rơi cùng vòng với mag(0) hay baro(2) |
+| ToF (VL53L1X) | 8, **lệch pha 4** | ~25Hz | timing budget 33ms → chip chỉ đổi mẫu ~30Hz; đọc dày hơn chỉ lấy lại **cùng một** measurement. Lệch pha 4 để không rơi cùng vòng với mag(0) hay baro(2) |
 
 Vì hub có nhịp riêng cho từng cảm biến, **nhiều tick 250Hz liên tiếp thấy cùng
 một mẫu baro**. Nên "mẫu mới" xác định bằng **`seq`**, không bằng cờ `ok` — đảm
@@ -1133,72 +1133,383 @@ mạnh: bị chặn cơ học). Trong `CONTACT_CANDIDATE` drone **vẫn được
 đầy đủ**, chỉ hạ ở tốc độ chậm nhất — nghi sai thì quay lại hạ bình thường,
 không để lại dấu vết.
 
-### 4.4 Altitude estimator — accel-primary, ToF/baro CHỈ LÀ correction
+### 4.4 Altitude estimator — accel-primary, ToF CHỈ LÀ correction
 
 `alt_estimator` tích phân **gia tốc** (Az, đã bù trọng lực + xoay theo Mahony)
-làm nguồn động lực CHÍNH cho `z`/`vz` mỗi tick (250Hz); ToF và baro **không
-bao giờ** là nguồn chính — chúng chỉ kéo `z` về đúng khi có mẫu mới (baro
-~50Hz, ToF ~31Hz), giữa hai lần kéo thì accel-dead-reckon một mình chạy tiếp.
+làm nguồn động lực CHÍNH cho `z`/`vz` mỗi tick (250Hz); ToF **không bao giờ**
+là nguồn chính — nó chỉ kéo `z` về đúng khi có mẫu mới (~25Hz với VL53L1X),
+giữa hai lần kéo thì accel-dead-reckon một mình chạy tiếp.
 
 ```
 Az (world, trừ gravity)  --tích phân 250Hz-->  vz, z   (đường CHÍNH, luôn chạy)
-ToF/baro mẫu mới --correction có điều kiện--> kéo z về đúng (đường PHỤ, xen kẽ)
+ToF mẫu mới  --correction có điều kiện-->  kéo z về đúng (đường PHỤ, xen kẽ)
 ```
 
-#### ToF surface-gated correction — vì sao cần, và bẫy đã tránh
+> ⚠ Baro (BMP280) và mag (QMC5883L) **có trên bo nhưng KHÔNG dùng**
+> (`SENSOR_BARO_ENABLED=0`). ToF là nguồn correction DUY NHẤT.
 
-Cảm biến chỉ đo **khoảng cách tới vật cản gần nhất theo trục thẳng đứng** —
-không tự phân biệt được sàn nhà với mặt bàn. Không gate thì bay qua bàn sẽ bị
-ToF "sửa" `z` xuống bằng khoảng-cách-tới-bàn, drone hiểu nhầm là đang rơi và tự
-đẩy ga lên → **bốc lên khi bay qua bàn** (case bắt buộc phải pass, xem test
-long-table 60s).
+#### Bù nghiêng ToF — `range × cos(roll) × cos(pitch)`
 
+ToF đo dọc **trục thân**, không phải trục thẳng đứng. Drone nghiêng thì tia đo
+đi quãng **xiên**, dài hơn độ cao thật. Bù ở `alt_estimator.c`:
+
+```c
+const float rzz = 1.0f - 2.0f*x*x - 2.0f*y*y;   // từ quaternion Mahony
+e->tof_vertical_m = tof_range_m * rzz;
 ```
-alt_est_tof_surface_t: UNKNOWN (chưa đủ bằng chứng) -> FLOOR (khớp sàn đã
-                        khoá) -> OTHER (bề mặt khác, CẤM correction)
-```
 
-- **Khoá mặt sàn tại `CMD_TAKEOFF`** (`alt_estimator_lock_floor()`), tại
-  world-Z hiện tại (=0). Từ đó, `predicted_floor_range = (alt_m −
-  floor_plane_z_m) + tof_ground_range_m` — range ToF PHẢI khớp dự đoán này để
-  được coi là "đang nhìn sàn".
-- **Hai điều kiện ĐỘC LẬP** phải cùng đúng mới correction: phân loại bề mặt
-  bền theo `_TICKS` liên tiếp (`ALT_EST_TOF_FLOOR_TICKS`/`_OTHER_TICKS`, chống
-  nhiễu 1 mẫu) **và** sai lệch từng-mẫu so dự đoán ≤ `ALT_EST_TOF_FLOOR_MATCH_GATE_M`
-  (0.10m). Chỉ dùng MỘT trong hai (chỉ phân loại bền, hoặc chỉ gate mẫu) đã bị
-  test bắt: Z từng tụt 0.80→0.625m TRƯỚC KHI phân loại kịp nhận ra là "OTHER"
-  — cửa sổ vài tick giữa lúc ToF chạm mép bàn và lúc phân loại xác nhận là đủ
-  để correction sai lệch sinh sai số lớn nếu chỉ gate bằng một điều kiện.
-- **Không có time-based reacquire** — chỉ innovation vật lý khớp mới coi là
-  "lại thấy sàn". Test hồi quy quan trọng: drone HẠ THẬT xuống thấp hơn khi
-  bay qua bàn phải innovation khớp **tự động đúng** vì so với floor dự đoán,
-  không cần logic riêng phân biệt "hạ thật" khỏi "chạm mép bàn".
+`rzz` là phần tử (3,3) của ma trận xoay và **bằng đúng** `cos(roll)·cos(pitch)`
+— đã kiểm bằng số, sai khác 1.1e-16 (giới hạn double), **độc lập với yaw**.
+Dùng `rzz` thay vì viết `cosf(roll)*cosf(pitch)` vì: (a) tránh 2 hàm lượng giác
+trong vòng 250Hz, (b) không phải trích Euler ra rồi ghép lại — quaternion đã có
+sẵn thành phần này.
+
+Ngoài ra có gate `ALT_EST_TOF_TILT_MIN_COS = 0.87` (~29.5°): nghiêng quá thì
+**loại mẫu** thay vì bù, vì lúc đó tia đo đã trượt sang một điểm khác hẳn trên
+sàn chứ không còn là "cùng điểm, đo xiên".
+
+`tilt_cos` là một field **riêng**, ghi MỖI TICK (250Hz), dùng cho bù throttle
+(mục 4.5). Không dùng chung `tof_tilt_cos` vì field đó chỉ ghi trong
+`if (tof_new)` — nhịp ToF ~25Hz, và **đứng hẳn nếu ToF chết**.
+
+#### Innovation gate và máy đo sàn — ĐÃ BỎ
+
+Bản cũ có: khoá mặt sàn lúc TAKEOFF, phân loại bề mặt FLOOR/OTHER, gate
+innovation 0.25m. **Tất cả đã gỡ**, vì hai lỗi thật đo được trên bo:
+
+| Cơ chế cũ | Lỗi thật |
+|---|---|
+| Innovation gate 0.25m | Bay qua vật cao 0.5m → innovation vượt ngưỡng → `surface=OTHER` → `tof_fusable=false` → sau 300ms `valid=false` → soft-fault → **LANDING**. Tức "bay qua vật thể" == "tự động hạ cánh" |
+| Máy đo sàn (`floor_add` + Welford) | Nằm sát sàn thì VL53L1X đọc 0.000m (dưới tầm mù ~4cm) → driver loại mẫu → cửa sổ thống kê không bao giờ đóng → `tof_ground_ref_valid` kẹt false → **mọi lệnh TAKEOFF bị từ chối** |
+
+Giờ: `raw_agl = tof_vertical_m`, không trừ gì cả. Chống nhảy đột ngột chuyển
+sang **slew-rate limit** trên `zt` — nó làm số đo đổi MƯỢT thay vì LOẠI BỎ mẫu,
+nên không bao giờ dẫn tới "mất nguồn độ cao".
+
+> ⚠ **Đổi nghĩa độ cao:** `alt_m` giờ là "cách bề mặt bên dưới bao nhiêu",
+> KHÔNG phải "cao hơn điểm cất cánh bao nhiêu" — trừ khi terrain offset đang
+> bật (mục 4.6).
 
 #### `valid` vs `degraded` — hai câu hỏi khác nhau
 
-- **`valid`**: state có còn là số hữu hạn không (`isfinite`). `false` → reset
-  cứng về 0, KHÔNG cố sửa state rác.
-- **`degraded`**: đã bao lâu KHÔNG CÓ correction từ BẤT KỲ nguồn nào
-  (`ALT_EST_NO_CORRECTION_DEGRADED_MS`, 3000ms). `valid=1 degraded=1` là trạng
-  thái HỢP LỆ và quan trọng: `z` vẫn là số, nhưng đang trôi tự do theo accel
-  dead-reckon không ai sửa — sai số tích lũy theo bậc hai thời gian (accel bias
-  dư ~0.01 m/s² × 3s ≈ 0.14m, × 10s ≈ 1.5m, × 30s ≈ 13.5m).
+- **`valid`**: state có còn dùng được không. `false` khi `isfinite` fail hoặc
+  chip ToF **im hẳn** (`tof_hw_alive=false`) — đường soft-fault DUY NHẤT.
+- **`degraded`**: đã bao lâu KHÔNG CÓ correction
+  (`ALT_EST_NO_CORRECTION_DEGRADED_MS` = `ALT_EST_TOF_LOST_MS` = **300ms**).
+  `valid=1 degraded=1` là trạng thái HỢP LỆ: `z` vẫn là số, nhưng đang trôi tự
+  do theo accel dead-reckon.
 
-Commander tách riêng fault cho `degraded` khi đang bay (`airborne &&
-alt_estimator_degraded` → `FAULT_SOFT`, lý do `"khong co correction (ToF+baro)
-qua lau -> Z dang troi tu do"`) — **khác** fault cho `!valid`. ToF-only (baro
-tắt) là cấu hình BỊ GIỚI HẠN theo đúng cơ chế này: hết tầm ToF (~1.8m) hoặc
-nhìn bề mặt khác quá lâu → hết correction → trip `degraded` → `LANDING` tự
-động (mục 4.1b).
+⚠ **`degraded` phải đếm theo THỜI GIAN, không được gán cứng.** Đây là một lỗi
+thật đã sửa:
 
-#### ToF ground-ref — vì sao chốt ở ARM
+```c
+// SAI — nhánh BRIDGE bản cũ:
+e->degraded = true;          // gán ngay khi MỘT mẫu không fusable
 
-Sensor lắp cách sàn một khoảng vật lý (không đọc 0 khi nằm đất). Thiếu mốc này
-thì mọi phép so "range dự đoán tới sàn" lệch đúng bằng chiều cao lắp sensor —
-đủ để phân loại nhầm sàn thành "bề mặt khác" và ToF tự tắt hẳn ngay từ đầu.
-Chốt tại `CMD_ARM` (từ snapshot `sensor_hub`, không đọc I2C trực tiếp — hub đã
-chạy nhiều giây nên chắc chắn có mẫu), không phải tại boot: drone có thể bị di
-chuyển giữa boot và ARM.
+// ĐÚNG — bản hiện tại:
+const int64_t since_corr_ms = e->last_tof_accept_us
+    ? (now_us - e->last_tof_accept_us) / 1000
+    : (int64_t)ALT_EST_NO_CORRECTION_DEGRADED_MS;
+e->degraded = since_corr_ms >= (int64_t)ALT_EST_NO_CORRECTION_DEGRADED_MS;
+```
+
+Vì sao quan trọng: `commander.c` fault **NGAY tick đầu** khi thấy `degraded`,
+không có debounce. Gán cứng `true` nghĩa là **một** mẫu ToF không dùng được
+(ngoài tầm / bề mặt hấp thụ / đang nghi có bậc terrain) = **LANDING giữa
+chuyến**. Mà "mẫu không dùng được" là chuyện BÌNH THƯỜNG với ToF.
+
+`last_tof_accept_us == 0` (chưa TỪNG có correction) vẫn báo degraded ngay — đó
+là ToF chết thật, phải bắt. Đường an toàn còn nguyên.
+
+#### Ba trạng thái track (`update_age`)
+
+| Điều kiện | `tof_track_state` | `valid` | `degraded` | Ý nghĩa |
+|---|---|---|---|---|
+| chip im (`!tof_hw_alive`) | `LOST` | **0** | 1 | Bus đứt / sensor chết → soft-fault |
+| chip đọc + mẫu fusable | `TRACKING` | 1 | 0 | Bình thường |
+| chip đọc + mẫu không dùng được | `BRIDGE` | 1 | theo thời gian | Coast bằng IMU — **không phải lỗi** |
+
+Điểm mấu chốt: **"chip còn đọc"** khác **"mẫu dùng được"**. Nằm sát sàn đọc
+0.000m là chip VẪN SỐNG, chỉ là mẫu không dùng được — không được coi là hỏng.
+
+### 4.5 Bù cos(tilt) cho throttle — feedforward
+
+Lực đẩy 4 cánh quạt luôn vuông góc với **thân** drone. Nghiêng θ thì thành phần
+THẲNG ĐỨNG chỉ còn `F·cos(θ)`:
+
+| Nghiêng | `cos` | Mất lực nâng dọc |
+|---:|---:|---:|
+| 12° (`MOVE_MAX_TILT_DEG`) | 0.978 | 2.2% (~22 duty trên nền ~1000) |
+| 15° | 0.966 | 3.4% |
+| 30° | 0.866 | 13.4% |
+
+Không bù thì cứ nghiêng là tụt. Vòng Vz **có thể** tự bù bằng I-term, nhưng mất
+vài trăm ms để học — trong khoảng đó drone đã tụt rồi. Bù cos là
+**feedforward**: đúng ngay tick đầu.
+
+```c
+#if TILT_COMP_ENABLED
+if (throttle_cmd > 0) {
+    const float tilt_cos = s_alt_est.tilt_cos;      // TƯƠI 250Hz
+    if (isfinite(tilt_cos) && tilt_cos > TILT_COMP_MIN_COS && tilt_cos < 1.0f) {
+        const float f = clampf(1.0f / tilt_cos, 1.0f, TILT_COMP_MAX_FACTOR);
+        throttle_cmd = clampi((int)((float)throttle_cmd * f), 0, MOTOR_SAFE_MAX_DUTY);
+    }
+}
+#endif
+```
+
+⚠ **`TILT_COMP_MAX_FACTOR = 1.10` là BẮT BUỘC.** `1/cos` phân kỳ khi θ→90°. Một
+lần attitude estimate lỗi (và nó CÓ lỗi lúc va chạm / rung mạnh) sẽ cho hệ số
+khổng lồ → **full throttle**. Trần này là thứ duy nhất đứng giữa một sai số cảm
+biến và ga tối đa. 1.10 phủ tới ~24.6°, gấp đôi giới hạn bay thực tế 12°.
+
+Chỉ bù khi `throttle_cmd > 0`: disarmed / landing cutoff / abort thì nhân vào 0
+vẫn là 0, nhưng để rõ điều kiện để không ai vô tình "hồi sinh" ga sau này.
+
+### 4.6 Terrain offset — bay qua bàn/ghế mà không mất tham chiếu
+
+Bật/tắt lúc compile: `TERRAIN_OFFSET_ENABLED` (`app_config.h`). Tắt = hành vi
+cũ y nguyên, `terrain_off_m` luôn 0.
+
+**Hai hệ quy chiếu:**
+
+```
+tof_vertical_m   // range đã bù cos(tilt) — khoảng cách tới BỀ MẶT dưới (AGL)
+terrain_off_m    // độ cao bề mặt đó so với SÀN cất cánh
+alt_m            // = raw_agl + terrain_off_m   <- PID alt ăn cái này
+agl_m            // = alt_m - terrain_off_m     <- guard va chạm ăn cái này
+```
+
+Sàn cất cánh `terrain_off_m = 0`; trên mặt bàn 0.75m thì `= 0.75`. COMMIT offset
+đúng bằng bước nhảy → `alt_m` **liên tục** xuyên qua cú nhảy → PID không thấy gì
+bất thường.
+
+**Phát hiện bằng residual, không phải ngưỡng thô:**
+
+```c
+d_range  = tof_vertical_m - prev_tof_vertical_m;
+expected = vz_accel_only_ms * tof_dt_s;      // ⚠ accel-only, KHÔNG phải vz_ms
+residual = d_range - expected;
+if (fabsf(residual) > TERR_JUMP_THRESH_M) -> terr_pending = true
+```
+
+⚠ **`expected` PHẢI dùng `vz_accel_only_ms`.** `vz_ms` đã bị ToF chỉnh (xem khối
+fuse cuối `alt_estimator_update`), nên dùng nó là một **vòng hồi tiếp kín**: cú
+nhảy range bơm vào `vz_ms` → `expected` phình lên theo đúng hướng cú nhảy →
+residual bị triệt tiêu một phần → bậc terrain thật có thể tụt xuống dưới ngưỡng
+và **không bao giờ được phát hiện**.
+
+**Xác nhận rồi mới commit** — `TERR_CONFIRM_N = 4` mẫu liên tiếp khớp trong
+`TERR_CONFIRM_TOL_M`. Mép bàn làm range nhảy qua nhảy lại; một mẫu lệch là đếm
+lại từ đầu.
+
+**Sanity check (B3):** `|cand − hiện tại| ≤ TERR_MAX_STEP_M` (1.5m). Vượt =
+đo sai (mẫu rác / phản xạ gương / ngoài tầm), TỪ CHỐI commit, giữ offset cũ,
+tăng `TREJ`.
+
+#### ⚠ Vòng luẩn quẩn `terr_pending` — lỗi đã làm feature này bị TẮT
+
+Log thật đo được trên bo:
+
+```
+TOFF=-0.315  TPEND=1  TCMT=1  TOFFUSE=0  TOFTRACK=0
+TOFR 83->95 (tăng đều)   TOFA=177..178 (ĐỨNG YÊN)
+```
+
+```
+terr_pending = true  ->  tof_fusable = false     (đúng thiết kế: đang nghi ngờ
+                                                  thì không ăn range đang loạn)
+tof_fusable = false  ->  không mẫu nào qua nhánh confirm
+không có mẫu         ->  terr_confirm_cnt KHÔNG tăng, cũng KHÔNG reset
+                     =>  terr_pending KẸT Ở 1 VĨNH VIỄN
+                     =>  hết correction -> soft-fault -> LANDING giữa chuyến
+```
+
+**Ba điều kiện phải đúng ĐỒNG THỜI, thiếu một là lỗi quay lại:**
+
+1. `TERR_PENDING_TIMEOUT_MS = 200` — hết hạn thì **HUỶ** nghi ngờ, KHÔNG commit.
+   Commit một ứng viên chưa xác nhận là ghi offset có thể sai vào trạng thái BỀN
+   VỮNG — đúng cái đã tạo ra `TOFF=-0.315` rồi loại hết mọi mẫu sau đó.
+2. Timeout phải **NGẮN HƠN `ALT_EST_NO_CORRECTION_DEGRADED_MS`** (300ms).
+   Có `_Static_assert` bảo vệ. ⚠ Bản vá đầu so nhầm với `ALT_EST_TOF_LOST_MS`
+   — ngưỡng chặn TRƯỚC là `DEGRADED_MS`, và nếu không sửa `degraded` thành đếm
+   theo thời gian (mục 4.4) thì fault nổ ở **tick đầu**, timeout 200ms vô dụng.
+3. Khối lối thoát phải nằm **NGOÀI `if (tof_new)`**. Nằm trong thì nó cũng chỉ
+   chạy khi có mẫu mới — đúng cái điều kiện nó sinh ra để sửa.
+
+`TTMO` (`terr_timeout_count`) là số cần nhìn nhất khi debug: `TPEND=1` kéo dài
+mà `TTMO` **đứng yên** = lối thoát KHÔNG chạy → tắt terrain lại và đi tìm tiếp.
+
+#### Guard khoảng hở tối thiểu (B8) — lưới an toàn CUỐI
+
+Chạy SAU mọi đường tính throttle (kể cả W/S) vì nó phải THẮNG tất cả: dù logic
+offset có sai, dù người lái đang giữ S, drone vẫn không được cắm xuống mặt bàn.
+
+```c
+clearance_low = (hr.hold_driving || flying_no_alt_pid)
+                && s_alt_est.tof_fusable
+                && agl_now_m < TERR_MIN_CLEARANCE_M;     // 0.25m
+-> ép vz_target = max(lệnh hiện tại, TERR_ESCAPE_VZ_MS)  // 0.20 m/s
+-> rebase terrain_off_m ở CẠNH LÊN của guard
+```
+
+Kiểm `flying_no_alt_pid` là **bắt buộc**: ở FLYING ta cố ý đặt `hold_driving=false`,
+nên chỉ kiểm `hold_driving` sẽ vô hiệu hoá guard trong TOÀN BỘ FLYING — đúng lúc
+cần nó nhất (đang bay ngang về phía một vật cản).
+
+⚠ **Trần tốc độ tăng ga** (`THROTTLE_MAX_RISE_DUTY_PER_S = 500`): bay ở ~23cm
+(dưới 25cm) thì guard kích hoạt MỖI TICK và mỗi tick đều ghi đè latch:
+`THR=995 -> 995 -> 1095 -> 1995 -> 2000`, tức +900 duty trong MỘT tick 5ms.
+
+Trần này phải **tích luỹ phần lẻ**, không được `(int)` thẳng:
+`500 × 0.004s = 2.0` duty/tick, nhưng với 150 duty/s thì `(int)(150×0.004) = 0`
+→ `rise_cap = latch` → ga KHÔNG BAO GIỜ tăng được → **vô hiệu hoá hoàn toàn
+guard chống va chạm**. Một trần tốc độ lại biến thành một cái khoá cứng, và nó
+im lặng.
+
+### 4.7 FSM_FLYING — tắt tầng NGOÀI, giữ tầng TRONG
+
+Cascade giữ độ cao có **hai tầng**. Vào FLYING chỉ tắt tầng ngoài:
+
+```
+tầng NGOÀI   alt -> vz_target   : TẮT trong FLYING
+tầng TRONG   vz  -> throttle    : VẪN CHẠY, vz_target = 0
+```
+
+**Vì sao tắt tầng ngoài:** ToF đo khoảng cách tới BỀ MẶT ngay dưới. Bay qua bàn
+cao 0.75m ở độ cao 1.2m thì range nhảy 1.2 → 0.45. Tầng ngoài đọc số này và kết
+luận "tụt 0.75m" → bốc ga dựng đứng.
+
+**Vì sao GIỮ tầng trong:** nó đọc `vz`, không đọc range. Và `vz` — nếu lấy từ
+accel thuần — **không hề biết** có cái bàn nào bên dưới. Nó vẫn đúng xuyên qua
+cú nhảy.
+
+⚠ **Bản trước tắt CẢ HAI tầng** và đó là một lỗ hổng thật: ga đóng băng tại
+`s_flying_throttle_latch`. "Ga đứng yên" KHÔNG đồng nghĩa "độ cao đứng yên" —
+nếu lúc vào FLYING drone đang có `vz != 0` (vừa nhả W/S, vừa thoát guard, hay
+chỉ là propwash) thì nó **trôi tự do** suốt đoạn FLYING. Micro quad tụt được
+10-20cm trong 300ms, mà `FLYING_TO_HOLD_SETTLE_MS` chính là 300ms.
+
+#### Nguồn `vz` PHẢI là accel-only
+
+```c
+#if FLYING_VZ_USE_ACCEL_ONLY
+const float fly_vz_meas = s_alt_est.vz_accel_only_ms;
+#else
+const float fly_vz_meas = s_alt_est.vz_ms;
+#endif
+```
+
+`alt_estimator` fuse ToF vào `vz_ms` qua **hai** đường:
+
+```c
+dv  = ALT_EST_TOF_VZ_GAIN * (tof_vz_lpf_ms - vz_ms);
+dv += clampf(ALT_EST_TOF_INNOV_VZ_GAIN * iz / tof_dt_s, -0.20f, 0.20f);
+vz_ms += dv;
+```
+
+Bay qua bàn → `iz` nhảy 0.75m → đường thứ hai bơm vào `vz_ms` một **vận tốc
+GIẢ** (bị clamp 0.20 m/s nhưng vẫn sai dấu và kéo dài nhiều tick). Vòng Vz phản
+ứng với số giả đó = **còn tệ hơn tắt hẳn**.
+
+`vz_accel_only_ms` tích phân thuần từ `az_corrected_ms2` (đã trừ bias thích
+nghi + deadband + LPF) và **không bao giờ** ăn correction ToF.
+
+#### Nạp I bumpless — tick ĐẦU, không phải mỗi tick
+
+```c
+if (!s_flying_vz_engaged) {
+    s_hold_state.vz_integral =
+        clampf((float)s_flying_throttle_latch - s_hold_tune.hover,
+               -FLYING_VZ_ILIMIT_DUTY, FLYING_VZ_ILIMIT_DUTY);
+    s_flying_vz_engaged = true;
+}
+```
+
+Cờ `s_flying_vz_engaged` phải **TÁCH RIÊNG** khỏi `(s_flying_throttle_latch < 0)`:
+latch giờ được ghi lại MỖI TICK (nó đuổi theo output cascade), nên nó không còn
+dùng làm cờ "tick đầu" được nữa. Dùng chung một cờ sẽ nạp lại I mỗi tick → I bị
+ghi đè liên tục → **vòng Vz mất hoàn toàn phần tích phân**.
+
+`FLYING_VZ_ILIMIT_DUTY = 120` siết chặt hơn `ALT_HOLD_VZ_ILIMIT = 500`: trong
+FLYING drone nghiêng để bay ngang nên `vz` âm nhẹ là BÌNH THƯỜNG, không phải sai
+số cần tích phân hết cỡ. Để I chạy rộng như HOLDING thì khi thả cần sẽ mang theo
+một cục bias → vọt lên.
+
+#### Bàn giao FLYING → HOLDING là bumpless SẴN
+
+Khối thoát FLYING **KHÔNG** đụng tới `s_hold_state.vz_integral`, và đó là cố ý.
+Vòng Vz trong FLYING vừa chạy trên chính biến I đó nên nó đang giữ đúng lượng ga
+cần để `vz = 0`. `alt_hold_run()` ở tick sau thấy `st->engaged == true` nên
+KHÔNG gọi `alt_hold_preload()` — nó tiếp tục từ giá trị này. Đó là định nghĩa
+của bumpless. Reset I về 0 ở đây sẽ làm ga tụt ~một cục hover ngay tick đầu của
+HOLDING → drone hụt xuống đúng lúc vừa thả cần.
+
+#### W/S trong FLYING = offset TẠM THỜI
+
+Hợp đồng: giữ phím → `throttle = ga_nền + WS_THROTTLE_OFFSET_DUTY` (150). Nhả
+phím → `ga_nền`. Hết.
+
+⚠ **THỨ TỰ là một phần của hợp đồng.** Offset phải cộng **SAU** khi
+`s_flying_throttle_latch` đã được ghi từ output cascade. Cộng TRƯỚC thì tick sau
+cascade coi ga-có-offset là ga nền và cộng tiếp — chính là lỗi cộng dồn đã đo
+được trên log:
+
+```
+THR=999 -> 999 -> 1799 -> 2000 -> 2000    (MHR=0, kịch trần)
+THRCORR=-1 -> -1 -> 799 -> 1000 -> 1000
+```
+
+GUI gửi keepalive mỗi 100ms khi giữ phím (bắt buộc phải gửi: firmware có
+watchdog `BENCH_OFFSET_STALE_US`). Mỗi gói cộng thêm một lần → 5 lần là +500 →
+kịch trần và **ở nguyên đó** sau khi nhả phím, vì latch là trạng thái BỀN VỮNG.
+
+Bản chất: keepalive là cơ chế GIỮ LỆNH SỐNG, không phải một lệnh MỚI. Đọc nó
+như lệnh mới là đếm số lần lặp lại của cùng một ý định.
+
+Vòng Vz **sẽ chống lại** offset này, và đó cũng là cố ý: giữ W → drone leo →
+`vz > 0` → cascade hạ I xuống để kéo về `vz = 0`. Nhả phím → ga nền đã thấp hơn
+một chút → drone ổn định lại ở **độ cao MỚI**. Đúng hành vi mong muốn: W/S đổi
+ĐỘ CAO, không phải đổi vĩnh viễn một con số ga. Freeze I trong lúc giữ phím sẽ
+làm drone trở lại đúng độ cao cũ khi nhả — tức W/S không còn tác dụng gì.
+
+### 4.8 BENCH_MODE — chạy full logic, KHÔNG xuất ra motor
+
+`BENCH_MODE_ENABLED` (`app_config.h`), mặc định **0**.
+
+Bật = mọi thứ chạy y hệt chuyến bay thật: estimator, cả hai tầng cascade,
+attitude PID, mixer, FSM, failsafe, telemetry. CHỈ một điều khác: lớp cuối cùng
+ghi xuống LEDC luôn ghi 0. **4 động cơ không bao giờ quay.**
+
+Để tune và đọc log trên bàn mà không phải tháo cánh quạt — nhìn được `THR`/
+`VZI`/`TOFF`/`TTMO` phản ứng ra sao khi đưa một vật thể qua dưới ToF, không có
+rủi ro drone nhảy lên.
+
+⚠ **Chặn ở `motor_driver_set_duties()`** — lớp THẤP NHẤT, cùng chỗ với hardware
+armed gate:
+
+```c
+#if FC_FEATURE_BENCH_MODE
+    const bool bench_block = true;
+#else
+    const bool bench_block = false;
+#endif
+    portENTER_CRITICAL(&s_mux);
+    const bool armed = s_armed && !bench_block;
+```
+
+Cố ý **KHÔNG** chặn ở `flight_core.c`: ở đó có **BA** chỗ gọi
+`motor_driver_set_duties()`, và thêm chỗ thứ tư là sẽ có người quên một chỗ.
+Chặn ở đây thì không có đường nào vòng qua được.
+
+Vẫn **GHI 0** xuống LEDC chứ không `return` sớm — cùng lý do với armed gate:
+LEDC là thanh ghi giữ giá trị, trả về sớm sẽ để motor quay tiếp ở duty của lần
+ghi trước.
+
+⚠ Khi bật, firmware in cảnh báo **5 dòng liên tiếp** lúc boot. Bỏ quên cờ này ở
+`1` nghĩa là drone không bao giờ quay động cơ và người dùng sẽ đi tìm lỗi phần
+cứng.
 
 ## 5. Tổng kết file/module theo lớp
 
@@ -1215,10 +1526,10 @@ chuyển giữa boot và ARM.
 | Safety | `commander.h/.c` | Fault detection (soft/hard) ở **mọi state đã armed**, geofence, heartbeat watchdog |
 | Control | `mahony_filter`, `alt_estimator`, `attitude_control`, `alt_hold`, `takeoff_land`, `pid` | Ước lượng + điều khiển bay (mục 4.2/4.4) |
 | Control | `hover_model.h/.c` | Ga hover suy ra từ điện áp pin, **chốt một lần lúc ARM** (mục 4.2b). Hàm thuần + vòng đệm vbat, không giữ state điều khiển nào |
-| Cờ biên dịch | `fc_features.h` ← `main/app_config.h` | `FC_FEATURE_MAG/BARO/TOF/BATTERY/HOVER_LATCH` — cờ = 0 thì driver/tính năng **không được biên dịch vào**, gọi nhầm là lỗi biên dịch |
+| Cờ biên dịch | `fc_features.h` ← `main/app_config.h` | `FC_FEATURE_MAG/BARO/TOF/BATTERY/HOVER_LATCH/TERRAIN_OFFSET/FLOOR_GATE/BENCH_MODE` — cờ = 0 thì driver/tính năng **không được biên dịch vào**, gọi nhầm là lỗi biên dịch. ⚠ `BENCH_MODE` mặc định **0** (khác các cờ cảm biến mặc định 1): "không thấy app_config.h" phải có nghĩa là BAY THẬT |
 | Calibration | `calibration.h/.c` | Lưu NVS: gyro/accel/mag bias + **trim roll/pitch** (mục 7.4) |
 | Drivers | `drivers/imu_driver`, `mag_driver`, `baro_driver`, `battery_driver`, `motor_driver` | Phần cứng đang DÙNG |
-| Drivers | `drivers/tof_driver` | `SENSOR_TOF_ENABLED=1` — **MỘT** VL53L0X hướng xuống, correction có điều kiện (mục 4.4). Đường dual-sensor đã **xoá hẳn** |
+| Drivers | `drivers/tof_driver` + `vl53l0x_driver` / `vl53l1x_driver` | `SENSOR_TOF_ENABLED=1` — **MỘT** cảm biến hướng xuống. Chip chọn lúc compile bằng `BOARD_TOF_CHIP` (`main/board_config.h`); bo hiện tại dùng **VL53L1X**. Backend riêng cho từng dòng chip, `tof_driver.c` chỉ là mặt tiền chung |
 | **Ground station (song song)** | `src/main.c`, `net_link.c`, `command_parser.c`, `telemetry_format.c` | Console USB + UDP — lối vào THỨ HAI vào `flight_core`, KHÔNG qua MicroPython (mục 7) |
 | GUI PC | `tools/uav_udp_console.py` | Tk client: tune PID/param, điều khiển tay, đọc STATUS realtime (mục 7.3) |
 
@@ -1288,26 +1599,59 @@ không còn gì phải học. Đo được trên mô phỏng ở pin 3.6V, cùng
 `HOVLD` lệch nhiều so với hover THẬT mày biết → **2 điểm đo gốc cần đo lại**,
 đừng tune quanh nó.
 
-### 6.3 ToF surface-gated (mục 4.4)
+### 6.3 ToF + terrain (mục 4.4 / 4.6)
 
 | Field | Ý nghĩa |
 |---|---|
 | `TOF`/`TOK` | range thô (m) / driver init OK |
-| `TOFAGE` | tuổi mẫu ToF (ms, `-1`=**chưa từng có mẫu**) |
-| `TOFV` | range đã bù `cos_tilt` |
-| `TOFINN` | innovation so với **mặt sàn ĐÃ KHOÁ** (âm lớn = có bề mặt CAO hơn sàn ở dưới) |
-| `TOFST` | phân loại bề mặt: `0`=UNKNOWN `1`=FLOOR `2`=OTHER |
-| `TOFCOR` | ToF có **đang** sửa world-Z hay không |
-| `TOFSURF`/`FLOORZ` | world-Z bề mặt đang thấy / mặt sàn khoá lúc cất cánh |
-| `TOFGR` | range lúc UAV nằm sàn (chốt ở ARM) |
+| `TOFV` | range đã bù `cos(tilt)` = `tof_vertical_m` |
+| `TOFZ` | `zt` sau slew-rate limit — số thật sự đi vào fusion |
+| `TOFVZ`/`TOFVZV` | vz suy từ đạo hàm ToF / cờ hợp lệ |
+| `TOFFUSE` | mẫu này CÓ được fuse không (`tof_fusable`) |
+| `TOFTRACK` | `0`=LOST `1`=BRIDGE `2`=TRACKING (mục 4.4) |
+| `ALTSRC` | `0`=GROUND_LOCK `1`=IMU_PREDICT `2`=TOF_FUSED `4`=TOF_LOST |
 | `TOFA`/`TOFR` | số mẫu accept / reject |
-| `LANDZ`/`LANDV` | bề mặt chọn khi `CMD_LAND` (**KHÁC** `FLOORZ`) |
+| **`TOFAGE`** | tuổi mẫu **HỢP LỆ** gần nhất (ms, `-1`=chưa từng có) |
+| **`TOFALIVE`** | bao lâu rồi **CHIP** không đo được (ms, `-1`=chưa từng) |
 
-⚠ **`TOFST=2` với `TOFCOR=0` là HỢP LỆ và MONG ĐỢI** khi bay qua bàn/ghế —
-không phải lỗi. Đó chính là cơ chế ngăn UAV tự bốc lên (mục 4.4).
+⚠ **`TOFAGE` và `TOFALIVE` là HAI câu hỏi khác nhau** — đây là chỗ dễ chẩn đoán
+nhầm nhất:
 
-Trước ARM: `TOFR` tăng đều còn `TOFA=0` là **đúng thiết kế** (`TOFGR=0.000`
-nên mọi mẫu bị loại). Sau `arm`, `TOFGR` **phải khác 0.000**.
+- `TOFAGE` tăng vô hạn **nhưng** `TOFALIVE` vẫn nhỏ → chip VẪN SỐNG, chỉ là
+  không có gì để đo (nằm sát sàn dưới tầm mù ~4cm, ngoài tầm, bề mặt hấp thụ).
+  **KHÔNG phải lỗi** — đó là lý do hai field này tồn tại riêng.
+- `TOFALIVE` tăng vượt `ALT_EST_TOF_LOST_MS` (300ms) → chip IM THẬT (bus đứt /
+  sensor chết) → `valid=false` → soft-fault. Đây là đường soft-fault DUY NHẤT.
+
+Gộp hai cái làm một chính là lỗi cũ: nằm sát sàn đọc `0.000m` bị coi như sensor
+hỏng → **mọi lệnh TAKEOFF bị từ chối** dù phần cứng hoàn toàn tốt.
+
+#### Terrain (chỉ có khi `TERRAIN_OFFSET_ENABLED=1`)
+
+| Field | Ý nghĩa |
+|---|---|
+| `TOFF` | `terrain_off_m` — độ cao bề mặt đang nhìn so với SÀN cất cánh |
+| `TPEND` | đang NGHI có bậc, chưa xác nhận |
+| `TCMT` | số lần đã COMMIT offset (qua một bậc) |
+| `TREJ` | số lần commit bị TỪ CHỐI vì sanity (`TERR_MAX_STEP_M`) |
+| **`TTMO`** | số lần nghi ngờ bị HUỶ vì hết hạn `TERR_PENDING_TIMEOUT_MS` |
+| `TRES` | residual mẫu gần nhất (m) — số để tune `TERR_JUMP_THRESH_M` |
+| `CLR` | khoảng hở THẬT dưới bụng (`agl_m`) — số quyết định va chạm, **KHÔNG** phải `ALT` |
+| `FRAME` | `0`=DATUM (giữ cao so với sàn) `1`=AGL (bám địa hình) |
+
+⚠ **`TTMO` là số cần nhìn nhất khi debug terrain:**
+
+| Triệu chứng | Kết luận |
+|---|---|
+| `TPEND=1` kéo dài, `TTMO` **tăng đều** | Lối thoát ĐANG chạy → `TERR_JUMP_THRESH_M` đặt quá thấp, báo động giả trên nhiễu ToF bình thường |
+| `TPEND=1` kéo dài, `TTMO` **đứng yên** | Lối thoát **KHÔNG** chạy → đúng vòng luẩn quẩn cũ (mục 4.6) → tắt `TERRAIN_OFFSET_ENABLED` lại và đi tìm tiếp |
+
+Bay qua vật thể mà `TCMT` tăng 1 và `TOFF` khớp chiều cao vật thể = đang hoạt
+động đúng.
+
+⚠ Các field trên đều nằm ở đuôi dòng STATUS (`TELEMETRY_LEVEL >= 2`), **sau**
+`HOVLD`. GUI (`STATUS_RE`) kết thúc ở `HOVLD` rồi nuốt phần còn lại bằng
+`(?:\s.*)?$` — nên thêm/bớt ở đây **không** làm vỡ regex của GUI.
 
 ### 6.4 Ba cặp đáng soi cùng nhau
 
@@ -1384,48 +1728,43 @@ state** — GUI gửi giống hệt nhau (`@THR OFFSET ±100`), firmware dịch:
 
 | State | Dịch thành |
 |---|---|
-| `BENCH_RAMP` | cộng **THẲNG** vào duty. Ở đây `100` thật sự là 100 duty (drone kẹp trên giá, đo lực nâng) |
-| `HOLDING`/`FLYING` | chỉ lấy **DẤU** → lệnh vận tốc `±ALT_HOLD_WS_VZ_MS` (0.3 m/s). **Độ lớn 100 KHÔNG được dùng** |
+| `BENCH_RAMP` | cộng **THẲNG** vào duty (drone kẹp trên giá, đo lực nâng) |
+| `HOLDING` | cộng **THẲNG** vào duty mà `alt_hold` vừa tính, rồi neo target vào Z hiện tại |
+| `FLYING` | cộng **THẲNG** vào duty, TRÊN ga nền do vòng Vz giữ (mục 4.7) |
 | còn lại | firmware bỏ qua, ép 0 |
 
-**Vì sao `HOLDING/FLYING` là lệnh Vz chứ không phải ±duty:** "+100 duty" là
-thẩm quyền **không có đơn vị** — cùng một phím cho ra tốc độ leo khác nhau tuỳ
-pin đầy/cạn, tuỳ khối lượng. Đó đúng là loại phụ thuộc mà latch hover (4.2b)
-vừa được thêm vào để xoá khỏi feedforward; để phím lái mang nó vào lại là
-không nhất quán. Lệnh Vz thì có đơn vị: giữ `w` = leo 0.3 m/s ở mọi mức pin, vì
-`I` của vòng Vz nuốt chênh lệch. Và trên con này **Vz là tín hiệu sạch hơn Z**:
-propwash tạo offset **vị trí** (sai số DC của Z), không tạo sai số vận tốc —
-đạo hàm của một hằng số bằng 0.
+**Ý nghĩa giờ ĐỒNG NHẤT ở mọi state: giá trị trên dây LÀ duty.** Một con số, một
+nghĩa.
 
-Lệnh đi qua chính `alt_hold_vz_cascade()` mà takeoff/landing dùng → tái dùng
-nguyên anti-windup 3 lớp + `vz_ilimit` + cờ `vz_saturated`. Có `_Static_assert`
-canh `ALT_HOLD_WS_VZ_MS ≤ ALT_HOLD_VZ_LIMIT_MS`.
+⚠ **ĐÃ TỪNG là lệnh vận tốc `±ALT_HOLD_WS_VZ_MS`, đã GỠ theo yêu cầu người
+dùng.** Lý do lịch sử của bản Vz vẫn đúng về mặt vật lý và đáng biết:
 
-⚠ **Đảo ngược so với bản ±duty:** bản đó **phải đóng băng `I`** trong lúc giữ
-phím (không đóng thì `I` tự trừ dần đúng bằng offset và phím hết ăn sau vài
-giây). Chế độ Vz thì ngược lại — **`I` PHẢI được chạy**, vì chính nó học ra
-lượng ga cần để giữ đúng 0.3 m/s bất kể pin.
+> "+100 duty" là thẩm quyền **không có đơn vị** — cùng một phím cho tốc độ leo
+> khác nhau tuỳ pin (hover ~900 duty @4.2V so với ~1350 @3.6V). Lệnh Vz thì có
+> đơn vị: giữ `w` = leo 0.10 m/s ở mọi mức pin, vì `I` của vòng Vz nuốt chênh
+> lệch.
 
-**Geofence giờ chặn được LỆNH, không chỉ chặn target.** Bản ±duty cộng thẳng
-vào duty nên trần/sàn độ cao không có đường nào tác động *trong lúc* giữ phím —
-clamp chỉ có hiệu lực sau khi nhả. Giờ lệnh là vận tốc: chạm biên thì cắt lệnh
-**theo chiều đang vi phạm**, chiều ngược lại vẫn đi được (luôn phải thoát ra
-khỏi biên).
+Đánh đổi đã chấp nhận khi quay về ±duty: pin cạn thì cùng một phím sẽ leo chậm
+hơn rõ rệt. Hằng số `ALT_HOLD_WS_VZ_MS` (0.10) **vẫn còn trong `tuning.h`** kèm
+`_Static_assert` canh `≤ ALT_HOLD_VZ_LIMIT_MS`, phòng khi quay lại chế độ Vz.
 
-Nhả phím → `vz_target = 0`, target neo vào Z đang ở (giữ tại chỗ, không giật về
-độ cao cũ). Có **watchdog** ở firmware (`BENCH_OFFSET_STALE_US` 400ms): ngừng
-nhận lệnh = coi như đã nhả phím — đặt ở vòng tick chứ không ở handler, vì đúng
-cái cần bảo vệ là *không còn lệnh nào tới*.
+**Độ lớn:** `WS_THROTTLE_OFFSET_DUTY = 150` (`tools/uav_udp_console.py`).
+
+Nhả phím → offset về 0 → throttle tự động trở lại ga nền. Có **watchdog** ở
+firmware (`BENCH_OFFSET_STALE_US` 400ms): ngừng nhận lệnh = coi như đã nhả phím
+— đặt ở vòng tick chứ không ở handler, vì đúng cái cần bảo vệ là *không còn lệnh
+nào tới*.
+
+**Geofence** vẫn chặn được lệnh trong lúc giữ phím: chạm trần/sàn thì `ws_duty`
+bị ép 0 **theo chiều đang vi phạm**, chiều ngược lại vẫn đi được (luôn phải
+thoát ra khỏi biên).
 
 ⚠ **`w`/`s` CHỈ ăn khi đang ở tab "Manual"** (`_manual_active()`). Ở tab khác
 `_on_manual_keypress()` return ngay, phím không làm gì và **không có phản hồi
-nào** — không phải lỗi firmware. Nó cũng chỉ can thiệp khi `alt_hold` đang thật
-sự lái throttle (`hold_driving`); mất estimator/nghiêng quá thì alt_hold đã nhả
-lái và Commander đang xử lý soft fault.
+nào** — không phải lỗi firmware.
 
-**Soi `VZTGT` để phân biệt lỗi:** giữ `w` mà `VZTGT` nhảy lên `+0.30` thì lệnh
-đã tới nơi — drone không nhúc nhích là vấn đề của vòng Vz (gain), không phải
-của phím. `VZTGT` đứng im ở 0 thì lệnh chưa tới (sai tab / mất `hold_driving`).
+⚠ **Trong FLYING, thứ tự cộng offset là một phần của hợp đồng** — cộng trước khi
+latch được ghi sẽ gây lỗi cộng dồn tới kịch trần. Xem mục 4.7.
 
 ### 7.4 Trim roll/pitch — lưu NVS
 
