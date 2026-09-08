@@ -173,11 +173,22 @@ if JUMP:
     print("    voi nguong MOI %.2f -> bien %.3f" % (JUMP, JUMP - dinh))
     check("bien voi nguong CU qua hep (< 2cm) -- ly do phai sua",
           JUMP_CU - dinh < 0.02)
-    # Hai thay doi phai di cung nhau: bo so hang accel (het bias 0.082m) VA noi
-    # nguong. Chi lam mot trong hai la doi mot loi lay mot loi khac.
-    check("nguong hien tai da noi len >= 0.18",
-          JUMP >= 0.18,
-          "dang la %.2f" % JUMP)
+    # Cai SUA duoc loi la BO SO HANG ACCEL khoi residual, khong phai noi nguong.
+    # Toi da co noi nguong len 0.20 va do lam terrain ngung bat vat the < 0.4m
+    # (nguoi dung bao "khong con offset khi bay qua dia hinh"). Xem
+    # test_terrain_threshold_offline.py.
+    check("residual = d_range thuan, khong tru vz_accel_only",
+          re.search(r"residual\s*=\s*d_range\s*;", SRC) is not None,
+          "con so hang accel -> bias 0.082m quay lai")
+    # Chi soi KHOI TERRAIN. vz_accel_only_ms van song va dung o cho khac
+    # (bo tich phan dead-reckoning, phat hien cat canh/ha canh) -- quet ca file
+    # se bat nham nhung cho do.
+    a, b = SRC.find("terr_armed"), SRC.find("TERR_MAX_STEP_M")
+    khoi = SRC[a:b] if (a != -1 and b > a) else ""
+    check("dinh vi duoc khoi terrain", bool(khoi))
+    check("khoi terrain khong dung vz_accel_only_ms",
+          "vz_accel_only" not in khoi,
+          "so hang accel quay lai -> bias 0.082m tren san phang")
 
 print()
 if FAILED:

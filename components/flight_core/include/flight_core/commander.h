@@ -48,11 +48,17 @@ commander_config_t commander_default_config(void);
 typedef struct {
     int64_t last_heartbeat_us;   // cập nhật mỗi lần commander_heartbeat() được gọi
     int64_t motor_sat_since_us;  // 0 = hiện không bão hòa
+    // Moc bat dau thay pin duoi san. 0 = hien khong duoi san.
+    // Debounce BAT BUOC: BATV do duoc dao dong +/-0.40V (log hover: 3.14..3.93
+    // quanh trung binh 3.48). Pin THAT o 3.4V co the doc ra 3.00V tren mot mau
+    // nhieu -> kiem tung mau se ep HA CANH GIUA CHUYEN vi mot glitch ADC.
+    int64_t battery_low_since_us;
 } commander_state_t;
 
 static inline void commander_init(commander_state_t *st, int64_t now_us) {
     st->last_heartbeat_us = now_us;
     st->motor_sat_since_us = 0;
+    st->battery_low_since_us = 0;
 }
 
 // Gọi mỗi khi nhận fc.heartbeat() từ Python (qua command queue — xem

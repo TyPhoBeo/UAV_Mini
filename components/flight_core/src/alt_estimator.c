@@ -67,6 +67,7 @@ static void lock_floor_at(alt_estimator_t *e) {
     e->active_source = ALT_SRC_GROUND_LOCK;
     e->terrain_off_m = e->terr_cand_offset_m = e->terr_residual_m = 0.0f;
     e->terr_anchor_raw_m = 0.0f;
+    e->airborne_since_us = 0;
     e->terr_offset_stale = false;
     e->terr_pending = false;
     e->terr_pending_since_us = 0;
@@ -107,6 +108,7 @@ void alt_estimator_prepare_takeoff(alt_estimator_t *e) {
     e->active_source = ALT_SRC_GROUND_LOCK;
     e->terrain_off_m = e->terr_cand_offset_m = e->terr_residual_m = 0.0f;
     e->terr_anchor_raw_m = 0.0f;
+    e->airborne_since_us = 0;
     e->terr_offset_stale = false;
     e->terr_pending = false;
     e->terr_pending_since_us = 0;
@@ -268,6 +270,10 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
 #endif
     (void)liftoff_candidate;
 
+    // Moc roi dat -- phai chay TRUOC khoi tof_new (terrain doc no o do).
+    if (airborne) { if (!e->airborne_since_us) e->airborne_since_us = now_us; }
+    else            e->airborne_since_us = 0;
+
     const float w=q.w, x=q.x, y=q.y, z=q.z;
     const float rzz = 1.0f - 2.0f*x*x - 2.0f*y*y;
     const float ezg = 2.0f*(x*z-w*y)*a.x + 2.0f*(y*z+w*x)*a.y + rzz*a.z;
@@ -314,7 +320,10 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
                 // residual = phan thay doi range KHONG giai thich duoc bang
                 // chuyen dong cua drone. Chi co nghia khi DANG BAY va hai mau
                 // ke nhau du gan (gap lon thi vz*dt khong con la du doan tot).
-                if (airborne && e->prev_tof_vertical_valid &&
+                const bool terr_armed = e->airborne_since_us &&
+                    (now_us - e->airborne_since_us) >=
+                        (int64_t)TERR_ARM_AFTER_LIFTOFF_MS * 1000;
+                if (airborne && terr_armed && e->prev_tof_vertical_valid &&
                     e->tof_dt_s > 0.005f &&
                     e->tof_dt_s <= (float)ALT_EST_TOF_GAP_DERIV_MAX_MS / 1000.0f) {
                     const float d_range  = e->tof_vertical_m - e->prev_tof_vertical_m;

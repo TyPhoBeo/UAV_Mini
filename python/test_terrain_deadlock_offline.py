@@ -177,9 +177,14 @@ check("residual = d_range (khong tru vz)",
 check("KHONG con tru vz_accel_only_ms * tof_dt_s",
       re.search(r"=\s*e->vz_accel_only_ms\s*\*\s*e->tof_dt_s", CODE) is None,
       "so hang nay bom 0.082m sai so vao mot phep do can 0.018m")
-check("nguong da noi len de bu lai",
-      float(const_of(HDR, "TERR_JUMP_THRESH_M") or 0) >= 0.18,
-      "bo so hang accel ma giu nguong 0.12 -> bien chi 1.6x |d_range| leo")
+# Nguong KHONG can noi len. |d_range| dinh 0.076 chi xay ra o pha LEO ngay sau
+# cat canh -- luc do drone duoi 0.3m, khong the o tren vat the nao -- va pha do
+# da bi TERR_ARM_AFTER_LIFTOFF_MS khoa. Khi bay bang, dinh chi 0.015..0.026.
+_jump = float(const_of(HDR, "TERR_JUMP_THRESH_M"))
+check("giu nguong 0.12 (noi len 0.20 lam mat vat the < 0.4m)",
+      abs(_jump - 0.12) < 1e-6, "dang la %s" % _jump)
+check("co khoa terrain sau cat canh de loai pha leo",
+      re.search(r"#define\s+TERR_ARM_AFTER_LIFTOFF_MS\s+[1-9]", HDR) is not None)
 
 print()
 print("== (9) terr_pending KHONG duoc bien thanh SOFT FAULT ngay tick dau ==")

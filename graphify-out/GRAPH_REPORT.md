@@ -1,16 +1,16 @@
 # Graph Report - UAV-S3  (2026-09-08)
 
 ## Corpus Check
-- 99 files · ~237,652 words
+- 102 files · ~231,691 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1328 nodes · 2498 edges · 124 communities (75 shown, 49 thin omitted)
-- Extraction: 86% EXTRACTED · 14% INFERRED · 0% AMBIGUOUS · INFERRED: 351 edges (avg confidence: 0.85)
+- 1352 nodes · 2521 edges · 123 communities (73 shown, 50 thin omitted)
+- Extraction: 86% EXTRACTED · 14% INFERRED · 0% AMBIGUOUS · INFERRED: 352 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `f4aad690`
+- Built from commit: `b79d5950`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -28,7 +28,7 @@
 - vl53l0x_driver.c
 - test_tof_bringup_offline.py
 - VL53L1X Driver
-- takeoff_run
+- landing_run
 - imu_driver.c
 - BMP280 Barometer Driver
 - sensor_hub task — sole owner of the I2C bus
@@ -37,8 +37,8 @@
 - TAKEOFF sequence — PRIME / CLIMB / HOLD with slew-rate-limited target
 - Altitude Estimator (accel-primary, ToF/baro anchor)
 - calibration.c
-- apply_command
-- STATUS line format and STATUS_RE parsing contract
+- stabilize_task
+- Two-Tier Architecture (core 0 command source / core 1 flight loop)
 - ._ws_press
 - net_link.c
 - Terrain offset - flying over furniture without losing reference
@@ -53,7 +53,7 @@
 - ._build_ui
 - types.h
 - attitude_control_update
-- stabilize_task
+- alt_estimator.c
 - Pure slew rate limiter for target_z (not an exponential trajectory)
 - test_flying_ws_no_accumulate_offline.py
 - hover_model.c
@@ -63,7 +63,7 @@
 - PlotPanel
 - UavUdpConsole
 - commander_evaluate
-- tof_driver.c
+- takeoff_run
 - motor_driver.c
 - flight_core_read_telemetry
 - Heartbeat
@@ -71,7 +71,7 @@
 - test_tof_alive_vs_valid_offline.py
 - FlightAltGroup
 - GainGroup
-- battery_driver_read
+- test_battery_floor_offline.py
 - test_alt_validity_offline.py
 - test_terrain_transition_offline.py
 - CommanderGroup
@@ -120,25 +120,24 @@
 - test_bias_residual_offline.py
 - test_stall_credit_offline.py
 - test_degraded_clock_offline.py
-- Test D — records a known gap, not a protection
+- handle_alt
 - 4.6 Terrain offset — bay qua bàn/ghế mà không mất tham chiếu
 - test_ground_stale_tof_offline.py
-- flight_core_tof_reinit
+- test_terrain_anchor_offline.py
 - test_alt_frame_target_offline.py
 - 4. FlightStateMachine (topology)
 - 3.7 Vòng lặp `stabilize_task` (250Hz, core 1, `flight_core.c`)
 - 6. Telemetry an toàn/realtime — đọc gì khi soi log
-- sensor_hub_start
+- test_terrain_threshold_offline.py
 - command_parser.c
 - 4.4 Altitude estimator — accel-primary, ToF CHỈ LÀ correction
 - app_config.h
 - 4.7 FSM_FLYING — tắt tầng NGOÀI, giữ tầng TRONG
-- flight_core_get_task_stats
 - sensor_hub_age_us
 
 ## God Nodes (most connected - your core abstractions)
 1. `PidTunerApp` - 102 edges
-2. `stabilize_task()` - 63 edges
+2. `stabilize_task()` - 64 edges
 3. `apply_command()` - 56 edges
 4. `flight_core_push_command()` - 45 edges
 5. `MockFc` - 44 edges
@@ -155,10 +154,10 @@
   src/command_parser.c → components/flight_core/src/flight_core.c
 - `handle_sp()` --calls--> `flight_core_get_setpoint()`  [INFERRED]
   src/command_parser.c → components/flight_core/src/flight_core.c
-- `Timeout counted by CLOCK vs commit counted by SAMPLES` --semantically_similar_to--> `seq-based sample consumption (replaces tick divisors)`  [INFERRED] [semantically similar]
-  flow.md → README.md
 - `version.txt — git-describe workaround` --semantically_similar_to--> `flight_core REQUIRES esp_driver_i2c (new I2C master API)`  [INFERRED] [semantically similar]
   version.txt → components/flight_core/CMakeLists.txt
+- `I2C 100kHz debug-phase speed (later 400kHz)` --semantically_similar_to--> `cfg.i2c_freq_hz was a dead field (fixed)`  [INFERRED] [semantically similar]
+  README.md → flow.md
 
 ## Import Cycles
 - None detected.
@@ -168,11 +167,11 @@
 - **Layered motor-cut safety stack (logic latch, driver gate, cross-core spinlock)** — flow_kill_latch, flow_portmux_cross_core_race, readme_kill_path_exception, readme_commander, readme_flight_state_machine, flow_takeoff_abort_policy [INFERRED 0.85]
 - **Terrain offset correctness chain (frames, accumulation, timeout, fail-safe, guard)** — flow_three_altitude_quantities, flow_agl_from_raw_measurement, flow_terrain_candidate_accumulation, flow_terrain_timeout_sample_gate, flow_terr_offset_stale, flow_terr_pending_deadlock, flow_terrain_clearance_guard_b8 [INFERRED 0.85]
 
-## Communities (124 total, 49 thin omitted)
+## Communities (123 total, 50 thin omitted)
 
 ### Community 0 - "flight_core.c"
-Cohesion: 0.11
-Nodes (34): imu_driver_get_config(), apply_set_param(), imu_sample_t, TickType_t, vec3f_t, enter_kill_latch(), enter_kill_latch_ex(), flight_core_get_control_input() (+26 more)
+Cohesion: 0.14
+Nodes (28): imu_sample_t, mahony_config_t, TickType_t, vec3f_t, enter_kill_latch(), enter_kill_latch_ex(), flight_core_get_control_input(), flight_core_get_mahony_config() (+20 more)
 
 ### Community 1 - "flight_core_push_command"
 Cohesion: 0.13
@@ -187,16 +186,16 @@ Cohesion: 0.12
 Nodes (45): telemetry_snapshot_t, telemetry_snapshot_init(), command_t, move_dir_t, telemetry_snapshot_t, fc_bridge_get_control_input(), fc_bridge_init(), fc_bridge_parse_move_dir() (+37 more)
 
 ### Community 4 - "sensor_hub.c"
-Cohesion: 0.19
-Nodes (19): baro_sample_t, battery_sample_t, imu_sample_t, mag_sample_t, sensor_health_t, TickType_t, tof_reading_t, mark_err() (+11 more)
+Cohesion: 0.07
+Nodes (52): battery_driver_init(), battery_driver_read(), battery_driver_read_v(), battery_sample_t, esp_err_t, add_device_at(), esp_err_t, i2c_master_bus_handle_t (+44 more)
 
 ### Community 5 - "4.2 Chuỗi TAKEOFF — PID + slew-rate-limited target"
 Cohesion: 0.18
 Nodes (11): 4.2 Chuỗi TAKEOFF — PID + slew-rate-limited target, 4.2b `hover_ff` chốt theo điện áp pin — `hover_model.h`, ABORT — mọi lý do đều dẫn về EMERGENCY, không tự chọn policy, Bàn giao CLIMB → HOLD: LIỀN MẠCH, Cạnh PRIME → CLIMB: `I` khởi đầu = 0, KHÔNG preload, Hai điểm review đã khoá thành test hồi quy (R1/R2), `|I|` trước liftoff: GIỚI HẠN, KHÔNG ĐÓNG BĂNG, `liftoff_flag` — CHỈ LÀ THÔNG TIN, không gate gì (+3 more)
 
 ### Community 6 - "mahony_filter.c"
-Cohesion: 0.18
-Nodes (36): vec3f_t, vec3f_zero(), mahony_config_t, flight_core_get_mahony_config(), apply_feedback_and_integrate(), mahony_config_t, mahony_t, vec3f_t (+28 more)
+Cohesion: 0.19
+Nodes (34): vec3f_t, vec3f_zero(), apply_feedback_and_integrate(), mahony_config_t, mahony_t, vec3f_t, compute_accel_error(), compute_mag_error() (+26 more)
 
 ### Community 7 - "3. Phân chia task RTOS"
 Cohesion: 0.17
@@ -218,21 +217,21 @@ Nodes (12): Bus, Chip, find_sensor_addr(), find_sensor_addr_OLD(), object, VL53L
 Cohesion: 0.30
 Nodes (23): esp_err_t, i2c_master_bus_handle_t, i2c_master_dev_handle_t, tof_sensor_state_t, l1x_check_ready(), l1x_clear_interrupt(), l1x_read(), l1x_read16() (+15 more)
 
-### Community 13 - "takeoff_run"
-Cohesion: 0.12
-Nodes (29): alt_hold_result_t, alt_hold_default_tune(), alt_hold_preload(), alt_hold_run(), alt_hold_vz_cascade(), alt_hold_state_t, alt_hold_tune_t, landing_tune_t (+21 more)
+### Community 13 - "landing_run"
+Cohesion: 0.18
+Nodes (16): alt_hold_result_t, alt_hold_default_tune(), alt_hold_preload(), alt_hold_run(), alt_hold_vz_cascade(), alt_hold_state_t, alt_hold_tune_t, landing_tune_t (+8 more)
 
 ### Community 14 - "imu_driver.c"
-Cohesion: 0.21
-Nodes (14): esp_err_t, i2c_master_bus_handle_t, imu_calib_t, imu_sample_t, TaskHandle_t, vec3f_t, imu_driver_enable_data_ready_int(), imu_driver_init() (+6 more)
+Cohesion: 0.15
+Nodes (19): esp_err_t, i2c_master_bus_handle_t, imu_calib_t, imu_sample_t, TaskHandle_t, vec3f_t, imu_driver_enable_data_ready_int(), imu_driver_init() (+11 more)
 
 ### Community 15 - "BMP280 Barometer Driver"
 Cohesion: 0.22
 Nodes (18): bmp280_calib_t, baro_driver_calibrate_ground(), baro_driver_ground_healthy(), baro_driver_ground_noise_std_pa(), baro_driver_ground_ready(), baro_driver_init(), baro_driver_read(), baro_sample_t (+10 more)
 
 ### Community 16 - "sensor_hub task — sole owner of the I2C bus"
-Cohesion: 0.20
-Nodes (12): sensor_hub sub-rate interleaving with phase offsets, Two I2C timeouts — 50ms init, 8ms runtime, sensor_hub task — sole owner of the I2C bus, sensor_snapshot_t (value + seq + timestamp + valid + healthy), Timeout counted by CLOCK vs commit counted by SAMPLES, main/board_config.h — real pins from the miniUav schematic, Control loop clocked by MPU6050 data-ready interrupt (IO36), Interrupt-loss fallback to the FreeRTOS clock (+4 more)
+Cohesion: 0.12
+Nodes (19): ESP-IDF project uav_s3_flight_core_verify, flight_core REQUIRES esp_driver_i2c (new I2C master API), CLIMB -> HOLD handover is seamless, Bumpless I load on the FIRST tick only, sensor_hub sub-rate interleaving with phase offsets, cfg.i2c_freq_hz was a dead field (fixed), Two I2C timeouts — 50ms init, 8ms runtime, sensor_hub task — sole owner of the I2C bus (+11 more)
 
 ### Community 17 - "mag_driver.c"
 Cohesion: 0.32
@@ -243,24 +242,24 @@ Cohesion: 0.15
 Nodes (8): Bench, clampf(), clampi(), Fly, Test phim GIU W/S -> throttle offset momentary. Yeu cau: GIU W -> throttle…, TRANSCRIPTION nhanh FSM_HOLDING/FSM_FLYING sau khi W/S doi sang Vz., alt_hold_vz_cascade() rut gon: PI tren sai so vz, co clamp I., s_bench_throttle_duty + s_bench_throttle_offset (flight_core.c).
 
 ### Community 19 - "TAKEOFF sequence — PRIME / CLIMB / HOLD with slew-rate-limited target"
-Cohesion: 0.17
-Nodes (16): CONTACT_CANDIDATE - 4-evidence touchdown debounce, Disabling BOTH cascade stages was a real hole, FLYING -> HOLDING handover is already bumpless, FSM_FLYING - outer cascade stage off, inner stage kept, hover_model.h — hover_ff latched from battery voltage at ARM, LANDING sequence - multi-condition touchdown, No I preload at the PRIME->CLIMB edge, PRIME_DUTY must be well below hover (+8 more)
+Cohesion: 0.15
+Nodes (18): ARM gate — ordered prearm_check() and arm_reject_t reporting, FLYING -> HOLDING handover is already bumpless, GUI layout and setpoint keepalive cadence, hover_model.h — hover_ff latched from battery voltage at ARM, No I preload at the PRIME->CLIMB edge, PRIME_DUTY must be well below hover, R1/R2 source-reading regression tests, STATUS line format and STATUS_RE parsing contract (+10 more)
 
 ### Community 20 - "Altitude Estimator (accel-primary, ToF/baro anchor)"
-Cohesion: 0.18
-Nodes (13): Commander evaluates in every armed state, Correlated telemetry pairs worth reading together, FLYING vz source must be accel-only, fusion_dt — integration uses sample-to-sample time, not tick-to-tick, ulTaskNotifyTake(pdTRUE) — no catch-up on backlog, Terrain residual expected term must use vz_accel_only_ms, Tick with no new IMU sample — what runs, what is skipped, Altitude Estimator (accel-primary, ToF/baro anchor) (+5 more)
+Cohesion: 0.14
+Nodes (18): Commander evaluates in every armed state, CONTACT_CANDIDATE - 4-evidence touchdown debounce, Correlated telemetry pairs worth reading together, Disabling BOTH cascade stages was a real hole, FLYING vz source must be accel-only, FSM_FLYING - outer cascade stage off, inner stage kept, fusion_dt — integration uses sample-to-sample time, not tick-to-tick, LANDING sequence - multi-condition touchdown (+10 more)
 
 ### Community 21 - "calibration.c"
 Cohesion: 0.33
 Nodes (15): calibration_params_t, esp_err_t, vec3f_t, calibration_erase_all(), calibration_load(), calibration_nvs_init(), calibration_save_accel(), calibration_save_gyro() (+7 more)
 
-### Community 22 - "apply_command"
-Cohesion: 0.18
-Nodes (22): commander_clamp_altitude(), commander_config_t, fsm_transition(), abort_landing_to_hold(), apply_command(), finalize_mag_calibration(), recompute_uncalibrated(), fsm_state_t (+14 more)
+### Community 22 - "stabilize_task"
+Cohesion: 0.14
+Nodes (30): commander_clamp_altitude(), commander_config_t, fsm_transition(), imu_driver_get_config(), abort_landing_to_hold(), apply_command(), finalize_mag_calibration(), gyro_cal_state_active() (+22 more)
 
-### Community 23 - "STATUS line format and STATUS_RE parsing contract"
-Cohesion: 0.13
-Nodes (18): command_queue (FreeRTOS, depth 8), GUI layout and setpoint keepalive cadence, fc_module.c / fc_bridge.c are marshal-only, Why stabilize is priority 23 and not 24, src/main.c — second command entry point (console USB + UDP), stabilize_task — the entire flight control loop, ESP-IDF task stack is measured in BYTES (documentation correction), STATUS line format and STATUS_RE parsing contract (+10 more)
+### Community 23 - "Two-Tier Architecture (core 0 command source / core 1 flight loop)"
+Cohesion: 0.14
+Nodes (16): command_queue (FreeRTOS, depth 8), fc_module.c / fc_bridge.c are marshal-only, Why stabilize is priority 23 and not 24, src/main.c — second command entry point (console USB + UDP), stabilize_task — the entire flight control loop, ESP-IDF task stack is measured in BYTES (documentation correction), Firmware-owned takeoff completion (alt_mm carried in command_t), Telemetry is strictly one-way outbound (+8 more)
 
 ### Community 24 - "._ws_press"
 Cohesion: 0.13
@@ -291,27 +290,27 @@ Cohesion: 0.18
 Nodes (12): Exception, calibrate_accel_6face(), calibrate_gyro(), FcFaultError, FcTimeoutError, land(), Blocking: đo lại gyro bias tĩnh (~1.5s, DỪNG YÊN drone). Raise FcTimeoutError…, Blocking: chạy đủ 6 mặt. `prompt(face_idx)` (idx 0..5) nếu truyền vào sẽ được… (+4 more)
 
 ### Community 32 - "Calibration persistence in NVS (gyro / accel / mag)"
-Cohesion: 0.17
-Nodes (15): ARM anchors baro ground and ToF ground-ref (moved out of TAKEOFF), ARM gate — ordered prearm_check() and arm_reject_t reporting, Bus lease — sensor_hub_suspend / resume for bench commands, CMD_TAKEOFF gate — takeoff_reject_t (separate from prearm_check), Three-tier hardware diagnostics (i2c_scan, imu_int_test, tof_test), Two trim bugs fixed (timed commands and RAM-only persistence), Trim roll/pitch persisted to NVS, 6-face accel calibration verify (residual gate) (+7 more)
+Cohesion: 0.21
+Nodes (12): ARM anchors baro ground and ToF ground-ref (moved out of TAKEOFF), Bus lease — sensor_hub_suspend / resume for bench commands, Three-tier hardware diagnostics (i2c_scan, imu_int_test, tof_test), Two trim bugs fixed (timed commands and RAM-only persistence), Trim roll/pitch persisted to NVS, 6-face accel calibration verify (residual gate), BMP280 init separated from ground-zero calibration, Calibration persistence in NVS (gyro / accel / mag) (+4 more)
 
 ### Community 34 - "flight_core_start"
-Cohesion: 0.17
-Nodes (17): alt_hold_reset(), alt_hold_state_t, fsm_init(), landing_state_t, takeoff_state_t, landing_reset(), takeoff_airborne(), takeoff_begin() (+9 more)
+Cohesion: 0.11
+Nodes (23): alt_hold_reset(), alt_hold_state_t, attitude_state_reset(), attitude_state_t, commander_credit_stall(), commander_heartbeat(), commander_init(), commander_state_t (+15 more)
 
 ### Community 35 - "test_hover_model_offline.py"
 Cohesion: 0.20
 Nodes (4): dint(), dnum(), Model ga hover theo dien ap pin + latch mot lan luc ARM. TRANSCRIPTION cua…, Ring
 
 ### Community 38 - "types.h"
-Cohesion: 0.09
-Nodes (14): alt_source_t, alt_source_name(), attitude_state_reset(), attitude_state_t, commander_credit_stall(), commander_heartbeat(), commander_init(), commander_state_t (+6 more)
+Cohesion: 0.12
+Nodes (8): alt_source_t, alt_source_name(), mahony_t, quat_t, mahony_quaternion(), pid_state_t, pid_reset(), pid_state_init()
 
 ### Community 39 - "attitude_control_update"
 Cohesion: 0.15
 Nodes (15): attitude_input_t, attitude_output_t, attitude_control_update(), attitude_default_gains(), axis_hold(), attitude_gains_t, attitude_state_t, wrap_deg_180() (+7 more)
 
-### Community 41 - "stabilize_task"
-Cohesion: 0.19
+### Community 41 - "alt_estimator.c"
+Cohesion: 0.17
 Nodes (25): alt_estimator_t, clampf(), alt_estimator_agl_m(), alt_estimator_confirm_liftoff(), alt_estimator_correct_velocity(), alt_estimator_floor_ready(), alt_estimator_height_above_landing_surface(), alt_estimator_lock_floor() (+17 more)
 
 ### Community 42 - "Pure slew rate limiter for target_z (not an exponential trajectory)"
@@ -342,9 +341,9 @@ Nodes (3): PlotPanel, Scrolling multi-line strip chart drawn on a Tk Canvas. Mim
 Cohesion: 0.25
 Nodes (8): commander_inputs_t, commander_result_t, commander_config_t, commander_state_t, commander_default_config(), commander_evaluate(), commander_config_t, flight_core_get_commander_cfg()
 
-### Community 51 - "tof_driver.c"
+### Community 51 - "takeoff_run"
 Cohesion: 0.27
-Nodes (16): add_device_at(), esp_err_t, i2c_master_bus_handle_t, i2c_master_dev_handle_t, tof_reading_t, change_i2c_address(), configure_xshut_gpio(), find_sensor_addr() (+8 more)
+Nodes (13): takeoff_tune_t, flight_core_get_takeoff_tune(), takeoff_state_t, takeoff_tune_t, takeoff_default_tune(), takeoff_run(), tko_abort(), tko_enter_phase() (+5 more)
 
 ### Community 52 - "motor_driver.c"
 Cohesion: 0.25
@@ -352,7 +351,7 @@ Nodes (12): clampi(), esp_err_t, configure_channel(), motor_driver_all_off(), mo
 
 ### Community 53 - "flight_core_read_telemetry"
 Cohesion: 0.15
-Nodes (16): fsm_arm_guard_ok(), fsm_state_name(), fsm_state_t, tof_driver_stall_restarts(), telemetry_snapshot_t, flight_core_read_telemetry(), handle_land(), handle_single_char() (+8 more)
+Nodes (15): fsm_arm_guard_ok(), fsm_state_name(), fsm_state_t, tof_driver_stall_restarts(), telemetry_snapshot_t, flight_core_read_telemetry(), handle_single_char(), cmd_cal_status() (+7 more)
 
 ### Community 55 - "test_terrain_accumulate_offline.py"
 Cohesion: 0.29
@@ -362,9 +361,9 @@ Nodes (3): BAC DIA HINH KHONG DEN TRONG MOT MAU -- ung vien offset phai CONG DON
 Cohesion: 0.29
 Nodes (5): decide(), Phan biet "KHONG CO GI DE DO" voi "MAT CAM BIEN". VI SAO CAN TEST NAY: Dat…, Mo phong dung logic update_age() da sua., Bo comment truoc khi kiem tra 'code co ton tai khong'. Khong co buoc nay thi…, strip_comments()
 
-### Community 59 - "battery_driver_read"
-Cohesion: 0.53
-Nodes (5): battery_driver_init(), battery_driver_read(), battery_driver_read_v(), battery_sample_t, esp_err_t
+### Community 59 - "test_battery_floor_offline.py"
+Cohesion: 0.22
+Nodes (4): first_below(), med(), San pin -> ep LANDING, va vi sao BAT BUOC phai co debounce. Yeu cau: BATV <=…, Chi so mau dau tien bao 'duoi san'; None neu khong bao gio.
 
 ### Community 60 - "test_alt_validity_offline.py"
 Cohesion: 0.33
@@ -398,9 +397,9 @@ Nodes (4): main(), run_cli(), run_gui(), translate_command()
 Cohesion: 0.20
 Nodes (7): NHOM A2 -- dong ho `degraded` phai DOC LAP voi trang thai terrain. LOI THAT (do…, Tra ve (co_fault, ms_fault). ToF KHOE suot: cu TOF_PERIOD_MS lai co mot mau hop…, ToF ngung tra mau han tu t=0., Bo comment truoc khi kiem 'code co lam X khong'. Khoi giai thich o day dai va…, sim(), sim_dead(), strip_c_comments()
 
-### Community 109 - "Test D — records a known gap, not a protection"
-Cohesion: 0.22
-Nodes (9): ESP-IDF project uav_s3_flight_core_verify, flight_core REQUIRES esp_driver_i2c (new I2C master API), CLIMB -> HOLD handover is seamless, Bumpless I load on the FIRST tick only, cfg.i2c_freq_hz was a dead field (fixed), Test D — records a known gap, not a protection, I2C 100kHz debug-phase speed (later 400kHz), I2C Architecture — one shared bus, new i2c_master API (+1 more)
+### Community 109 - "handle_alt"
+Cohesion: 0.29
+Nodes (6): alt_hold_tune_t, flight_core_get_alt_hold_tune(), handle_alt(), fsm_state_t, telemetry_format_alt_mode(), telemetry_format_status_line()
 
 ### Community 110 - "4.6 Terrain offset — bay qua bàn/ghế mà không mất tham chiếu"
 Cohesion: 0.22
@@ -410,9 +409,9 @@ Nodes (9): (1) Timeout đếm bằng ĐỒNG HỒ, commit đếm bằng MẪU, (
 Cohesion: 0.22
 Nodes (5): expected_bias(), Trang thai ToF DAN XUAT phai bi xoa khi nam dat. LOI THAT, do duoc tren log cat…, Sai so cua `expected = vz_accel_only_ms * dt` do seed sai., Bo comment truoc khi kiem 'code co lam X khong'. Khoi giai thich o day trich…, strip_c_comments()
 
-### Community 112 - "flight_core_tof_reinit"
-Cohesion: 0.32
-Nodes (8): tof_driver_chip_name(), flight_core_i2c_scan(), flight_core_tof_reinit(), sensor_hub_resume(), sensor_hub_set_tof_present(), sensor_hub_suspend(), cmd_i2c_scan(), cmd_tof_reinit()
+### Community 112 - "test_terrain_anchor_offline.py"
+Cohesion: 0.25
+Nodes (3): Offset terrain phai tinh tu MOC NEO, khong phai cong don cac mau vuot nguong.…, Khoi giai thich trich dan chinh cong thuc cu -> phai bo truoc khi kiem., strip_c_comments()
 
 ### Community 113 - "test_alt_frame_target_offline.py"
 Cohesion: 0.25
@@ -430,46 +429,38 @@ Nodes (6): 3.7.1 Hai task, một chiều dữ liệu, 3.7.2 Một tick của sta
 Cohesion: 0.33
 Nodes (6): 6.1 An toàn / nhịp vòng lặp, 6.2 Chuỗi cất cánh (kiến trúc PID + slew, mục 4.2), 6.3 ToF + terrain (mục 4.4 / 4.6), 6.4 Ba cặp đáng soi cùng nhau, 6. Telemetry an toàn/realtime — đọc gì khi soi log, Terrain (chỉ có khi `TERRAIN_OFFSET_ENABLED=1`)
 
-### Community 117 - "sensor_hub_start"
-Cohesion: 0.40
-Nodes (5): esp_err_t, imu_calib_t, TaskHandle_t, sensor_hub_set_imu_calib(), sensor_hub_start()
-
 ### Community 118 - "command_parser.c"
-Cohesion: 0.16
-Nodes (23): alt_hold_tune_t, flight_core_get_alt_hold_tune(), append(), move_dir_t, pid_gains_t, command_parser_feed_byte(), dump_pid_line(), handle_alt() (+15 more)
+Cohesion: 0.17
+Nodes (21): append(), move_dir_t, pid_gains_t, command_parser_feed_byte(), dump_pid_line(), handle_cal(), handle_cmdr(), handle_hover() (+13 more)
 
 ### Community 119 - "4.4 Altitude estimator — accel-primary, ToF CHỈ LÀ correction"
 Cohesion: 0.40
 Nodes (5): 4.4 Altitude estimator — accel-primary, ToF CHỈ LÀ correction, Ba trạng thái track (`update_age`), Bù nghiêng ToF — `range × cos(roll) × cos(pitch)`, Innovation gate và máy đo sàn — ĐÃ BỎ, `valid` vs `degraded` — hai câu hỏi khác nhau
 
 ### Community 120 - "app_config.h"
-Cohesion: 0.17
-Nodes (7): board_config_fill(), flight_core_board_config_t, app_main(), register_commands(), fsm_state_t, telemetry_format_alt_mode(), telemetry_format_status_line()
+Cohesion: 0.25
+Nodes (4): board_config_fill(), flight_core_board_config_t, app_main(), register_commands()
 
 ### Community 121 - "4.7 FSM_FLYING — tắt tầng NGOÀI, giữ tầng TRONG"
 Cohesion: 0.40
 Nodes (5): 4.7 FSM_FLYING — tắt tầng NGOÀI, giữ tầng TRONG, Bàn giao FLYING → HOLDING là bumpless SẴN, Nguồn `vz` PHẢI là accel-only, Nạp I bumpless — tick ĐẦU, không phải mỗi tick, W/S trong FLYING = offset TẠM THỜI
 
-### Community 122 - "flight_core_get_task_stats"
-Cohesion: 0.50
-Nodes (4): flight_core_get_task_stats(), sensor_hub_stack_free_bytes(), sensor_hub_stack_total_bytes(), flight_core_task_stats_t
-
 ## Knowledge Gaps
-- **84 isolated node(s):** `(1) Timeout đếm bằng ĐỒNG HỒ, commit đếm bằng MẪU`, `(2) Timeout KHÔNG fail-safe`, `(3) Ứng viên offset phải CỘNG DỒN`, `4.1b ARM — cổng vào duy nhất, và vì sao nó không còn im lặng`, `4.2b `hover_ff` chốt theo điện áp pin — `hover_model.h`` (+79 more)
+- **84 isolated node(s):** `(1) Timeout đếm bằng ĐỒNG HỒ, commit đếm bằng MẪU`, `(2) Timeout KHÔNG fail-safe`, `(3) Ứng viên offset phải CỘNG DỒN`, `⚠ `agl_m()` phải lấy từ SỐ ĐO THÔ, không phải `alt_m − terrain_off_m``, `Guard khoảng hở tối thiểu (B8) — lưới an toàn CUỐI` (+79 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **49 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **50 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `flight_core_start()` connect `flight_core_start` to `flight_core.c`, `fc_module.c`, `types.h`, `attitude_control_update`, `mahony_filter.c`, `stabilize_task`, `takeoff_run`, `imu_driver.c`, `BMP280 Barometer Driver`, `mag_driver.c`, `commander_evaluate`, `tof_driver.c`, `motor_driver.c`, `calibration.c`, `apply_command`, `sensor_hub_start`, `app_config.h`, `battery_driver_read`?**
+- **Why does `flight_core_start()` connect `flight_core_start` to `flight_core.c`, `fc_module.c`, `sensor_hub.c`, `mahony_filter.c`, `attitude_control_update`, `alt_estimator.c`, `landing_run`, `imu_driver.c`, `BMP280 Barometer Driver`, `mag_driver.c`, `commander_evaluate`, `takeoff_run`, `motor_driver.c`, `calibration.c`, `stabilize_task`, `app_config.h`?**
   _High betweenness centrality (0.050) - this node is a cross-community bridge._
-- **Why does `stabilize_task()` connect `stabilize_task` to `flight_core.c`, `flight_core_start`, `sensor_hub.c`, `types.h`, `mahony_filter.c`, `attitude_control_update`, `hover_model.c`, `takeoff_run`, `imu_driver.c`, `BMP280 Barometer Driver`, `commander_evaluate`, `motor_driver.c`, `calibration.c`, `apply_command`, `sensor_hub_age_us`?**
+- **Why does `stabilize_task()` connect `stabilize_task` to `flight_core.c`, `flight_core_start`, `sensor_hub.c`, `types.h`, `mahony_filter.c`, `attitude_control_update`, `alt_estimator.c`, `hover_model.c`, `landing_run`, `imu_driver.c`, `BMP280 Barometer Driver`, `commander_evaluate`, `takeoff_run`, `motor_driver.c`, `calibration.c`, `sensor_hub_age_us`?**
   _High betweenness centrality (0.050) - this node is a cross-community bridge._
-- **Why does `apply_command()` connect `apply_command` to `flight_core.c`, `flight_core_push_command`, `flight_core_start`, `types.h`, `mahony_filter.c`, `stabilize_task`, `hover_model.c`, `BMP280 Barometer Driver`, `flight_core_tof_reinit`, `mag_driver.c`, `motor_driver.c`, `flight_core_read_telemetry`, `calibration.c`?**
-  _High betweenness centrality (0.028) - this node is a cross-community bridge._
-- **Are the 49 inferred relationships involving `stabilize_task()` (e.g. with `alt_source_name()` and `attitude_state_reset()`) actually correct?**
-  _`stabilize_task()` has 49 INFERRED edges - model-reasoned connections that need verification._
+- **Why does `apply_command()` connect `stabilize_task` to `flight_core.c`, `flight_core_push_command`, `flight_core_start`, `sensor_hub.c`, `types.h`, `mahony_filter.c`, `alt_estimator.c`, `hover_model.c`, `BMP280 Barometer Driver`, `mag_driver.c`, `motor_driver.c`, `flight_core_read_telemetry`, `calibration.c`?**
+  _High betweenness centrality (0.029) - this node is a cross-community bridge._
+- **Are the 50 inferred relationships involving `stabilize_task()` (e.g. with `alt_source_name()` and `attitude_state_reset()`) actually correct?**
+  _`stabilize_task()` has 50 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 41 inferred relationships involving `apply_command()` (e.g. with `commander_clamp_altitude()` and `commander_heartbeat()`) actually correct?**
   _`apply_command()` has 41 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 42 inferred relationships involving `flight_core_push_command()` (e.g. with `fc_bridge_push()` and `handle_alt()`) actually correct?**

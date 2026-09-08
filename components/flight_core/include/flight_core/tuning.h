@@ -391,7 +391,12 @@ extern "C" {
 // vĩnh viễn). Floor 3.3V chừa margin cho sụt áp dưới tải trước khi chạm đáy
 // tuyệt đối — hạ/land khi chạm ngưỡng này, đừng đợi tới 3.0V. XÁC NHẬN LẠI
 // bằng đo thật dưới tải (không chỉ đo hở mạch) trước khi bay.
-#define COMMANDER_DEFAULT_BATTERY_FLOOR_V    2.0f
+// San dien ap pin -> SOFT FAULT -> LANDING. Pin 1S duoi tai: 3.10V la vung
+// sut sau, duoi do khong con du luc day de giu do cao.
+#define COMMANDER_DEFAULT_BATTERY_FLOOR_V    3.10f
+// So sanh voi TRUNG VI 5 mau (xem battery_v o flight_core buoc 2), khong phai
+// mau tho -- trung vi da phang, debounce chi con de chan mot chum doc hong.
+#define COMMANDER_BATTERY_LOW_HOLD_MS        1000
 #define COMMANDER_DEFAULT_HEARTBEAT_MS       1000
 #define COMMANDER_DEFAULT_HARD_TILT_DEG      60.0f
 #define COMMANDER_DEFAULT_MOTOR_SAT_MS       1500

@@ -85,6 +85,11 @@ typedef struct {
     //
     // Da do duoc: roi ban -> TPEND=1 -> dong ho dung -> 300ms sau FAULT ->
     // LANDING giua chuyen, trong khi ToF hoan toan binh thuong.
+    // Moc roi dat. Terrain bi KHOA trong TERR_ARM_AFTER_LIFTOFF_MS dau tien:
+    // do duoc |d_range| dinh 0.076m dung o pha leo ngay sau cat canh (range di
+    // tu ~0 len gia tri that), gap 3-5 lan nhieu luc bay bang (0.015-0.026).
+    // Luc do drone o duoi 0.3m, KHONG THE dang o tren vat the nao.
+    int64_t airborne_since_us;
     int64_t last_tof_geom_ok_us;
     float tof_corr_z_m, tof_corr_vz_ms;
 
@@ -392,7 +397,11 @@ typedef struct {
 //     0.20 / 0.076 = 2.6x bien an toan
 // Cac muc khac da can nhac: 0.12 -> 1.6x (qua hep), 0.15 -> 2.0x (hep).
 // Van thua suc bat ghe (~0.45m) va ban (~0.75m) -- thu ta thuc su quan tam.
-#define TERR_JUMP_THRESH_M                   0.20f
+#define TERR_JUMP_THRESH_M                   0.12f
+// Khoa terrain sau khi roi dat. Pha leo dau tien co |d_range| dinh 0.076m --
+// gap 3-5 lan nhieu luc bay bang -- ma luc do drone duoi 0.3m, khong the o
+// tren vat the nao. Khoa qua pha do thi nguong chi con phai chiu nhieu THAT.
+#define TERR_ARM_AFTER_LIFTOFF_MS            500
 // Mep ban la cho te nhat: FoV 25deg o 1m cho vet sang ~44cm, beam nua tren ban
 // nua hut xuong san -> range nhay qua nhay lai. Phai xac nhan N mau LIEN TIEP
 // khop ung vien moi duoc COMMIT.

@@ -110,11 +110,24 @@ commander_result_t commander_evaluate(commander_state_t *st, const commander_con
     // lần nữa không giúp gì, mà giữ nguyên pha hạ hiện tại thì tốt hơn là reset
     // nó. Vẫn tính ở TAKING_OFF: cất cánh với pin yếu là cách chắc chắn nhất
     // để rơi giữa chừng.
-    if (in->state != FSM_LANDING &&
-        in->battery_v > 0.0f && in->battery_v < cfg->battery_floor_v) {
-        r.fault = FAULT_SOFT;
-        r.reason = "battery below floor";
-        return r;
+    // ---- SAN PIN -> EP HA CANH, co DEBOUNCE ----
+    // battery_v == 0 nghia la mau KHONG hop le (battery_driver da chan). Do
+    // duoc tren log: ADC tra 4.936V cho pin 1S -> BATVALID=0 -> BATV=0.00.
+    // Mau nhu vay KHONG duoc xoa dong ho (ADC chap chon ma cu xoa thi fault
+    // khong bao gio trip duoc), cung khong duoc tinh la duoi san.
+    if (in->state != FSM_LANDING && in->battery_v > 0.0f) {
+        if (in->battery_v <= cfg->battery_floor_v) {
+            if (st->battery_low_since_us == 0) st->battery_low_since_us = now_us;
+            if ((now_us - st->battery_low_since_us) >=
+                    (int64_t)COMMANDER_BATTERY_LOW_HOLD_MS * 1000) {
+                r.fault = FAULT_SOFT;
+                r.reason = "battery below floor";
+                return r;
+            }
+        } else {
+            // Mau HOP LE va TREN san -> pin chua yeu that, xoa dong ho.
+            st->battery_low_since_us = 0;
+        }
     }
 
     // Mất estimator: chỉ có nghĩa khi đang bay và đang thật sự dùng nó để giữ

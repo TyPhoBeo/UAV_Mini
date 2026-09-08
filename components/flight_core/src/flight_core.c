@@ -142,7 +142,8 @@ static takeoff_tune_t    s_tko_tune;
 static takeoff_result_t  s_tko_result;
 static landing_state_t   s_land_state;
 static landing_tune_t    s_land_tune;
-// s_vbat_ring: lịch sử ~500ms điện áp pin, nạp ở bước 2b, đọc MỘT LẦN lúc ARM.
+// s_vbat_ring: lịch sử ~500ms điện áp pin, nạp ở bước 2b. Đọc lúc ARM (latch
+// hover) VÀ mỗi tick ở bước 2 (battery_v -> failsafe sàn pin + battery_comp).
 // KHÔNG reset trong reset_all_controllers(): đó là lịch sử CẢM BIẾN, không phải
 // state điều khiển. Xoá nó lúc disarm sẽ khiến lần ARM ngay sau đó bị từ chối
 // vì "chưa đủ mẫu" trong ~300ms — một lỗi tự gây, không có lợi ích nào.
@@ -2406,11 +2407,18 @@ static void stabilize_task(void *arg) {
 
         // battery_v = 0.0f nếu chưa có mẫu HỢP LỆ -> Commander coi là "chưa có
         // mẫu", KHÔNG trip fault (quy ước sẵn có của commander_evaluate()) VÀ
-        // battery_comp giữ 1.0 (bước 9b gate `battery_v > 1.0f`). battery_h.valid
-        // đã bao gồm sanity 1S + yêu cầu ADC calibration thật (xem
-        // battery_driver.h) — một mẫu 6.07V trên pin 1S rơi vào đây, KHÔNG
-        // chảy tiếp vào failsafe/compensation.
-        const float battery_v = snap.battery_h.valid ? snap.battery.voltage_v : 0.0f;
+        // battery_comp giữ 1.0 (bước 9b gate `battery_v > 1.0f`).
+        //
+        // TRUNG VỊ 5 mẫu, KHÔNG phải mẫu thô. ADC là oneshot không lọc: log
+        // hover đo BATV 2.87..3.37V (spread 0.50V) trong khi tải chỉ đổi 3.4%
+        // -> đó là ripple, không phải pin sụt. Một mẫu thô so với sàn sẽ ép hạ
+        // cánh khi pin thật còn 3.16V; trung vị phẳng ở 3.16 và không chạm sàn.
+        // Ring trễ đúng MỘT tick so với mẫu mới nhất (push ở bước 2b, dưới) —
+        // 4ms trên một tín hiệu ~8Hz, không đáng kể.
+        float battery_med_v = 0.0f;
+        const float battery_v =
+            (snap.battery_h.valid &&
+             hover_vbat_median(&s_vbat_ring, &battery_med_v)) ? battery_med_v : 0.0f;
 
         // Đếm lỗi I2C cộng dồn cho telemetry — lấy TỔNG từ hub thay vì tự đếm
         // (hub mới là bên thực sự chạm bus).
@@ -4101,6 +4109,8 @@ static void stabilize_task(void *arg) {
         // target voi alt_m, va alt_m da mang terrain_off ben trong roi.
         s_telemetry.alt_target_surface_m = s_alt_target_m - s_alt_est.terrain_off_m;
         s_telemetry.coast_snap_count   = s_alt_est.coast_snap_count;
+        s_telemetry.battery_low_ms     = s_cmd_state.battery_low_since_us
+            ? (int32_t)((now_us - s_cmd_state.battery_low_since_us) / 1000) : 0;
         s_telemetry.terr_pending       = s_alt_est.terr_pending;
         s_telemetry.terr_commit_count  = s_alt_est.terr_commit_count;
         s_telemetry.terr_reject_count  = s_alt_est.terr_reject_count;

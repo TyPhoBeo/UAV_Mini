@@ -109,7 +109,9 @@ MAXSTEP = const_of("TERR_MAX_STEP_M")
 check("doc duoc hang so", None not in (JUMP, MAXSTEP), "JUMP=%s MAX=%s" % (JUMP, MAXSTEP))
 
 
-def sim(raw, mode):
+def sim(raw, mode, jump=None):
+    if jump is None:
+        jump = JUMP
     toff = 0.0
     pend = False
     cand = 0.0
@@ -117,14 +119,14 @@ def sim(raw, mode):
     cnt = 0
     for a, b in zip(raw, raw[1:]):
         d = b - a
-        if not pend and abs(d) > JUMP:
+        if not pend and abs(d) > jump:
             pend, anchor, cnt = True, a, 0
         if pend:
             if mode == "anchor":
                 cand = toff + (anchor - b)
-            elif abs(d) > JUMP:
+            elif abs(d) > jump:
                 cand -= d
-            if abs(d) <= JUMP:
+            if abs(d) <= jump:
                 cnt += 1
                 if cnt >= N:
                     if abs(cand - toff) <= MAXSTEP:
@@ -149,10 +151,25 @@ for ten, raw, truth in CASES:
     check("moc neo dung: %s" % ten, abs(n - truth) < 0.02,
           "ra %+.3f, mong %+.3f" % (n, truth))
 
-# Phai TAI HIEN duoc loi cu, neu khong thi mo phong sai chu khong phai het loi.
-bad = sim(CASES[2][1], "accum")
-check("tai hien duoc loi cu o mep khong sac", abs(bad) > 0.10,
-      "ban cu ra %+.3f (log THAT: +0.165)" % bad)
+print()
+print("== (7) Sai so ban CU phu thuoc NGUONG; ban NEO thi khong ==")
+# Cong don bo qua cac buoc DUOI nguong khi thoat -> len bao nhieu tru bay nhieu
+# la khong doi xung, va do khong doi xung nay LON DAN theo nguong. Moc neo do
+# HAI MUC nen khong quan tam duong di o giua.
+mep = CASES[2][1]          # 1.00 -> 0.30 -> 0.55 -> 0.85 -> 1.00, that la 0.00
+for j in (0.12, 0.20):
+    o, n = sim(mep, "accum", j), sim(mep, "anchor", j)
+    print("  nguong %.2f:  cu %+.3f   neo %+.3f   (dung 0.000)" % (j, o, n))
+    check("moc neo dung o nguong %.2f" % j, abs(n) < 0.02, "ra %+.3f" % n)
+
+# 0.20 la nguong dang chay khi log ghi TOFF con +0.165 tren san phang.
+check("tai hien duoc loi cu tai nguong 0.20 (log THAT: +0.165)",
+      abs(sim(mep, "accum", 0.20)) > 0.10,
+      "ra %+.3f -- neu khong tai hien thi mo phong sai" % sim(mep, "accum", 0.20))
+# O 0.12 buoc thoat 0.15 con vuot nguong nen duoc cong lai -> cong don TINH CO
+# dung. Do la may man cua bo du lieu, khong phai tinh chat cua thuat toan.
+check("o nguong 0.12 ban cu TINH CO dung -- khong phai da het loi",
+      abs(sim(mep, "accum", 0.12)) < 0.02)
 
 print()
 if FAILED:

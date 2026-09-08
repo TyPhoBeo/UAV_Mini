@@ -552,6 +552,10 @@ typedef struct {
     //         ALT_EST_COAST_SNAP_MS (400ms) ma ToF khong sua duoc.
     //         0 = binh thuong. Tang deu = ToF dang bi chan fuse lien tuc
     //         (terrain ket / mau bi vut) -> di tim nguyen nhan do.
+    // BATLOW = so ms BATV da lien tuc <= battery_floor_v. 0 = dang tren san.
+    // Cham COMMANDER_BATTERY_LOW_HOLD_MS (1000) -> SOFT FAULT -> LANDING.
+    // Nhay len roi ve 0 lien tuc = ADC pin nhieu, KHONG phai pin sap het.
+    int32_t battery_low_ms;
     uint16_t coast_snap_count;
     float    alt_target_surface_m;
     float    terrain_off_m;
