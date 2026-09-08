@@ -5,18 +5,9 @@
 
 #include "flight_core/fc_features.h"   // FC_FEATURE_FLOOR_GATE
 
-// Nghi ngo terrain lam tof_fusable=false, tuc KHONG co correction trong suot
-// thoi gian do. Hai nguong ben duoi la hai cach khac nhau de mot khoang
-// "khong correction" bien thanh SOFT FAULT -> LANDING:
-//
-//   ALT_EST_NO_CORRECTION_DEGRADED_MS : degraded=true -> commander fault
-//   ALT_EST_TOF_LOST_MS               : (chi khi chip IM han, khong ap o day)
-//
-// terr_pending PHAI tu huy TRUOC ca hai, neu khong thi bay qua vat the =
-// tu dong ha canh. Do dung la trieu chung da lam TERRAIN_OFFSET_ENABLED bi
-// tat, va cung la lo hong cua chinh ban va nay o phien ban dau (assert cu chi
-// so voi ALT_EST_TOF_LOST_MS trong khi nguong THAT SU chan truoc la
-// ALT_EST_NO_CORRECTION_DEGRADED_MS).
+// terr_pending ep tof_fusable=false -> khong co correction. Neu no keo dai
+// qua ALT_EST_NO_CORRECTION_DEGRADED_MS thi commander SOFT FAULT -> LANDING.
+// Vi vay timeout cua pending PHAI ngan hon ca hai nguong duoi.
 _Static_assert(TERR_PENDING_TIMEOUT_MS < ALT_EST_NO_CORRECTION_DEGRADED_MS,
     "TERR_PENDING_TIMEOUT_MS >= ALT_EST_NO_CORRECTION_DEGRADED_MS: nghi ngo terrain "
     "keo dai qua nguong 'khong co correction' -> degraded=true -> commander SOFT FAULT "
@@ -58,15 +49,8 @@ static void clear_runtime(alt_estimator_t *e, bool keep_floor) {
 
 void alt_estimator_reset(alt_estimator_t *e) { if (e) clear_runtime(e, false); }
 
-// alt_estimator_floor_ready() — GIU LAI CHU KY, LUON TRA TRUE.
-//
-// ToF gio do TUYET DOI (khong con goc toa do, xem update()), nen "da chot
-// duoc mat san chua" khong con la cau hoi co nghia. Tra true de moi cho goi
-// no — prearm, takeoff, telemetry — khong con bi chan.
-//
-// KHONG xoa han ham: no duoc goi tu 4 cho trong flight_core.c va telemetry.
-// Xoa se lam vo build o nhung file khong lien quan gi toi thay doi nay. Giu
-// mot ham tra hang so la cach re nhat de giu bien gioi module.
+// LUON TRA TRUE. ToF do tuyet doi nen "da chot duoc mat san chua" khong con
+// la cau hoi co nghia. Giu ham vi 4 cho trong flight_core.c va telemetry goi.
 bool alt_estimator_floor_ready(const alt_estimator_t *e) {
     return e != NULL;
 }
@@ -94,16 +78,8 @@ static void lock_floor_at(alt_estimator_t *e) {
     e->prev_tof_z_valid = false;
 }
 
-// ---- Ba ham "chot san" ben duoi: GIU CHU KY, BO PHAN THONG KE ----
-// ToF gio do TUYET DOI nen khong con goc toa do de chot. Thu duy nhat con
-// y nghia la RESET trang thai bay (alt/vz/terrain/prev) truoc khi cat canh —
-// chinh la phan lock_floor_at() van lam. Ca ba deu thanh cong va lam DUNG
-// mot viec do.
-//
-// KHONG hop nhat thanh mot ham: chung duoc goi tu 3 cho khac nhau trong
-// flight_core.c voi y nghia khac nhau ("duong chuan", "fallback", "khong co
-// mau"), va gop lai se buoc phai sua ca ba cho do trong cung mot luot — nhieu
-// rui ro hon la giu ba cua vao mong.
+// Ba ham duoi day lam CUNG mot viec (reset trang thai bay truoc khi cat canh).
+// Giu ba cua vao vi chung duoc goi tu 3 cho khac nhau voi y nghia khac nhau.
 bool alt_estimator_lock_floor(alt_estimator_t *e) {
     if (!e) return false;
     lock_floor_at(e);
@@ -165,27 +141,15 @@ float alt_estimator_height_above_landing_surface(const alt_estimator_t *e) {
     return alt_estimator_agl_m(e);
 }
 
-// ============================================================================
-// KHOANG HO (clearance) vs DO CAO TUYET DOI -- HAI THU KHAC NHAU
-// ============================================================================
-//   tof_vertical_m : khoang cach THO toi be mat ngay duoi (da bu cos tilt).
-//                    KHONG qua terrain_off, KHONG qua fusion. Do TRUC TIEP.
-//   terrain_off_m  : cao do cua be mat do so voi SAN cat canh.
-//   alt_m          : do cao TUYET DOI so voi san = agl + terrain_off.
+// BA DAI LUONG, DUNG TRON:
+//   tof_vertical_m : do THO toi be mat duoi (da bu tilt). Khong qua terrain/fusion.
+//   terrain_off_m  : cao do be mat do so voi SAN cat canh.
+//   alt_m          : Z TUYET DOI = khoang_ho + terrain_off.
 //
-// ⚠ agl_m TRUOC DAY tinh bang (alt_m - terrain_off_m). Dung khi offset dung,
-// nhung SAI HAN khi offset da stale: ca hai ve deu mang cung mot sai so nen no
-// KHONG tu trieu tieu -- clearance thua huong nguyen cai sai cua Z tuyet doi.
-//
-// Do duoc tren log: TOFF_cu = 0.693 con drone thuc te cach mat ban 0.019m.
-// Cong thuc cu cho ra clearance = 0.712m -> landing tuong con 70cm de ha, trong
-// khi drone SAP CHAM. Touchdown khong bao gio kich hoat, motor quay mai.
-//
-// GIO: uu tien SO DO THO. No khong phu thuoc terrain_off nen dung ke ca khi
-// offset sai hoan toan -- dung thu ma landing/guard can.
-//
-// Chi rot ve (alt_m - terrain_off_m) khi KHONG co so do tho dung duoc (ToF
-// ngoai tam / hap thu). Luc do day la uoc luong tot nhat con lai.
+// agl_m() uu tien SO DO THO. Cong thuc cu (alt_m - terrain_off) SAI khi offset
+// hong: alt_m DA chua terrain_off nen sai so khong tu triet tieu. Do duoc:
+// TOFF_cu 0.693, khoang ho that 0.019m -> cong thuc cu ra 0.712m -> landing
+// tuong con 70cm de ha trong khi drone sap cham.
 float alt_estimator_agl_m(const alt_estimator_t *e) {
     if (!e) return 0.0f;
     // So do THO con dung duoc ve hinh hoc -> dung no, bat ke terrain_off.
@@ -207,21 +171,8 @@ float alt_estimator_tof_agl_m(const alt_estimator_t *e) {
 
 bool alt_estimator_terrain_rebase(alt_estimator_t *e) {
 #if FC_FEATURE_TERRAIN_OFFSET
-    // ⚠ TRUOC DAY con doi them `e->tof_ground_ref_valid`, va do la mot LOI
-    // CHET LANG: co do duoc set boi may do san (floor_add + Welford), ma may
-    // do san DA BI XOA HAN. Grep toan repo chi con MOT cho cham vao no:
-    //     clear_runtime(): e->tof_ground_ref_valid = old.tof_ground_ref_valid;
-    // tuc no tu copy chinh minh, khong ai set true bao gio -> dieu kien luon
-    // false -> ham nay LUON return false.
-    //
-    // Hau qua: guard khoang ho (flight_core.c B8) van ep leo duoc, nhung
-    // NHANH REBASE cua no chet cung. Log in ra "(khong rebase duoc: ToF khong
-    // dung duoc)" moi lan, dung nhu the ToF hong -- trong khi ToF hoan toan
-    // binh thuong. Nguoi doc log se di tim loi o cam bien.
-    //
-    // Tuong tu, `tof_ground_range_m` gio CHI duoc gan 0.0f (lock_floor_at),
-    // nen phep tru no la vo nghia -- ToF do TUYET DOI, raw_agl chinh la
-    // tof_vertical_m (dung cong thuc voi khoi fusion o alt_estimator_update).
+    // Rebase = do lai truc tiep tu mot mau ToF hop le hinh hoc. KHONG doi tof_fusable
+    // (dung luc guard ban thi fusable thuong dang bi tat).
     if (!e || !e->floor_locked) return false;
     // Chi rebase tu mot mau ToF con dung duoc ve HINH HOC (khong doi
     // tof_fusable: dung luc guard ban thi fusable thuong DANG bi tat).
@@ -244,36 +195,14 @@ bool alt_estimator_terrain_rebase(alt_estimator_t *e) {
 #endif
 }
 
-// tof_hw_alive = "chip VẪN ĐANG ĐO", KHÁC HẲN "có mẫu dùng được".
-// Nó đến từ sensor_hub snapshot (tof_alive_us) và chỉ đứng yên khi chip chết
-// hoặc bus đứt — nằm sát sàn (0mm, dưới tầm mù), nhìn ra khoảng không, hay bề
-// mặt hấp thụ đều KHÔNG làm nó đứng.
-// update_age() — quyet dinh do cao con DUNG DUOC khong.
+// tof_hw_alive = "chip VAN DANG DO", KHAC "co mau dung duoc".
 //
-// ============================================================================
-// TUOI MAU KHONG CON LA DIEU KIEN (yeu cau nguoi dung)
-// ============================================================================
-// TRUOC DAY day la mot bac thang 4 muc theo tuoi mau hop le:
-//     <=TRACK_MAX_AGE -> TRACKING
-//     <=BRIDGE_MS     -> SHORT_BRIDGE
-//     < LOST_MS       -> IMU_PREDICT (degraded)
-//     >=LOST_MS       -> LOST  -> valid=false -> Commander soft-fault
+// TUOI MAU KHONG CON LA DIEU KIEN. Truoc day bac thang 4 muc theo tuoi mau lam
+// moi su kien binh thuong (bay qua vat the, nam sat san, be mat hap thu) ket
+// thuc bang TU DONG HA CANH. Gio chi con MOT cau hoi: chip co con do khong.
 //
-// Bac cuoi la nguon goc cua ca mot chuoi loi da phai vá tung cai mot: bay qua
-// vat the, nam sat san, nhin ra khoang khong, be mat hap thu — tat ca deu lam
-// tuoi mau tang vo han TRONG KHI cam bien hoan toan lanh, va tat ca deu ket
-// thuc bang tu dong ha canh giua chung.
-//
-// GIO chi con MOT cau hoi: CHIP CO CON DO KHONG (tof_hw_alive).
-//   con do  -> valid = true. Co mau moi thi fuse, khong co thi coast bang IMU.
-//              Do la trang thai degraded, KHONG phai loi.
-//   chip im -> valid = false. Day la loi THAT, va la duong soft-fault DUY NHAT
-//              con lai.
-//
-// ⚠ DANH DOI CO Y: coast bang tich phan accel khong con gioi han thoi gian.
-// Chip song ma khong ra mau hop le trong 10s thi do cao van "valid" du no da
-// troi dang ke. Bu lai: khong con tu ha canh vi mot ly do binh thuong. Nguoi
-// bay nhin ALTSRC=IMU tren GUI de biet dang coast.
+// Danh doi co y: coast bang accel khong con gioi han thoi gian. Bu lai bang
+// ALT_EST_COAST_SNAP_MS (ep alt_m ve so do that sau 400ms).
 static void update_age(alt_estimator_t *e, bool airborne, bool tof_hw_alive,
                        int64_t now_us) {
     e->no_correction_ms = e->last_tof_accept_us
@@ -306,47 +235,14 @@ static void update_age(alt_estimator_t *e, bool airborne, bool tof_hw_alive,
         e->valid = true;
         e->active_source = ALT_SRC_IMU_PREDICT_ONLY;
 
-        // ====================================================================
-        // degraded = "QUA LAU khong co correction", KHONG phai "tick nay khong
-        // co correction". Do la HOP DONG viet trong commander.h muc
-        // alt_estimator_degraded, va truoc ban va nay code KHONG giu dung no.
-        // ====================================================================
-        // Commander fault NGAY tick dau khi thay degraded (commander.c, nhanh
-        // "ToF correction mat qua lau"), KHONG co debounce nao o do. Nen dat
-        // degraded=true ngay o mau dau tien khong fusable co nghia la:
+        // degraded = "QUA LAU khong co correction", KHONG phai "tick nay khong co".
+        // Commander fault NGAY tick dau khi thay degraded (khong debounce), nen dat
+        // degraded=true o mau dau khong fusable = mot mau ToF xau -> LANDING.
         //
-        //   MOT mau ToF khong dung duoc  ->  SOFT FAULT  ->  LANDING
-        //
-        // Ma "mau khong dung duoc" la chuyen BINH THUONG voi ToF: ngoai tam,
-        // be mat hap thu, nang manh, va — tu khi bat FC_FEATURE_TERRAIN_OFFSET
-        // — moi lan terr_pending len 1 vi nghi co bac dia hinh.
-        //
-        // ⚠ HAU QUA CU THE DA SUYT XAY RA: bay qua ban -> terr_pending=1 ->
-        // tof_fusable=false -> degraded=true -> LANDING GIUA CHUYEN. Dung
-        // trieu chung da lam TERRAIN_OFFSET_ENABLED bi tat lan truoc, chi khac
-        // nguyen nhan. TERR_PENDING_TIMEOUT_MS (200ms) KHONG cuu duoc vi fault
-        // no o tick dau tien, rat lau truoc 200ms.
-        //
-        // GIO: dem tu moc correction cuoi cung. Coast vai chuc ms bang IMU la
-        // an toan (sai so bac hai theo thoi gian, o 200ms van rat nho); chi khi
-        // vuot ALT_EST_NO_CORRECTION_DEGRADED_MS moi that su la "Z dang troi
-        // tu do" va luc do bao degraded moi dung nghia.
-        //
-        // ⚠ DOC last_tof_geom_ok_us, KHONG PHAI last_tof_accept_us.
-        //
-        // Cau hoi ma degraded phai tra loi la "CAM BIEN con cho ta so do
-        // khong", chu khong phai "ta co dang dung so do do de sua Z khong".
-        // Hai cai nay khac nhau dung o luc phat hien dia hinh: ta CO Y ngung
-        // fuse (terr_pending / terr_offset_stale ep tof_fusable=false) de alt_m
-        // coast qua bac -- do la thiet ke.
-        //
-        // Ban cu doc last_tof_accept_us nen moi lan roi ban deu dem nguoc:
-        //     TPEND=1 -> tof_fusable=false -> moc dung -> 300ms -> SOFT FAULT
-        // trong khi ToF van tra mau deu 25Hz. Ngan sach chi 300ms ke tu luc
-        // nghi ngo, ma detect+confirm da an ~160-190ms -- truot mot mau la het.
-        //
-        // == 0 = chip CHUA TUNG tra mau hop le nao trong ca chuyen bay -> that
-        // su khong co gi de tin -> degraded ngay. Do moi la ToF chet.
+        // ⚠ Doc last_tof_geom_ok_us, KHONG phai last_tof_accept_us: cau hoi la "cam
+        // bien con cho so do khong", khong phai "ta co dang dung so do do khong".
+        // Hai cai khac nhau dung luc terr_pending co Y ngung fuse. Ban cu doc moc
+        // accept nen moi lan roi ban deu dem nguoc toi FAULT sau 300ms du ToF khoe.
         const int64_t since_geom_ms = e->last_tof_geom_ok_us
             ? (now_us - e->last_tof_geom_ok_us) / 1000
             : (int64_t)ALT_EST_NO_CORRECTION_DEGRADED_MS;
@@ -403,30 +299,9 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
         if (geometry_ok) {
             e->tof_vertical_m = tof_range_m * rzz;
             {
-                // ============================================================
-                // ToF DO TUYET DOI — KHONG con goc toa do, KHONG con do san
-                // ============================================================
-                // TRUOC DAY: raw_agl = tof_vertical_m - tof_ground_range_m,
-                // trong do tof_ground_range_m den tu mot cua so thong ke thu
-                // luc drone nam yen (floor_add + Welford + nguong std).
-                //
-                // May do san do da bi BO HAN theo yeu cau nguoi dung. Ly do
-                // thuc te: nam sat san thi VL53L1X doc 0.000m (duoi tam mu
-                // ~4cm) -> driver loai mau -> cua so khong bao gio dong duoc
-                // -> tof_ground_ref_valid dung o false -> ca khoi nay khong
-                // chay -> ToF khong correction gi ca, VA takeoff bi tu choi.
-                // Mot co che sinh ra de lam do cao chinh xac hon lai la thu
-                // chan khong cho bay.
-                //
-                // GIO: do cao = khoang cach toi BE MAT dang nhin, thang tu
-                // cam bien. Khong tru gi ca.
-                //
-                // ⚠ DOI NGHIA DO CAO — biet truoc de khong ngac nhien:
-                // alt_m gio la "cach be mat ben duoi bao nhieu", KHONG phai
-                // "cao hon diem cat canh bao nhieu". Cat canh tu tren ban roi
-                // bay ra ngoai ban thi do cao NHAY mot bac bang chieu cao ban,
-                // va PID se phan ung voi buoc nhay do. Slew-rate limit ben duoi
-                // lam cho buoc nhay do di TU TU thay vi tuc thi.
+                // ToF do TUYET DOI: alt_m = khoang cach toi BE MAT dang nhin, KHONG phai
+                // "cao hon diem cat canh". May do san (Welford) da bo han vi nam sat san
+                // VL53L1X doc 0.000m -> cua so khong bao gio dong -> chan ca viec cat canh.
                 float raw_agl = e->tof_vertical_m;
 
                 // Dat true tai DUNG mau commit offset moi. Xem khoi
@@ -443,55 +318,15 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
                     e->tof_dt_s > 0.005f &&
                     e->tof_dt_s <= (float)ALT_EST_TOF_GAP_DERIV_MAX_MS / 1000.0f) {
                     const float d_range  = e->tof_vertical_m - e->prev_tof_vertical_m;
-                    // ========================================================
-                    // ⚠ KHONG TRU CHUYEN DONG CUA DRONE NUA — DA CAN DO LAI
-                    // ========================================================
-                    // BAN CU: residual = d_range - vz_accel_only_ms * tof_dt_s,
-                    // y la "bo phan range doi do CHINH DRONE leo/ha".
-                    //
-                    // Can lai bang so do duoc tren log:
-                    //     thu no SUA duoc (drone tu leo, 1 mau) : 0.018 m
-                    //     thu no BOM VAO  (sai so cua VZAO)     : 0.082 m
-                    //     bac ban that can phat hien            : 0.75..1.20 m
-                    //
-                    // So hang do chi chiem 2.4% tin hieu, ma sai so cua no gap
-                    // 5 LAN chinh thu no sua. O 25Hz thi 40ms drone khong di
-                    // duoc bao xa: bac ban lon hon chuyen dong cua no ~55 lan.
-                    //
-                    // Do TRES tren SAN PHANG voi cong thuc cu: trung binh
-                    // +0.078m, dinh +0.108m / nguong 0.12 -> con 12mm la bao
-                    // dong dia hinh GIA. Chinh so hang "hieu chinh" tao ra no.
-                    //
-                    // GIO: buoc nhay THO. Doi lai TERR_JUMP_THRESH_M phai noi
-                    // 0.12 -> 0.20 (bien 2.6x so voi |d_range| lon nhat do
-                    // duoc luc leo, 0.076m). Xem hang so do trong header.
+                    // KHONG tru chuyen dong cua drone. Can do tren log: so hang vz*dt sua duoc
+                    // 0.018m nhung bom vao 0.082m sai so, tren tin hieu bac ban 0.75-1.20m.
+                    // TRES tren SAN PHANG voi cong thuc cu: +0.078 trung binh / dinh +0.108.
                     const float residual = d_range;
                     e->terr_residual_m = residual;
 
-                    // ========================================================
-                    // ⚠ MOC NEO, KHONG CONG DON. Doi tu ban cong don vi mot
-                    //   LOI DO DUOC TREN LOG BAY -- doc ky truoc khi doi lai.
-                    // ========================================================
-                    // BAN CU: `cand -= residual`, va CHI chay khi
-                    // |residual| > TERR_JUMP_THRESH_M. Nghia la moi mau DUOI
-                    // nguong bi BO IM LANG du be mat van dang doi.
-                    //
-                    // Bat doi xung: mep sac di len bat duoc gan het, mep thoai
-                    // di xuong bat duoc it hon -> offset KHONG ve 0 khi quay
-                    // lai san. Do duoc: bay qua dia hinh roi VE LAI SAN ma
-                    // TOFF ket o +0.165 thay vi 0 (mo phong mep khong sac cho
-                    // +0.150 -- trung khop).
-                    //
-                    // Va khi DI LEN: bac that +0.70 chi bat duoc +0.55 ->
-                    // alt_m THAP hon that 0.15m -> PID tuong drone dang thap
-                    // -> tang ga -> DRONE VOT LEN. Dung trieu chung nguoi dung
-                    // bao cao.
-                    //
-                    // GIO: bac dia hinh la HIEU CUA HAI MUC.
-                    //     offset_moi = offset_cu + (anchor_raw - raw_hien_tai)
-                    // Mot phep tru. Khong phu thuoc bac trai ra may mau, cung
-                    // khong phu thuoc mau nao vuot nguong. Len va xuong doi
-                    // xung TUYET DOI -> TOFF luon ve dung 0 khi ve san.
+                    // MOC NEO, khong cong don. Bac dia hinh la HIEU CUA HAI MUC.
+                    // Ban cu `cand -= d_range` chi chay khi vuot nguong -> mau duoi nguong bi bo
+                    // im lang -> bat doi xung -> TOFF ket o +0.165 thay vi 0 khi quay lai san.
                     if (!e->terr_pending) {
                         if (fabsf(residual) > TERR_JUMP_THRESH_M) {
                             e->terr_pending = true;
@@ -520,24 +355,9 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
                         // confirm ben duoi (chi xoa khi range CON nhay).
                     }
 
-                // ---- XAC NHAN N MAU TRUOC KHI COMMIT (B5) ----
-                // ⚠ TIEU CHI DA DOI: hoi "RANGE DA DUNG YEN CHUA", khong con
-                // hoi "cand_z co khop alt_m khong".
-                //
-                // Ve cu: cand_z = raw_agl + cand_offset   (dai luong THO)
-                //        so voi alt_m                     (da FUSE + LPF + bias)
-                // Tron mot so tho voi mot so da loc, roi doi chung khop nhau
-                // trong 0.10m. Ma dung trong cua so pending ta CO Y ngung fuse
-                // nen alt_m dang COAST -- no troi moi luc mot xa dung luc dang
-                // can no lam moc. Cang pending lau cang kho confirm: mot vong
-                // tu lam kho chinh minh.
-                //
-                // Ve moi chi dung SO DO THO. Bac dia hinh khong den trong mot
-                // mau (do duoc: TOFV 0.890 -> 0.338 -> 0.126 -> 0.119 -> 0.110)
-                // nen: ung vien duoc tinh lai tu MOC NEO moi mau, va khi range
-                // dung yen N mau lien tiep thi mat duoi da on dinh o muc moi
-                // -> COMMIT. Khong dai luong nao da qua bo loc tham gia vao
-                // quyet dinh nay.
+                // Tieu chi confirm chi dung SO DO THO: hoi "range da dung yen chua".
+                // Ban cu so cand_z voi alt_m (tron so tho voi so da loc) -- ma alt_m dang
+                // COAST trong pending nen no troi xa dan, cang pending lau cang kho confirm.
                 if (e->terr_pending) {
                     // Dem MAU da di qua confirm -- timeout doc con so nay
                     // (xem TERR_MIN_SAMPLES_BEFORE_TIMEOUT).
@@ -581,55 +401,16 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
                 if (zt < ALT_EST_GROUND_ZERO_BAND_M) zt = 0.0f;
 
 #if FC_FEATURE_TERRAIN_OFFSET
-                // ====================================================================
-                // ⚠ BAC DIA HINH LAM MOC SLEW/DAO HAM MAT NGHIA -- LOI DO DUOC
-                // ====================================================================
-                // Slew limit va dao ham deu chay tren prev_tof_z_m, va ca hai TRUOC
-                // DAY van chay BAT KE terr_pending. Hau qua, mo phong tren so lieu
-                // log that (len ban 0.78m):
-                //
-                //   4 mau pending: slew keo prev_tof_z_m tut 0.890 -> 0.620
-                //                  (moi mau -1.5*0.045 = -0.0675m)
-                //   commit:        zt DUNG phai la 0.108+0.764 = 0.872, nhung slew
-                //                  chi cho bo len 1.5 m/s -> mat them 4 mau
-                //   dao ham cua cai doc NHAN TAO do = +1.5 m/s, va no di THANG vao
-                //   fusion:  dv = ALT_EST_TOF_VZ_GAIN * (tof_vz_lpf - vz)
-                //
-                //   KET QUA: drone bay BANG ma estimator ket luan dang leo +0.70 m/s
-                //   (cong them innov -0.203m keo alt_m tut ngay tai mau commit).
-                //   PID thay "dang leo" -> cat ga de ham -> drone chui xuong DUNG
-                //   luc vua len tren mat ban. Roi ban thi nguoc dau.
-                //
-                // Ban chat: bac dia hinh la mot buoc NHAY THAT trong he quy chieu
-                // datum. Bat no di qua slew limit la tu tao ra mot doan doc gia, roi
-                // lay dao ham cua chinh doan doc do lam "van toc thang dung".
-                //
-                // GIO: trong luc nghi ngo VA tai dung mau commit, vut moc cu di.
-                // prev_tof_z_valid = false lam ba viec cung luc:
-                //   1. bo qua slew  -> zt = raw + terrain_off MOI, dung ngay lap tuc
-                //   2. deriv_ok = false -> tof_vz_valid = false, KHONG bom van toc ma
-                //   3. cuoi khoi, prev_tof_z_m duoc nap lai = zt (gia tri DUNG)
-                // Mau ke tiep co mot cap (prev, cur) cung he quy chieu -> dao ham
-                // that tro lai binh thuong.
+                // Sanity: bac qua lon = do sai, khong phai bac that. Tu choi nhung VAN thoat
+                // pending (khong thi ket lai dung vong luan quan cu).
                 if (e->terr_pending || terr_step_now) {
                     e->prev_tof_z_valid = false;
                 }
 #endif
 
-                // ---- BO LOC NHE: SLEW-RATE LIMIT (thay cho innovation gate) ----
-                // Gioi han zt duoc phep doi bao nhieu MOI GIAY, thay vi LOAI BO
-                // mau khi no nhay. Khac biet cot loi:
-                //   gate cu  -> mau bi vut  -> mat nguon do cao -> auto-land
-                //   slew moi -> mau duoc dung nhung DI TU TU -> khong bao gio
-                //               mat nguon, chi cham hon vai tram ms
-                //
-                // Chay tren THOI GIAN THAT (tof_dt_s) chu khong theo so mau: nhip
-                // ToF thay doi theo cau hinh chip (L0X 33ms vs L1X 40ms) va co
-                // the truot mau. Tinh theo mau se cho toc do gioi han khac nhau
-                // giua hai chip voi CUNG mot hang so — dung loai bug im lang.
-                //
-                // Bo qua o mau DAU TIEN (prev chua co) va khi dt vo ly: luc do
-                // khong co moc nao de gioi han, ep vao se khoa zt o 0 mai mai.
+                // SLEW-RATE LIMIT thay cho innovation gate: gioi han zt doi bao nhieu MOI GIAY
+                // thay vi LOAI BO mau. Gate cu vut mau -> mat nguon do cao -> auto-land.
+                // Chay tren tof_dt_s THAT (nhip ToF khac nhau giua L0X 33ms va L1X 40ms).
                 if (e->prev_tof_z_valid && e->tof_dt_s > 0.0f &&
                     e->tof_dt_s <= ALT_EST_TOF_GAP_DERIV_MAX_MS / 1000.0f) {
                     const float max_step = ALT_EST_TOF_MAX_SLEW_MS * e->tof_dt_s;
@@ -653,41 +434,14 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
                 e->prev_tof_z_valid = true;
                 e->tof_innovation_m = zt - e->alt_m;
 
-                // ============================================================
-                // INNOVATION GATE: DA BO (yeu cau nguoi dung)
-                // ============================================================
-                // TRUOC DAY:
-                //     tof_surface_gate_ok = |innovation| <= 0.25m
-                // Bay qua vat cao 0.5m -> range tut 0.5m trong MOT mau ->
-                // innovation vuot nguong -> surface=OTHER -> tof_fusable=false
-                // -> sau ALT_EST_TOF_LOST_MS thi valid=false -> Commander
-                // soft-fault "altitude estimator lost mid-flight" -> LANDING.
-                //
-                // Tuc la "bay qua vat the" == "tu dong ha canh". Da quan sat
-                // duoc tren bo, va chinh comment o alt_estimator.h muc TERRAIN
-                // cung da mo ta dung kich ban nay.
-                //
-                // GIO: moi mau hop le ve HINH HOC deu duoc fuse. Bo loc chong
-                // nhay dot ngot chuyen sang SLEW-RATE LIMIT ngay tren zt (xem
-                // ALT_EST_TOF_MAX_STEP_M ben duoi) — no lam so do doi MUOT thay
-                // vi LOAI BO mau, nen khong bao gio dan toi "mat nguon do cao".
-                //
-                // ⚠ HE QUA PHAI BIET: alt_hold gio BAM THEO be mat ben duoi.
-                // Bay qua ban cao 0.5m thi drone tu nang len ~0.5m roi ha lai
-                // khi qua khoi. Do la danh doi da chon: tha bam theo dia hinh
-                // con hon tu ha canh giua chung.
+                // INNOVATION GATE DA BO: bay qua vat 0.5m -> innovation vuot nguong -> mau bi
+                // loai -> valid=false -> soft-fault. Tuc "bay qua vat the" == "tu ha canh".
+                // He qua da chon: alt_hold BAM THEO be mat, terrain offset lo phan bu lai.
                 e->tof_surface_gate_ok = true;
                 e->tof_surface_state = ALT_EST_TOF_SURFACE_FLOOR;
 
-                // ⚠ MOC "CHIP CON DO DUOC" -- ghi o DAY, TRUOC moi nhanh
-                // terrain ben duoi. Toi day ta da biet: chip tra mau moi
-                // (tof_new), range trong tam, tilt trong nguong. Do la tat ca
-                // y nghia cua cau hoi "cam bien con song khong".
-                //
-                // KHONG duoc dat sau khoi terrain: terr_pending va
-                // terr_offset_stale deu ep tof_fusable=false, va neu moc nay
-                // di theo tof_fusable thi no lai dung yen dung luc dang nghi
-                // ngo dia hinh -- tai tao lai chinh cai loi dang sua.
+                // Moc "chip con do duoc" -- ghi TRUOC moi nhanh terrain. Neu di theo
+                // tof_fusable thi no dung yen dung luc nghi ngo dia hinh, tai tao lai loi cu.
                 e->last_tof_geom_ok_us = now_us;
 
 #if FC_FEATURE_TERRAIN_OFFSET
@@ -733,30 +487,9 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
     }
 
 #if FC_FEATURE_TERRAIN_OFFSET
-    // ========================================================================
-    // LOI THOAT BAT BUOC CHO terr_pending  (fix vong luan quan)
-    // ========================================================================
-    // ⚠ KHOI NAY PHAI NAM NGOAI if(tof_new). Do la TOAN BO diem cua no.
-    //
-    // Trong luc nghi ngo, tof_fusable bi ep false (co y: khong an range dang
-    // loan). Nhung confirm-counter chi chay khi CO mau di qua nhanh fusable ->
-    // khong bao gio confirm, cung khong bao gio huy -> terr_pending ket o 1
-    // vinh vien -> sau 300ms khong correction thi valid=false -> ALTSRC=4 ->
-    // soft-fault -> LANDING giua chuyen bay. Da do duoc tren bo:
-    //     TOFF=-0.315  TPEND=1  TCMT=1  TOFFUSE=0  TOFTRACK=0
-    //
-    // Dat trong if(tof_new) thi loi thoat cung chi chay khi co mau moi -- tuc
-    // la khong sua duoc gi trong dung cai kich ban no sinh ra de sua.
-    //
-    // HET HAN = HUY NGHI NGO, KHONG PHAI COMMIT. Commit mot ung vien chua duoc
-    // xac nhan la ghi mot offset co the sai vao trang thai BEN VUNG -- dung cai
-    // da tao ra TOFF=-0.315 roi loai het moi mau sau do. Huy thi te nhat la
-    // PID thay mot buoc nhay do cao that va phan ung voi no; do la thu co the
-    // phuc hoi duoc.
-    // ⚠ TIMEOUT DOI HAI DIEU KIEN, khong chi het gio.
-    // Khoi confirm chay o nhip ToF (25Hz) con khoi nay chay o nhip dieu khien
-    // (250Hz) -- lech mot bac. Doi them "da co du co hoi" de mot ung vien HOP
-    // LE khong bi vut chi vi ToF truot vai mau. Xem terr_samples_seen.
+    // Bac dia hinh lam moc slew/dao ham mat nghia. Slew chay bat ke pending se
+    // keo prev_tof_z_m tut dan roi phai bo len lai -> dao ham cua doc NHAN TAO do
+    // = +-1.5 m/s di thang vao fusion -> drone bay BANG ma estimator bao leo 0.7.
     if (e->terr_pending && e->terr_pending_since_us &&
         e->terr_samples_seen >= TERR_MIN_SAMPLES_BEFORE_TIMEOUT &&
         (now_us - e->terr_pending_since_us) >
@@ -769,28 +502,9 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
         e->terr_anchor_raw_m = 0.0f;
         if (e->terr_timeout_count < UINT16_MAX) e->terr_timeout_count++;
 
-        // ====================================================================
-        // ⚠ TIMEOUT PHAI FAIL-SAFE: KHONG duoc quay lai fuse bang offset CU
-        // ====================================================================
-        // BAN TRUOC chi bo rieng lan nghi ngo roi cho ToF fuse lai NGAY bang
-        // terrain_off_m cu. Do la mot LOI CHET NGUOI, do duoc tren log:
-        //
-        //     TOFF_cu = 0.693   raw = 1.01   ->  tof_z = 1.70
-        //     alt_m dang coast  = 1.09       ->  innovation +0.61m
-        //     -> estimator bi keo NHAY 0.5m -> FAULT=1 -> LANDING
-        //
-        // Ly do sau xa: het han nghia la "ta BIET be mat da doi nhung KHONG
-        // BIET doi bao nhieu". Mot offset cu trong tinh huong do khong con mo
-        // ta dia hinh ben duoi -- no la RAC, khong phai "gia tri an toan".
-        //
-        // GIO: danh dau offset la STALE. alt_estimator_update() se khong fuse
-        // ToF nua (xem cho dat tof_fusable), estimator song bang IMU bridge va
-        // bao degraded -> commander ha canh CO KIEM SOAT thay vi bi mot cu
-        // nhay gia lam mat kiem soat.
-        //
-        // ⚠ Raw range VAN dung duoc: agl_m / clearance van tinh tu tof_vertical
-        // nen guard va landing van co so do that de lam viec. Chi rieng Z
-        // TUYET DOI la khong con tin duoc.
+        // LOI THOAT BAT BUOC cho terr_pending -- PHAI nam ngoai if(tof_new), vi trong
+        // pending khong co mau nao di qua confirm nen no khong bao gio tu huy duoc.
+        // Het han = HUY nghi ngo, KHONG commit mot ung vien chua duoc xac nhan.
         e->terr_offset_stale = true;
     }
 #endif
@@ -827,43 +541,10 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
         // vi valid gio doc chinh moc nay.
         if (e->tof_fusable) e->last_tof_accept_us = e->last_correction_us = now_us;
 
-        // ====================================================================
-        // ⚠ XOA VAN TOC ToF KHI NAM DAT — LOI DA DO DUOC TREN LOG
-        // ====================================================================
-        // Nam sat san thi driver NGUNG CAP MAU HOP LE (do duoc: TOFAGE bo tu
-        // 8415 len 9158ms trong khi TOFALIVE van dao 3..43, tuc chip VAN tra
-        // loi I2C — chi la khong con range dung duoc). Khong co mau moi thi
-        // tof_vz_* va prev_* GIU NGUYEN gia tri cu: dong bang, khong ai xoa.
-        //
-        // (Khong phai do cong hinh hoc chan: ALT_EST_TOF_MIN_RANGE_M = 0.00
-        //  nen 6mm van qua. Nguyen nhan nam o tang driver/hub, ngoai file nay.)
-        //
-        // Do duoc: dung yen tren san 8.4 GIAY ma
-        //     tof_vz_lpf_ms = -1.414 m/s  va  tof_vz_valid = 1
-        // van con nguyen tu luc dat drone xuong.
-        //
-        // Roi alt_estimator_confirm_liftoff() lam:
-        //     vz_ms = tof_vz_valid ? tof_vz_lpf_ms : 0   ->  -1.414
-        //     vz_accel_only_ms = vz_ms                   ->  -1.414
-        // tuc la vua roi dat da bi tiem mot van toc RUNG XUONG 1.4 m/s.
-        //
-        // HAU QUA DAY CHUYEN — day moi la cho dau:
-        //   vz_accel_only_ms KHONG BAO GIO duoc ToF sua (co y, xem khoi B4),
-        //   nen sai so do o LAI suot chuyen bay. Do tren log: VZAO ~ -1.2 m/s
-        //   trong khi VZ that ~ +0.4 -> lech TRUNG BINH +1.28 m/s.
-        //   Ma terrain dung CHINH no lam du doan doc lap:
-        //       expected = vz_accel_only_ms * tof_dt_s
-        //   dt=45ms -> expected lech 0.057m = 48% cua TERR_JUMP_THRESH_M.
-        //   Do lai tren log: TRES tren SAN PHANG (TOFF=0, khong he co bac) da
-        //   la +0.078m trung binh, dinh +0.108m — chi con 0.012m nua la BAO
-        //   DONG DIA HINH GIA.
-        //
-        // GIO: nam dat thi moi dai luong DAN XUAT tu ToF deu bi xoa. Khong the
-        // co "van toc thang dung" khi drone dang nam yen tren san.
-        //
-        // ⚠ KHONG dung toi tof_fusable: no la thu giu ground_tof_alive ->
-        // valid -> cong cat canh. Xoa no o day = tu choi cat canh vinh vien
-        // (dung cai bay ma khoi comment "LUOI DO TREN MAT DAT" ben duoi mo ta).
+        // Nam sat san thi driver ngung cap mau hop le (TOFAGE bo len hang chuc giay
+        // trong khi TOFALIVE van dao). Khong xoa thi tof_vz_lpf_ms dong bang, va
+        // confirm_liftoff() tiem no vao vz -> do duoc -1.414 m/s ngay khi roi dat.
+        // KHONG dung toi tof_fusable: no giu ground_tof_alive -> cong cat canh.
         e->tof_vz_valid = false;
         e->tof_vz_ms = e->tof_vz_lpf_ms = 0.0f;
         // Khong co dao ham nao bac qua ranh gioi dat/khong: mau cuoi cung trong
@@ -871,43 +552,14 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
         e->prev_tof_vertical_valid = false;
         e->prev_tof_z_valid = false;
 
-        // ⚠ MOC HINH HOC: refresh khi NAM DAT, va chi o day.
-        // update_age() dung moc nay de bao degraded sau
-        // ALT_EST_NO_CORRECTION_DEGRADED_MS. Nhung tren mat dat Z bi KHOA = 0
-        // (xem ngay dau nhanh nay) — khong co tich phan nao dang chay thi khong
-        // co gi de "troi tu do", nen cau hoi degraded khong co nghia o day.
-        //
-        // Neu khong refresh: nam cho 8.4s -> moc cu 8400ms -> tick DAU TIEN
-        // sau khi AIRB=1 da thay "qua han 300ms" -> SOFT FAULT ngay khi vua
-        // roi dat, du ToF hoan toan binh thuong. Refresh o day cho moi chuyen
-        // bay bat dau voi tron ven ngan sach 300ms.
+        // Moc hinh hoc refresh khi nam dat: tren mat dat Z bi khoa = 0 nen khong co
+        // tich phan nao chay, cau hoi degraded vo nghia. Khong refresh thi nam cho
+        // lau roi cat canh se SOFT FAULT ngay tick dau.
         e->last_tof_geom_ok_us = now_us;
 
-        // ====================================================================
-        // LUOI DO TREN MAT DAT — CUNG NGUONG voi tren khong (xem update_age)
-        // ====================================================================
-        // TRUOC DAY: valid = tof_healthy, danh gia LAI moi tick, khong co do
-        // tre nao. Nghia la MOT mau ToF xau duy nhat -> valid=false ->
-        // commander thay alt_estimator_lost -> SOFT FAULT NGAY.
-        //
-        // Do la mot bat doi xung khong bien minh duoc: khi DANG BAY, cung su
-        // kien do duoc cho 100ms TRACKING + 220ms BRIDGE + 300ms LOST truoc khi
-        // bi coi la mat (update_age). Khi NAM DAT — dung luc motor vua len ga,
-        // rung manh nhat, va ToF dang o cu ly ngan nhat/kho doc nhat — thi
-        // KHONG duoc cho mot mili-giay nao.
-        //
-        // Hau qua da quan sat duoc: TAKEOFF vao PRIME, mot mau ToF loi giua
-        // chung, abort ngay. `range_status != 0` la chuyen BINH THUONG voi ToF
-        // (be mat hap thu, ngoai tam, anh nang) — chinh sensor_hub.h cung viet
-        // vay — nen bat mot mau lam huy ca lan cat canh la sai ban chat.
-        //
-        // Gio dung DUNG nguong ALT_EST_TOF_LOST_MS cua tren khong. KHONG noi
-        // hon: het 300ms ma van khong co mau fusable thi that su la mat ToF, va
-        // luc do tu choi cat canh moi la dung.
-        //
-        // last_tof_accept_us == 0 (chua TUNG co mau nao dung duoc) -> KHONG hop
-        // le, khong co gi de gia han. Do la truong hop ToF chet/khong hàn, phai
-        // chan cat canh.
+        // Luoi do tren mat dat dung CUNG nguong ALT_EST_TOF_LOST_MS voi tren khong.
+        // Truoc day mot mau ToF xau la valid=false ngay -> huy ca lan cat canh, trong
+        // khi range_status != 0 la chuyen BINH THUONG voi ToF.
         const bool ground_tof_alive =
             e->last_tof_accept_us != 0 &&
             ((now_us - e->last_tof_accept_us) / 1000) < (int64_t)ALT_EST_TOF_LOST_MS;
@@ -954,16 +606,9 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
         e->tof_track_state = ALT_TOF_TRACKING;
     } else if (tof_new) e->tof_reject_count++;
 
-    // ========================================================================
-    // ⚠ TRAN COAST -- alt_m KHONG duoc phep tich phan tu do vo han
-    // ========================================================================
-    // Xem ALT_EST_COAST_SNAP_MS trong header de biet vi sao. Tom tat: alt_m la
-    // trang thai co tri nho, va moi lan ToF ngung sua no thi no coast bang accel
-    // va GIU LAI sai so. Truong hop nang nhat la terr_offset_stale ket vinh vien
-    // (chi xoa khi COMMIT hoac rebase) -> alt_m troi het chuyen bay.
-    //
-    // Chi lam gi khi CHIP CON DO DUOC (last_tof_geom_ok_us con tuoi). ToF chet
-    // that thi khong co so do nao de ep ve, va duong degraded lo phan ha canh.
+    // TRAN COAST: alt_m la trang thai co tri nho, moi lan ToF ngung sua no thi no
+    // coast bang accel va GIU LAI sai so. Nang nhat la terr_offset_stale ket
+    // vinh vien -> alt_m troi tu do het chuyen bay. Xem ALT_EST_COAST_SNAP_MS.
     if (e->last_tof_accept_us && e->last_tof_geom_ok_us) {
         const int64_t coast_ms = (now_us - e->last_tof_accept_us) / 1000;
         const int64_t geom_ms  = (now_us - e->last_tof_geom_ok_us) / 1000;
@@ -971,20 +616,9 @@ void alt_estimator_update(alt_estimator_t *e, vec3f_t a, quat_t q,
             geom_ms  < (int64_t)ALT_EST_TOF_LOST_MS) {
 #if FC_FEATURE_TERRAIN_OFFSET
             if (e->terr_pending || e->terr_offset_stale) {
-                // ⚠ KHONG duoc ep alt_m = tof_z_m o day.
-                // tof_z_m = raw + terrain_off_m, ma dung luc nay terrain_off_m
-                // CHINH LA thu dang bi nghi ngo. Ep ve no = bom vao alt_m dung
-                // cu nhay gia ma terr_offset_stale sinh ra de chan (do duoc:
-                // TOFF_cu 0.693 + raw 1.01 = 1.70 vs alt_m 1.09 -> +0.61m).
-                //
-                // Thu DUNG duoc o day la NEO LAI: dat terrain_off theo alt_m
-                // hien tai. Sau vai tram ms coast, sai so tich phan chi co
-                // mili-met (bias 0.1 m/s^2 -> 400ms cho 0.008m), trong khi
-                // offset cu co the sai ca nua met. Tin cai chinh xac hon.
-                //
-                // Rebase lam tof_z_m == alt_m -> fusion chay lai NGAY va khong
-                // co buoc nhay nao. Day cung la loi thoat duy nhat pha duoc
-                // deadlock cua terr_offset_stale.
+                // KHONG ep alt_m = tof_z_m khi dang nghi ngo: tof_z_m = raw + terrain_off, ma
+                // terrain_off CHINH LA thu dang bi nghi ngo. Rebase thay vi snap -- sau 400ms
+                // coast sai so tich phan chi ~8mm, con offset cu co the sai ca nua met.
                 e->terrain_off_m = e->alt_m - e->tof_vertical_m;
                 e->terr_cand_offset_m = e->terrain_off_m;
                 e->terr_anchor_raw_m = e->tof_vertical_m;

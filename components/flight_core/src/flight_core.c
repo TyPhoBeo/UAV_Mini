@@ -229,30 +229,10 @@ static int     s_last_hold_throttle = 0;
 // 400ms = khớp SP_STALE_TIMEOUT_US, cùng lý do (xem tuning.h mục 6).
 #define BENCH_OFFSET_STALE_US   ((int64_t)400000)
 
-// Setpoint điều khiển bởi lệnh Python (xem apply_command()).
-// ---- Frame độ cao (alt_estimator.h alt_frame_t) — ĐỔI ĐƯỢC LÚC RUNTIME qua
-// fc.set_param("alt_frame", 0=DATUM | 1=AGL).
-//   DATUM = giữ độ cao so với SÀN cất cánh. Bay qua bàn thì khoảng hở GIẢM
-//           đúng bằng chiều cao bàn.
-//   AGL   = giữ KHOẢNG CÁCH so với bề mặt đang nhìn (terrain following). Bay
-//           qua bàn thì drone LEO LÊN đúng bằng chiều cao bàn.
-// KHÔNG reset trong reset_all_controllers(): đây là lựa chọn của người lái,
-// không phải state điều khiển.
-//
-// ⚠ MẶC ĐỊNH = DATUM, và đó là lựa chọn CÓ CHỦ Ý — xem mục "TARGET HIỆU DỤNG"
-// ngay dưới đây để hiểu vì sao terrain offset vẫn có nghĩa ở frame này.
-//
-//   Bay 1.5m, lên bàn 1.0m  ->  Z TUYỆT ĐỐI giữ nguyên 1.5m
-//                           ->  target hiệu dụng = 1.5 - 1.0 = 0.5m TRÊN BÀN
-//   Rời bàn (offset -> 0)   ->  target hiệu dụng về lại 1.5m, Z vẫn 1.5m
-//
-// Tức là drone KHÔNG lên không xuống khi qua vật thể — chỉ khoảng hở đổi.
-// Đó là ngữ nghĩa của "giữ độ cao": độ cao so với SÀN, một mốc cố định, chứ
-// không phải so với thứ tình cờ đang ở dưới bụng.
-//
-// AGL (terrain following) là hành vi NGƯỢC LẠI: bay lên bàn thì LEO THÊM đúng
-// chiều cao bàn để giữ khoảng hở. Có ích cho bay ngoài trời theo địa hình,
-// KHÔNG phải cái muốn khi bay trong nhà qua bàn ghế.
+// Frame do cao (alt_frame_t) -- doi duoc luc RUNTIME qua fc.set_param.
+//   DATUM = giu Z so voi SAN cat canh (mac dinh). Qua ban thi khoang ho GIAM.
+//   AGL   = giu KHOANG CACH voi be mat duoi (terrain following), qua ban thi LEO.
+// Doi frame khong giat ga: chi doi dai luong DO, cascade va vz_integral giu nguyen.
 static alt_frame_t s_alt_frame = ALT_FRAME_DATUM;
 
 // ---- D4: cửa sổ degrade khi mất nguồn Z giữa lúc HOLD ----
@@ -1486,46 +1466,8 @@ static void apply_command(const command_t *cmd, int64_t now_us) {
                 // Xem case CMD_ARM. Ly do: o ARM motor CHUA quay nen vbat do
                 // duoc la dien ap KHONG TAI — dung dai luong ma model can.
 
-                // KHÔNG calib baro ở đây nữa — mốc 0m đã được chốt lúc ARM
-                // (xem case CMD_ARM, nơi calib là BẮT BUỘC và ARM bị từ chối
-                // nếu thất bại). Bỏ đi có 2 cái lợi thật: (1) bấm takeoff phản
-                // hồi TỨC THÌ, không còn treo ~1s; (2) không còn khả năng
-                // reanchor làm valid=false đúng lúc chuẩn bị vào TKO_PRIME.
-                //
-                // Baro vẫn được dùng làm anchor correction trong estimator y
-                // như trước — chỗ này chỉ bỏ việc LẤY LẠI MỐC, không đụng gì
-                // tới fusion (xem alt_estimator.c).
-                //
-                // Thay bằng guard ĐỌC state: mốc chốt lúc ARM có thể đã hỏng
-                // trong khoảng ARM -> TAKEOFF (baro rớt khỏi bus, timeout mẫu
-                // mới...). Chặn NGAY LÚC BẤM còn hơn để nó cất cánh rồi bị
-                // Commander ép LANDING giữa chừng.
-                // ĐÒI ÍT NHẤT MỘT nguồn correction, KHÔNG đòi riêng baro.
-                // Bản trước hard-code `if (!s_baro_ok_driver) từ chối`, nghĩa là
-                // tắt baro thì KHÔNG BAO GIỜ cất cánh được dù ToF hoạt động tốt.
-                // Giờ ToF là nguồn correction đầy đủ (xem alt_estimator.h), nên
-                // điều kiện đúng là "có ít nhất một thứ sửa được trôi".
-                //
-                // ⚠ ToF-only là cấu hình BỊ GIỚI HẠN, không phải tương đương:
-                // ToF hết tầm trên ~1.8m và TỰ TẮT khi nhìn bề mặt khác (bàn/
-                // ghế). Lúc đó không còn nguồn nào -> Commander trip degraded
-                // sau ALT_EST_NO_CORRECTION_DEGRADED_MS -> LANDING. Cảnh báo rõ
-                // ở đây thay vì để người dùng phát hiện giữa không trung.
-                // ---- LẤY LẠI ground-ref ToF nếu lúc ARM chưa lấy được ----
-                // ARM chụp ground-ref bằng ĐÚNG MỘT mẫu snapshot. Với ToF chập
-                // chờn (mất rồi tự nối lại), nếu khoảnh khắc ARM rơi vào đúng
-                // cửa sổ mất mẫu thì tof_ground_ref_valid ở lại false VĨNH VIỄN
-                // — ARM vẫn báo thành công (chỉ log cảnh báo), rồi MỌI lệnh
-                // TAKEOFF sau đó bị từ chối NO_CORRECTION. Đường thoát duy nhất
-                // trước đây là disarm/arm lại cho tới khi trúng lúc ToF tỉnh,
-                // và người dùng không có cách nào biết vì sao.
-                //
-                // Ở đây drone vẫn đang nằm yên trên sàn (FSM_ARMED, chưa có lực
-                // nâng nào), nên đây là thời điểm lấy mốc sàn HỢP LỆ Y HỆT lúc
-                // ARM. Đọc từ snapshot của hub, KHÔNG chạm I2C, không block.
-                // FC_FEATURE_FLOOR_GATE=0 -> KHONG doi floor_ready nua (xem
-                // fc_features.h). Van doi s_tof_ok_driver: khong co ToF song
-                // thi khong co nguon Z nao ca, cat canh la bay mu hoan toan.
+                // KHONG calib baro o day: moc 0m da chot luc ARM. Calib lai giua chung se
+                // dich goc toa do trong khi estimator dang chay -> buoc nhay Z gia.
 #if FC_FEATURE_FLOOR_GATE
                 const bool has_tof_src = s_tof_ok_driver && alt_estimator_floor_ready(&s_alt_est);
 #else
@@ -2427,79 +2369,18 @@ static void stabilize_task(void *arg) {
         }
         if (imu.ok) s_last_imu_temp_c = imu.temp_c;   // xem telemetry.imu_temp_c + calib gyro log
 
-        // ToF hướng xuống — GIỜ ĐẾN TỪ SNAPSHOT THẬT.
-        // TRƯỚC ĐÂY dòng này là `tof_reading_t tof = {0}` hardcode: phần cứng
-        // được init lúc boot nhưng sensor_hub KHÔNG hề đọc nó, nên telemetry
-        // luôn báo 0 và estimator không có gì để dùng. Đó là lý do bật
-        // SENSOR_TOF_ENABLED=1 một mình không đủ.
-        //
-        // tof_healthy_for_alt = "cảm biến còn sống, mẫu chưa quá hạn" — CHỈ sức
-        // khoẻ. Việc phân biệt "mẫu này có MỚI không" do alt_estimator tự làm
-        // bằng seq (ToF ~30Hz vs estimator 250Hz), giống hệt baro.
-        //
-        // ⚠ TÍNH THUẦN BẰNG TUỔI, CỐ Ý KHÔNG ĐỌC snap.tof_h.valid.
-        //
-        // sensor_hub.h (mục SENSOR_TOF_STALE_US) đã luôn nói ý định là: "200ms
-        // = ~6 mẫu bị mất mới coi là stale — đủ rộng cho vài lần range_status
-        // lỗi (bề mặt hấp thụ/ngoài tầm là chuyện BÌNH THƯỜNG với ToF, không
-        // phải hỏng cảm biến)". Nhưng nó CHƯA BAO GIỜ được hiện thực: mark_err()
-        // đặt tof_h.valid = false ngay từ MẪU XẤU ĐẦU TIÊN, nên vế `&&
-        // tof_h.valid` làm điều kiện false trước khi vế tuổi kịp có ý nghĩa.
-        // Cửa sổ 200ms là code chết — nó chỉ có thể làm điều kiện CHẶT HƠN,
-        // chưa bao giờ nới ra như đã hứa.
-        //
-        // Hậu quả thật: một mẫu ToF xấu trong lúc TAKING_OFF/PRIME -> estimator
-        // invalid -> Commander soft-fault -> huỷ cất cánh. Xem thêm khối "LUOI
-        // DO TREN MAT DAT" trong alt_estimator.c.
-        //
-        // AN TOÀN vì mark_err() KHÔNG tăng seq và KHÔNG dời timestamp:
-        //   - timestamp chỉ nhích khi có mẫu TỐT -> tuổi ở đây đúng nghĩa
-        //     "bao lâu rồi chưa có mẫu dùng được". Cảm biến chết thật thì tuổi
-        //     cứ tăng và sau 200ms vẫn thành false, đúng như trước.
-        //   - seq đứng yên -> alt_estimator thấy tof_new = false -> KHÔNG
-        //     correction lại trên mẫu cũ (xem publish_tof() trong sensor_hub.c).
-        //     Đây là điều kiện làm cho việc nới lỏng này không tạo ra rủi ro
-        //     "kéo Z nhiều lần bằng cùng một measurement".
-        //   - chưa từng có mẫu tốt nào -> seq vẫn 0 -> sensor_hub_age_us() trả
-        //     INT64_MAX -> luôn > 200ms -> false. Không cần guard riêng. Đây
-        //     cũng là đường bảo vệ khi ToF bị tắt/không init được: hub không
-        //     publish lần nào nên seq đứng ở 0 vĩnh viễn.
+        // ToF huong xuong den tu snapshot sensor_hub (khong doc I2C trong vong dieu
+        // khien). tof_healthy_for_alt = mau con dung duoc; tof_hw_alive = chip con do.
         const tof_reading_t tof = snap.tof;
         const int64_t tof_age_us = sensor_hub_age_us(&snap.tof_h, now_us);
-        // tof_hw_alive = CHIP CON DANG DO, khac han tof_healthy_for_alt.
-        //
-        // VI SAO CAN RIENG: tof_h.timestamp_us chi nhich khi co mau HOP LE.
-        // Dat drone xuong san thi ToF doc 0mm (duoi tam mu ~4cm cua L1X) ->
-        // khong mau nao hop le -> tuoi tang vo han -> estimator ket luan
-        // "mat ToF" -> Commander soft-fault. Tuc la chi can de drone nam dat
-        // du lau la firmware tu bao hong cam bien.
-        //
-        // tof_alive_us den tu tof_driver_last_sample_us(): moc lan cuoi MCU
-        // doc TRON VEN mot ket qua tu chip, bat ke ket qua do co hop le hay
-        // khong. Nam sat san / ngoai tam -> van nhich. Chip chet / bus dut ->
-        // dung yen.
-        //
-        // Nguong dung DUNG ALT_EST_TOF_LOST_MS cua estimator, khong dat hang
-        // so moi: hai ben dang tra loi cung mot cau hoi "bao lau thi coi la mat".
+        // tof_hw_alive KHAC HAN tof_healthy: chip van do nhung mau co the ngoai tam,
+        // be mat hap thu, hay sat san. Chi "chip im" moi la loi that.
         const bool tof_hw_alive =
             snap.tof_alive_us != 0 &&
             (now_us - snap.tof_alive_us) <= (int64_t)ALT_EST_TOF_LOST_MS * 1000;
 
-        // ⚠ DUNG tof_hw_alive, KHONG dung tuoi mau hop le.
-        //
-        // Ban truoc: (tof_age_us <= SENSOR_TOF_STALE_US), tuc la hoi "bao lau
-        // roi chua co mau HOP LE". Nam sat san thi ToF doc 0.000m -> khong mau
-        // nao hop le -> tuoi tang vo han -> bien nay false VINH VIEN, trong khi
-        // chip van do deu. Hau qua day chuyen:
-        //   - neo target trong FLYING bi chan (dieu kien && tof_healthy_for_alt)
-        //   - takeoff_run() nhan alt_source_ok = false
-        //   - GUI hien "ToF LOI: mau STALE"
-        // Day chinh la "dieu kien ToF cu" con sot lai sau khi update_age() da
-        // chuyen sang mo hinh chi-hoi-chip-con-do.
-        //
-        // GIO: chip con tieu thu duoc ket qua = con dung duoc. Con mau do co
-        // FUSE duoc khong la cau hoi RIENG, do s_alt_est.tof_fusable tra loi —
-        // va moi cho dung bien nay deu da AND them tof_fusable san.
+        // Dung tof_hw_alive, KHONG dung tuoi mau hop le: nam sat san / nhin ra khoang
+        // khong deu lam tuoi mau tang vo han trong khi cam bien hoan toan lanh.
         const bool tof_healthy_for_alt = tof_hw_alive;
 
 
@@ -3764,40 +3645,10 @@ static void stabilize_task(void *arg) {
                 // chạy lại tầng trong (xem các khối ghi đè bên dưới).
                 const float vz_i_before = s_hold_state.vz_integral;
 
-                // ---- FLYING: TẮT PID ĐỘ CAO, GIỮ NGUYÊN MỌI THỨ KHÁC ----
-                // Xem s_flying_throttle_latch (đầu file) để biết lý do đầy đủ.
-                //
-                // Latch được CHỐT ở tick ĐẦU TIÊN vào FLYING, lấy đúng duty mà
-                // alt_hold đang xuất — nên chuyển HOLDING->FLYING không có bước
-                // nhảy ga nào. Từ đó throttle đứng yên; chỉ W/S mới đổi được.
-                //
-                // I-term của vòng Vz được GIỮ NGUYÊN (không reset, không chạy):
-                // nó chứa lượng ga hover đã học được: khi thả phím nghiêng về
-                // HOLDING, alt_hold nhận lại với đúng I đó nên không phải học
-                // lại từ đầu. Reset ở đây sẽ gây tụt ga ngay lúc vừa về HOLD.
-                // ====================================================================
-                // FLYING KHONG CON TAT PID DO CAO  (FLYING_DISABLES_ALT_PID = 0)
-                // ====================================================================
-                // LY DO DOI — do duoc khi bay thu: trong FLYING, nghieng de bay
-                // ngang thi drone LUON co xu huong TUT do cao. Dung, vi thanh
-                // phan thang dung cua luc day giam theo cos(tilt) va khong co
-                // vong nao keo lai: tang ngoai bi tat, latch thi dung yen.
-                //
-                // Ly do CU de tat tang ngoai la "range nhay khi bay qua vat the".
-                // Nhung viec do gio da co LOP TERRAIN xu ly ngay trong estimator
-                // (terr_pending/commit, xem alt_estimator.c): alt_m da LIEN TUC
-                // xuyen qua bac dia hinh, nen tang ngoai KHONG con nhin thay cu
-                // nhay nao de ma phan ung sai. Tat no nua la vua thua vua co hai.
-                //
-                // GIO: FLYING chay y het HOLDING — ca hai tang cascade deu chay,
-                // PID giu do cao lien tuc, ToF van la nguon do cao chuan.
-                // Bu cos(tilt) cho throttle (TILT_COMP_*) lo phan feedforward,
-                // I-term lo phan con lai.
-                //
-                // ⚠ GIU LAI CO BIEN DICH thay vi xoa han khoi code: neu lop
-                // terrain to ra khong du tin khi bay thuc, dat co nay = 1 la quay
-                // ve hanh vi cu NGAY, khong phai revert mot dong code nao.
-                // Toan bo nhanh ben duoi la dead code khi co = 0 (compiler tu cat).
+                // FLYING KHONG con tat PID do cao (FLYING_DISABLES_ALT_PID = 0). Ly do doi:
+                // nghieng de bay ngang lam thanh phan thang dung cua luc day giam theo
+                // cos(tilt), tang ngoai bi tat thi khong co vong nao keo lai -> luon tut.
+                // Giu co bien dich de quay ve hanh vi cu ngay neu can.
 #ifndef FLYING_DISABLES_ALT_PID
 #define FLYING_DISABLES_ALT_PID 0
 #endif
@@ -3878,38 +3729,9 @@ static void stabilize_task(void *arg) {
                     hr.vz_target_ms = 0.0f;
                     alt_target_vz_ms = 0.0f;
 
-                    // ============================================================
-                    // W/S TRONG FLYING = OFFSET TAM THOI, KHONG CONG DON
-                    // ============================================================
-                    // Giu phim -> throttle = ga nen + 100. Nha phim -> ga nen.
-                    // Het. Do la toan bo hop dong.
-                    //
-                    // ⚠ BAN TRUOC CONG DON VAO LATCH va do la mot loi THAT, da
-                    // do duoc tren log bay:
-                    //     THR=999 -> 999 -> 1799 -> 2000 -> 2000 (MHR=0)
-                    //     THRCORR=-1 -> -1 -> 799 -> 1000 -> 1000
-                    // GUI gui keepalive moi 100ms khi giu phim (khong the khong
-                    // gui: co watchdog BENCH_OFFSET_STALE_US phia firmware). Moi
-                    // goi cong them 100 vao latch -> 5 lan la +500 -> kich tran
-                    // MOTOR_SAFE_MAX_DUTY va O NGUYEN DO sau khi nha phim, vi
-                    // latch la trang thai BEN VUNG. Drone vot len khong phanh.
-                    //
-                    // Ban chat: keepalive la co che GIU LENH SONG, khong phai
-                    // mot lenh MOI. Doc no nhu lenh moi la dem so lan lap lai
-                    // cua cung mot y dinh.
-                    //
-                    // GIO: latch giu nguyen la GA NEN, offset chi cong vao
-                    // throttle cua TICK NAY. Nha phim -> s_bench_throttle_offset
-                    // ve 0 (GUI gui, va firmware co watchdog stale rieng) ->
-                    // throttle tu dong tro lai dung ga nen.
-                    // ⚠ THU TU O DAY LA MOT PHAN CUA HOP DONG, KHONG DOI DUOC.
-                    // Offset W/S phai cong vao SAU khi s_flying_throttle_latch
-                    // da duoc ghi tu output cascade (ngay tren). Neu cong TRUOC
-                    // thi tick sau cascade se coi ga-co-offset la ga nen va
-                    // cong tiep -> chinh la loi cong don da do duoc tren log:
-                    //     THR=999 -> 1799 -> 2000 (giu nguyen sau khi nha phim)
-                    // GUI gui keepalive moi 100ms nen moi goi lai cong them mot
-                    // lan nua. Keepalive la "GIU lenh song", khong phai lenh MOI.
+                    // W/S = cong THANG offset duty vao throttle (theo yeu cau nguoi dung), thay vi
+                    // dich lenh van toc. Danh doi: "+100 duty" khong co don vi vat ly nen cung
+                    // phim cho toc do leo khac nhau tuy pin -- nguoi lai tu dieu tiet bang mat.
                     if (s_bench_throttle_offset != 0) {
                         int ws_duty = s_bench_throttle_offset;
                         const float fly_alt_max = commander_clamp_altitude(&s_cmd_cfg, s_cmd_cfg.alt_max_m);
@@ -3932,27 +3754,8 @@ static void stabilize_task(void *arg) {
                         // do cao cu khi nha -- tuc W/S khong con tac dung gi.
                         // Nen KHONG freeze.
                     }
-                    // ============================================================
-                    // NEO TARGET BẰNG SỐ ĐO ToF TƯƠI (yêu cầu người dùng)
-                    // ============================================================
-                    // Mỗi tick trong FLYING, chốt lại target = độ cao ToF ĐANG
-                    // ĐỌC ĐƯỢC. Thả phím nghiêng -> HOLDING nhận đúng con số vừa
-                    // chốt và giữ NGAY tại đó; không vút lên vì một target cũ.
-                    //
-                    // VÌ SAO ToF TƯƠI chứ không phải s_alt_est.alt_m:
-                    // trong FLYING drone nghiêng để bay ngang, và alt_m là giá
-                    // trị ƯỚC LƯỢNG — khi ToF tạm không fusable nó COAST bằng
-                    // tích phân accel và TRÔI. Neo vào một số đang trôi nghĩa là
-                    // vừa thả phím đã giữ sai độ cao, rồi khi ToF bắt lại thì
-                    // alt_m nhảy về số thật còn target thì không -> drone chạy đi
-                    // sửa một sai lệch do chính cái neo tạo ra.
-                    //
-                    // tof_z_m là số đo ToF đã bù tilt + slew-limit (alt_estimator),
-                    // tức là "mặt đất đang thật sự cách bao xa" — đúng thứ cần neo.
-                    //
-                    // ⚠ CHỈ neo khi ToF ĐANG DÙNG ĐƯỢC. Mất ToF giữa lúc bay
-                    // ngang mà vẫn neo thì sẽ chốt vào một giá trị chết; lúc đó
-                    // GIỮ NGUYÊN target của tick trước là đúng hơn.
+                    // Vong Vz SE chong lai offset nay va do la CO Y: tha phim thi I da hoc lai
+                    // dung ga hover moi, khong co buoc nhay khi ve HOLDING.
                     if (s_alt_est.tof_fusable && tof_healthy_for_alt) {
                         s_alt_target_m = commander_clamp_altitude(&s_cmd_cfg,
                                                                    s_alt_est.tof_z_m);
@@ -3993,27 +3796,9 @@ static void stabilize_task(void *arg) {
                 }
                 hold_integral_freeze = false;   // ngoài takeoff, prime_done luôn true
 
-                // ---- W/S = CỘNG THẲNG ±offset DUTY vào throttle ----
-                // (THEO YÊU CẦU NGƯỜI DÙNG — trước đây chỗ này dịch offset
-                //  thành lệnh vận tốc ALT_HOLD_WS_VZ_MS; xem tuning.h mục
-                //  "W/S" để biết đánh đổi.)
-                //
-                // Ý nghĩa giờ ĐỒNG NHẤT ở mọi state: giá trị trên dây LÀ duty.
-                // BENCH_RAMP đã luôn hiểu vậy (bước 9 case FSM_BENCH_RAMP), giờ
-                // HOLDING/FLYING cũng vậy — một con số, một nghĩa.
-                //
-                // ⚠ ĐÁNH ĐỔI ĐÃ BIẾT VÀ CHẤP NHẬN:
-                //   - "+100 duty" KHÔNG có đơn vị vật lý: cùng phím cho tốc độ
-                //     leo khác nhau tuỳ pin (hover ~900 duty @4.2V so với ~1350
-                //     @3.6V). Pin cạn thì cùng +100 sẽ leo chậm hơn rõ rệt.
-                //   - Người lái phải TỰ điều tiết bằng mắt, không còn được vòng
-                //     Vz bù giúp.
-                //
-                // Chỉ can thiệp khi alt_hold ĐANG thật sự lái throttle
-                // (hold_driving). Mất estimator/nghiêng quá thì alt_hold đã trả
-                // manual throttle và Commander đang xử lý soft fault — chồng
-                // thêm lệnh người dùng vào lúc đó là làm nhiễu một quy trình an
-                // toàn đang chạy.
+                // Chi can thiep khi alt_hold DANG that su lai throttle (hold_driving). Mat
+                // estimator/nghieng qua thi Commander dang xu ly soft-fault -- chong them
+                // lenh nguoi dung vao luc do la lam nhieu mot quy trinh an toan dang chay.
                 if (s_bench_throttle_offset != 0 && hr.hold_driving) {
                     // (1) ĐÓNG BĂNG I — BẮT BUỘC, không phải tuỳ chọn.
                     //     alt_hold giữ độ cao bằng I-term. Cộng +100 duty vào
@@ -4047,41 +3832,16 @@ static void stabilize_task(void *arg) {
                     s_alt_request_m = s_alt_target_m;
                 }
 #if FC_FEATURE_TERRAIN_OFFSET
-                // ---- B8: GUARD KHOẢNG HỞ TỐI THIỂU — LƯỚI AN TOÀN CUỐI ----
-                // Chạy SAU mọi đường tính throttle ở trên (kể cả W/S) vì nó
-                // phải THẮNG tất cả: dù logic offset có sai, dù người lái đang
-                // giữ S, drone vẫn không được cắm xuống mặt bàn.
-                //
-                // Hai việc, và thứ tự KHÔNG đổi được:
-                //   1. ÉP LEO: vz_target = max(lệnh hiện tại, TERR_ESCAPE_VZ)
-                //      — bất kể frame nào đang chọn.
-                //   2. REBASE terrain_off_m theo range thật -> AGL khớp lại với
-                //      cái đang thật sự ở dưới, thay vì để controller đánh nhau
-                //      với một model terrain đã sai. Chỉ rebase ở CẠNH LÊN của
-                //      guard: rebase mỗi tick sẽ làm terr_commit_count chạy
-                //      loạn và landing tưởng có bậc địa hình mới liên tục.
-                // hold_driving HOẶC flying_no_alt_pid: ở FLYING ta cố ý đặt
-                // hold_driving=false (alt_hold không lái throttle nữa), nhưng
-                // guard khoảng hở PHẢI VẪN CHẠY. Nó là lưới an toàn chống cắm
-                // xuống đất — thứ cần nhất ĐÚNG LÚC đang bay ngang về phía một
-                // vật cản, chứ không phải lúc treo yên một chỗ. Chỉ kiểm
-                // hold_driving thôi là vô hiệu hoá guard trong toàn bộ FLYING.
+                // B8: GUARD KHOANG HO TOI THIEU -- luoi an toan CUOI chong cam xuong dat.
+                // Chay ca o FLYING (hold_driving=false o do): can nhat DUNG LUC dang bay
+                // ngang ve phia vat can, khong phai luc treo yen mot cho.
                 const bool clearance_low = (hr.hold_driving || flying_no_alt_pid) &&
                                             s_alt_est.tof_fusable &&
                                             agl_now_m < TERR_MIN_CLEARANCE_M;
                 if (clearance_low) {
-                    // ⚠ HOAN TAC I -- CHI o nhanh HOLDING, KHONG o FLYING.
-                    // vz_i_before duoc chup TRUOC khoi tinh throttle. O HOLDING
-                    // no dung: alt_hold_run() da tich phan mot lan, guard sap
-                    // tich phan lan nua tren CUNG mot tick -> phai tra ve moc
-                    // cu de khong dem hai lan.
-                    //
-                    // O FLYING thi NGUOC LAI: tu Phase A, vong Vz chay ngay
-                    // trong nhanh FLYING va vz_integral luc nay CHINH LA trang
-                    // thai da hoc cua no (nap bumpless o tick dau, roi tu chinh
-                    // dan). Ghi de bang vz_i_before se vut bo dung cai do va ep
-                    // vong Vz hoc lai tu dau MOI TICK guard con kich hoat --
-                    // tuc la lam te di dung luc dang sap va cham.
+                    // Hoan tac I CHI o nhanh HOLDING. O FLYING vz_integral la trang thai da hoc
+                    // cua vong Vz; ghi de se ep no hoc lai tu dau moi tick guard con kich hoat
+                    // -- tuc lam te di dung luc sap va cham.
                     if (!flying_no_alt_pid) {
                         s_hold_state.vz_integral = vz_i_before;
                     }
@@ -4106,20 +3866,10 @@ static void stabilize_task(void *arg) {
                     // này — nếu không thì tick sau latch cũ (thấp) ghi đè lại và
                     // guard chỉ có tác dụng đúng một tick, drone vẫn cắm xuống.
                     if (flying_no_alt_pid) {
-                        // ⚠ TRAN TOC DO TANG GA — day chinh la cho da gay loi.
-                        // Bay o ~23cm (duoi TERR_MIN_CLEARANCE_M=25cm) thi guard
-                        // kich hoat MOI TICK, va moi tick deu ghi de latch:
-                        //     THR=995 -> 995 -> 1095 -> 1995 -> 2000 (kich tran)
-                        // +900 duty trong MOT tick 5ms. Guard duoc phep ep leo,
-                        // nhung khong duoc phep nhay bac nhu vay.
-                        //
-                        // Chi chan chieu TANG. Guard ha ga (vd vua thoat xong)
-                        // van duoc ve ngay: chan chieu giam la tao che do hong moi.
-                        // ⚠ TICH LUY PHAN LE, KHONG duoc (int) thang.
-                        // dt = 4ms -> 150 * 0.004 = 0.6 -> (int) = 0 -> rise_cap
-                        // = latch -> ga KHONG BAO GIO tang duoc, tuc la vo hieu
-                        // hoa hoan toan guard chong va cham. Mot tran toc do lai
-                        // bien thanh mot cai khoa cung, va no im lang.
+                        // TRAN TOC DO TANG GA. Bay o ~23cm thi guard kich hoat MOI TICK va moi tick
+                        // deu ghi de latch: 995 -> 1095 -> 1995 -> 2000 trong mot tick 5ms.
+                        // ⚠ Tich luy PHAN LE: dt=4ms -> 150*0.004 = 0.6 -> (int) = 0 -> ga KHONG
+                        // BAO GIO tang duoc, tuc vo hieu hoa hoan toan guard chong va cham.
                         s_flying_rise_credit += THROTTLE_MAX_RISE_DUTY_PER_S * dt;
                         const int rise_cap = s_flying_throttle_latch +
                             (int)s_flying_rise_credit;
@@ -4207,49 +3957,9 @@ static void stabilize_task(void *arg) {
                 break;
         }
 
-        // ---- 9b) (ĐÃ BỎ) bù throttle theo điện áp pin ----
-        // TRƯỚC ĐÂY: throttle_cmd *= clamp(NOMINAL_V / battery_v, 1.0, MAX_GAIN).
-        // GIỜ: KHÔNG nhân gì cả. throttle_cmd đi thẳng từ bước (9) vào mixer.
-        //
-        // VÌ SAO BỎ (yêu cầu người dùng, và nó đúng về mặt điều khiển):
-        // VBAT đo được KHÔNG phải chỉ là "mức pin còn lại" — nó tụt theo TẢI
-        // TỨC THÌ. Ngay khi UAV nhấc lên, 4 motor rút dòng lớn, sụt áp trên nội
-        // trở pin + dây làm VBAT đo được giảm mạnh dù pin còn đầy. Nhân throttle
-        // theo con số đó tạo ra một VÒNG PHẢN HỒI DƯƠNG ký sinh, nằm NGOÀI mọi
-        // vòng PID đã tune:
-        //     ga lên -> dòng tăng -> VBAT đo giảm -> comp tăng -> ga lên nữa...
-        // Nó cũng phá alt_hold: alt_hold xuất ra một duty đã tính toán, rồi bị
-        // một hệ số lạ nhân vào sau lưng nên duty THỰC không còn là duty PID
-        // yêu cầu — mọi gain tune ở bench đều sai khi bay thật. Bằng chứng đo
-        // được từ log bench: BATV dao động 3.51..3.82V trong VÀI GIÂY ở tải gần
-        // như không đổi -> comp nhảy 1.10..1.20, tức nhiễu áp được KHUẾCH ĐẠI
-        // thẳng vào throttle.
-        //
-        // battery_v VẪN được dùng cho FAILSAFE (Commander: pin dưới sàn ->
-        // LANDING, xem commander.c) và prearm_check() — đó là dùng ĐÚNG: so
-        // ngưỡng, không nhân vào đường điều khiển.
-        //
-        // base_throttle_duty giữ lại (giờ == throttle_cmd) vì telemetry BTHR=
-        // và GUI vẫn đọc; battery_comp giữ hằng 1.0 cho field BCOMP= để dòng
-        // STATUS không đổi format (GUI cũ khỏi vỡ regex, xem telemetry_format.c).
-        // ====================================================================
-        // PHASE E3: BU cos(tilt) -- FEEDFORWARD, chay TRUOC khi chot base
-        // ====================================================================
-        // Xem tuning.h muc "PHASE E3" de biet ly do va bang so.
-        //
-        // rzz = phan tu (3,3) cua ma tran xoay = cos cua goc giua truc Z than
-        // va truc Z the gioi -- chinh la cos(tilt) tong hop cua ca roll lan
-        // pitch. Lay TRUC TIEP tu quaternion, khong phai cosf(roll)*cosf(pitch)
-        // (cong thuc do chi dung khi mot trong hai goc bang 0, va no goi 2 ham
-        // luong giac trong vong dieu khien 250Hz).
-        //
-        // alt_estimator da tinh dung bieu thuc nay moi tick cho ToF -- dung lai
-        // de khong tinh hai lan va khong the lech nhau.
-        //
-        // ⚠ CHI BU KHI DANG THUC SU LAI DONG CO. throttle_cmd == 0 nghia la
-        // disarmed / landing cutoff / abort -- nhan 1.02 vao 0 van la 0 nhung
-        // de ro dieu kien de khong ai vo tinh lam no "hoi sinh" ga bang mot
-        // thay doi sau nay.
+        // Bu throttle theo dien ap pin DA BO HAN. No tao vong hoi tiep duong: pin sut
+        // -> tang ga -> rut dong manh hon -> sut them. battery_comp giu = 1.000 tren
+        // wire de GUI/log cu khong vo regex.
 #if TILT_COMP_ENABLED
         if (throttle_cmd > 0) {
             const float tilt_cos = s_alt_est.tilt_cos;

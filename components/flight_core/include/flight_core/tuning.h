@@ -82,30 +82,12 @@ extern "C" {
 // Ga tối thiểu để PID attitude chạy (dưới ngưỡng: 4 motor quay đều, không PID).
 #define ATT_MIN_THROTTLE_DUTY       200
 
-// Ga tối thiểu để I-term (Ki) ĐƯỢC CỘNG DỒN. Dưới ngưỡng này integrator bị
-// FREEZE (giữ nguyên, KHÔNG reset — khác ATT_MIN_THROTTLE_DUTY ở trên vốn
-// reset SẠCH cả 6 bộ khi bỏ qua PID hoàn toàn).
-//
-// VÌ SAO TÁCH RIÊNG khỏi ATT_MIN_THROTTLE_DUTY dù mặc định TRÙNG GIÁ TRỊ:
-// hai cái trả lời hai câu hỏi khác nhau — "có chạy PID không" (dưới ngưỡng thì
-// 4 motor quay đều, không có gì để ổn định) so với "có được TÍCH LŨY sai số
-// không" (ga thấp thì lực đẩy chưa đủ tạo mô-men sửa, error tồn tại nhưng
-// motor KHÔNG thể khử được -> tích lũy chỉ tạo windup, bung ra lúc ga lên).
-// Tách ra để nâng riêng ngưỡng Ki (vd 200 -> 400) khi tune mà KHÔNG đụng tới
-// ngưỡng chạy PID.
+// Nguong ga toi thieu de I-term attitude duoc cong don. Duoi muc nay motor
+// chua du luc, cong I chi tao windup.
 #define ATT_I_ENABLE_THROTTLE_DUTY  500
 
-// Trần collective (tỷ lệ của MOTOR_SAFE_MAX_DUTY) mà BÙ PIN được phép đẩy tới.
-// Phần còn lại (1 - giá trị này) là dải duty chừa cho mixer tạo mô-men roll/
-// pitch/yaw. 0.85 = chừa ~15% (~300 duty trên thang 2000).
-//
-// VÌ SAO: bù pin nhân throttle lên để giữ lực đẩy khi pin sụt. Nếu nó đẩy
-// collective lên 95-100%, cả 4 motor gần kịch trần và mixer KHÔNG CÒN dải nào
-// để một motor tăng thêm — drone "đủ ga" nhưng MẤT LÁI. Đổi lại là tụt độ cao
-// vài cm, sửa được; mất lái thì không.
-//
-// CHỈ chặn phần TĂNG do bù pin. Lệnh ga chủ động của tầng trên (pha PRIME cần
-// đúng TAKEOFF_PRIME_DUTY) KHÔNG bị trần này chặn — xem flight_core.c 9b.
+// Tran collective cho PID attitude con headroom. Vuot qua thi mixer bao hoa
+// va drone mat kha nang giu thang bang o dung luc dang can nhat.
 #define ATT_MAX_COLLECTIVE_FRACTION 0.85f
 
 // D-term LPF cutoff (Hz), dùng chung mọi vòng PID: xem PID_D_LPF_HZ trong
@@ -117,92 +99,19 @@ extern "C" {
 // ============================================================================
 
 #define ALT_HOLD_ALT_KP             1.0f     // alt_err -> vz_target [1/s]
-// VZ_KP/KI/ILIMIT map vz_err(m/s) -> DUTY -> đã nhân đôi theo thang 2000.
-//
-// ---- VÌ SAO KHÔNG CÓ Kd Ở VÒNG NÀY (câu trả lời cho "đề xuất PID cho Vz") ----
-// Vòng này là PI có chủ đích, KHÔNG phải PID thiếu sót.
-//   - vz ĐÃ LÀ đạo hàm của độ cao. Thêm D nghĩa là đạo hàm bậc hai của một tín
-//     hiệu vốn đã nhiễu: ToF lượng tử ~1mm ở 31.25Hz, qua alpha-beta ra vz, rồi
-//     đạo hàm ở 250Hz -> khuếch đại nhiễu thẳng vào duty, motor rít, không thêm
-//     được thông tin nào.
-//   - Thứ mà D lẽ ra làm (giảm vọt lố) ở kiến trúc này do TẦNG NGOÀI làm:
-//     vz_target = alt_kp*alt_err bị kẹp bởi TAKEOFF_MAX_CLIMB_MS. Đó mới là
-//     chỗ chỉnh vọt lố, không phải Kd.
-//   - Đã mô phỏng Kd = 15 và 30 trên plant có trễ: thời gian vào HOLD 6.42s ->
-//     6.30s/6.22s, tức là nằm trong sai số của model. Không đáng đổi lấy nhiễu.
-// Nếu sau này VẪN vọt sau khi đã hạ MAX_CLIMB: hạ ALT_HOLD_ALT_KP trước, rồi
-// mới nghĩ tới D (và phải kèm LPF như PID_D_LPF_HZ bên attitude).
-//
-// ---- Kp/Ki: vì sao đổi ----
-// Ki 200 -> 400. Ki là thứ HỌC ra hover thật (hover_ff chỉ là ước lượng thô),
-// nên nó quyết định bao lâu drone mới bám đúng tốc độ leo yêu cầu.
-// Bằng chứng, KHÔNG phải cảm tính:
-//   - python/test_takeoff_flow_offline.py case C3 ĐANG ĐỎ với Ki=200: leo thật
-//     0.22 m/s trong khi lệnh 0.50 m/s.
-//   - Mô phỏng (plant có trễ, target 1.0m, hover lệch +150 duty):
-//       Ki=200 -> vào HOLD sau 7.54s ; Ki=400 -> 6.27s
-//     và khi hover lệch NHIỀU hơn (+300 duty):
-//       Ki=200 -> 10.25s ; Ki=400 -> 7.83s
-// Kp GIỮ NGUYÊN 100. Tôi đã thử nâng lên 150 và ĐO LẠI cho thấy nâng Kp làm
-// TỆ ĐI, không phải tốt lên — tốc độ leo trung bình (test C3, target 0.45m):
-//     Kp=100 -> 0.28 m/s   Kp=150 -> 0.24 m/s   Kp=200 -> 0.21 m/s
-// trong khi vọt lố gần như không đổi (-5.3% / -4.3% / -4.1%).
-// Cơ chế: P dập sai số vz nhanh, nên sai số còn lại cho I nhỏ đi, nên I học
-// hover THẬT chậm hơn — mà chính I mới là thứ quyết định drone có bám nổi tốc
-// độ leo hay không. Nâng Kp là mua một chút phản ứng tức thời bằng cách làm
-// chậm đúng cái vòng đang giới hạn hiệu năng.
-//
-// ⚠ SỐ NÀY CHƯA ĐO TRÊN PHẦN CỨNG THẬT. Plant mô phỏng không có rung
-// động cơ, không có hiệu ứng mặt đất, không có sụt áp pin. Bay thử phải THÁO
-// CÁNH/giữ trên giá trước, xem `status` (vz_i, throttle) có mượt không.
+// Cascade do cao: tang NGOAI (alt_kp) ra vz_target, tang TRONG (vz_kp/ki) ra
+// throttle. vz_target bi kep boi ALT_HOLD_VZ_LIMIT_MS nen P chi dong gop toi
+// da vz_kp*0.25 = 50 duty -- phan con lai deu den tu I.
 #define ALT_HOLD_VZ_KP              200.0f
 #define ALT_HOLD_VZ_KI              400.0f
 #define ALT_HOLD_VZ_ILIMIT          500.0f
-// ============================================================================
-// hover_ff DÙNG TỪ HOLDING TRỞ ĐI — feed-forward của cascade độ cao
-// ============================================================================
-// Cascade là:  output = hover + I   (alt_hold.c). PID KHÔNG tạo ra toàn bộ ga
-// hover — nó chỉ sửa phần SAI LỆCH quanh số này. Đặt sai thì I-term phải gánh
-// phần chênh, và với ALT_HOLD_VZ_KI hiện tại (~10 duty/s hiệu dụng) mỗi 100
-// duty lệch là ~10 GIÂY drone bò lên tới đúng ga.
-//
-// VÒNG ĐỜI CỦA s_hold_tune.hover TRONG MỘT CHUYẾN BAY:
-//   ARM      -> latch theo pin (hover_model.h), vd 1219 @3.74V
-//   TAKEOFF  -> vẫn dùng latch (PRIME/CLIMB chưa có sai số Z để I học)
-//   HANDOFF  -> TRẢ VỀ hằng số này, ĐÚNG MỘT LẦN, có bù ngược vào I
-//   HOLDING/FLYING/LANDING -> ĐỨNG YÊN, không đường nào đọc pin nữa
-// Pin tụt trong lúc bay do I-term bù, KHÔNG phải do đổi hover.
-//
-// NÂNG 1000 -> 1200 (yêu cầu người dùng), và đây là con số ĐO ĐƯỢC chứ không
-// phải đoán: log bay thật cho ga giữ độ cao ~1170-1227 duty. Đặt hằng số gần
-// đúng ga hover thật làm `delta` lúc bàn giao gần 0, nên I-term không phải
-// gánh phần feed-forward và không có nguy cơ chạm ALT_HOLD_VZ_ILIMIT (500).
-//
-// ⚠ 1200 GẮN VỚI VIÊN PIN + KHUNG HIỆN TẠI. Đổi pin/cánh/khối lượng thì đo lại:
-// bay HOLDING ổn định rồi đọc HOVTHR trong telemetry — đó là ga hover thật.
-// Nếu I-term khi hover luôn lệch xa 0 thì số này đang sai đúng bằng lượng đó.
-//
-// Đây KHÔNG phải bản sao của HOVER_MODEL_REF_DUTY (=900, hover đo tại ĐÚNG
-// 4.2V) — hai đại lượng khác nhau, đừng "đồng bộ" chúng.
+// Ga hover danh nghia. THR = hover + vz_kp*err + I, nen tran thuc te la
+// hover + 50 + ALT_HOLD_VZ_ILIMIT = 1550 duty.
 #define ALT_HOLD_HOVER_NOMINAL      1000.0f
 #define ALT_HOLD_VZ_LIMIT_MS        0.25f   // trần |vz_target| (m/s)
 
-// ---- W/S (GIU phim o GUI) = LỆNH VẬN TỐC LÊN/XUỐNG, không phải cộng duty ----
-//
-// VÌ SAO Vz CHỨ KHÔNG PHẢI ±duty (bản trước cộng thẳng ±100 duty):
-// "+100 duty" là thẩm quyền KHÔNG CÓ ĐƠN VỊ — cùng một phím cho ra tốc độ leo
-// khác nhau tuỳ pin đầy/cạn, tuỳ khối lượng, tuỳ mật độ không khí. Đó đúng là
-// loại phụ thuộc mà latch hover theo pin (hover_model.h) vừa được thêm vào để
-// XOÁ khỏi feedforward — để phím lái mang nó vào lại là không nhất quán.
-//
-// Lệnh Vz thì có đơn vị: giữ W = leo 0.3 m/s, giống nhau ở pin 4.2V và 3.6V,
-// vì thành phần I của vòng Vz nuốt chênh lệch — đúng việc nó sinh ra để làm.
-//
-// Và trên con drone này Vz là tín hiệu SẠCH HƠN Z: propwash tạo OFFSET VỊ TRÍ
-// (sai số DC của Z), không tạo sai số vận tốc — đạo hàm của một hằng số bằng 0.
-//
-// PHẢI <= ALT_HOLD_VZ_LIMIT_MS (có _Static_assert trong flight_core.c). Đặt
-// dưới trần để tầng ngoài Z-PID vẫn còn lề khi người lái nhả phím.
+// W/S doi ALT TARGET +/- buoc nay (KHONG phai lenh van toc). Cung buoc cho
+// ca HOLDING lan FLYING de hai state hanh xu giong nhau.
 #define ALT_HOLD_WS_VZ_MS           0.10f
 
 // ---- FLYING -> HOLDING: PHAI YEN 1s MOI CHOT DO CAO ----
@@ -221,82 +130,23 @@ extern "C" {
 // nen do cao chot duoc co the lech hon mot chut so voi 1s.
 #define FLYING_TO_HOLD_SETTLE_MS    300
 
-// ============================================================================
-// PHASE A -- FLYING GIU Vz = 0 BANG TANG TRONG CUA CASCADE
-// ============================================================================
-// VAN DE DA CO TRUOC PHASE A: vao FLYING la TAT CA HAI tang cua cascade, ga
-// dong bang tai s_flying_throttle_latch. Ga dung yen KHONG co nghia la do cao
-// dung yen: neu luc vao FLYING drone dang co vz != 0 (vua tha phim W/S, vua
-// thoat guard, hoac chi la nhieu propwash) thi no TROI TU DO suot ca doan
-// FLYING. Micro quad tut duoc 10-20cm trong 300ms.
-//
-// LY DO GOC vi sao phai tat tang ngoai VAN DUNG va KHONG doi: VL53L1X do
-// khoang cach toi BE MAT NGAY DUOI, khong phai do cao so voi san. Bay qua ban
-// cao 0.75m thi range nhay 1.2 -> 0.45; tang ngoai (alt -> vz_target) doc so do
-// nay va ket luan "tut 0.75m" -> boc ga dung dung.
-//
-// NHUNG tang trong (vz -> throttle) KHONG doc range. No doc vz. Va vz -- neu
-// lay tu accel -- KHONG he biet co cai ban nao ben duoi ca. Nen no van dung
-// xuyen qua cu nhay.
-//
-//   TANG NGOAI  alt -> vz_target   : TAT trong FLYING (range khong dang tin)
-//   TANG TRONG  vz  -> throttle    : GIU CHAY, vz_target = 0
-//
-// s_flying_throttle_latch KHONG bi bo: no van la FEEDFORWARD nen (= hover that
-// ma alt_hold da hoc duoc o HOLDING). Tang trong chi chinh phan SAI LECH quanh
-// no. Bo latch di thi vong Vz phai tu hoc lai hover tu dau moi lan vao FLYING.
+// FLYING chay tang TRONG cua cascade (vz -> throttle) voi vz_target = 0,
+// thay vi dong bang throttle. Giu do cao khi nghieng bay ngang.
 #define FLYING_VZ_HOLD_ENABLED      1
 
-// Tran |I| cua vong Vz TRONG FLYING -- SIET CHAT hon ALT_HOLD_VZ_ILIMIT.
-// VI SAO: trong FLYING drone nghieng de bay ngang, nen luc nang doc giam that
-// (cos tilt) va vz am nhe la BINH THUONG, khong phai sai so can tich phan het
-// co. De I chay het tran nhu o HOLDING thi khi tha can ve HOLDING se mang theo
-// mot cuc bias -> vot len. Cho phep bu mot phan, khong cho bu het.
-//
-// alt_hold_vz_cascade() da tu clamp tham so nay xuong <= tune->vz_ilimit nen
-// dat cao hon o day cung khong noi rong duoc -- an toan theo thiet ke.
+// I-limit rieng cho FLYING, chat hon HOLDING vi day chi la giu tam thoi.
 #define FLYING_VZ_ILIMIT_DUTY       120.0f
 
-// Nguon vz dung trong FLYING: 1 = vz_accel_only_ms (accel THUAN, khong dinh
-// ToF), 0 = vz_ms (da fuse ToF).
-//
-// PHAI = 1. alt_estimator.c fuse ToF vao vz_ms qua HAI duong:
-//     dv  = ALT_EST_TOF_VZ_GAIN * (tof_vz_lpf_ms - vz_ms)
-//     dv += clamp(ALT_EST_TOF_INNOV_VZ_GAIN * iz / tof_dt_s, -0.20, 0.20)
-// Bay qua ban -> iz nhay 0.75m -> duong thu hai bom vao vz_ms mot van toc GIA
-// (bi clamp 0.20 m/s nhung van sai dau va keo dai nhieu tick). Vong Vz phan ung
-// voi so gia do = con te hon tat han.
-//
-// vz_accel_only_ms tich phan tu az_corrected_ms2 (da tru bias thich nghi +
-// deadband + LPF) va KHONG BAO GIO an correction ToF -- xem alt_estimator.c.
+// Nguon vz cua FLYING phai la accel-only: vz_ms da duoc ToF sua nen dung no
+// se tao vong hoi tiep kin voi chinh cu nhay range.
 #define FLYING_VZ_USE_ACCEL_ONLY    1
 
 #define ALT_HOLD_TILT_GATE_DEG      30.0f   // không engage/giữ khi nghiêng quá
 #define ALT_HOLD_MIN_ENGAGE_M       0.10f   // cao tối thiểu để engage HOLD (m)
 #define ALT_HOLD_MIN_THROTTLE_DUTY  400     // sàn PID khi đang bay
 
-// ============================================================================
-// PHASE E3 -- BU cos(tilt) CHO THROTTLE
-// ============================================================================
-// Luc day cua 4 canh quat luon vuong goc voi THAN drone. Nghieng di goc theta
-// thi thanh phan THANG DUNG chi con F*cos(theta) -- phan con lai thanh luc day
-// NGANG (chinh la thu lam drone bay toi). Khong bu thi cu nghieng la tut.
-//
-//   nghieng 12 do -> cos = 0.978 -> mat 2.2% luc nang doc
-//   nghieng 15 do -> cos = 0.966 -> mat 3.4%
-//   nghieng 30 do -> cos = 0.866 -> mat 13.4%
-//
-// O muc 12 do (MOVE_MAX_TILT_DEG) thi 2.2% cua ~1000 duty = ~22 duty. Vong Vz
-// CO THE tu bu duoc bang I-term -- nhung phai mat vai tram ms de hoc, va trong
-// khoang do drone da tut roi. Bu cos la FEEDFORWARD: dung ngay tick dau, khong
-// cho I hoc.
-//
-// ⚠ TRAN BU -- BAT BUOC, khong duoc bo:
-// 1/cos phan ky khi theta -> 90 do. Mot lan attitude estimate loi (va no CO
-// loi luc va cham / rung manh) se cho ra he so khong lo -> ga full. Tran nay
-// la thu duy nhat dung giua mot sai so cam bien va full throttle.
-//
-// 1.10 = du cho toi ~24 do nghieng, gap doi gioi han bay thuc te 12 do.
+// Bu cos(tilt) cho throttle: nghieng lam thanh phan thang dung cua luc day
+// giam theo cos. Feedforward nay bu truoc, I-term lo phan con lai.
 #define TILT_COMP_ENABLED           1
 #define TILT_COMP_MAX_FACTOR        1.10f
 
@@ -304,20 +154,8 @@ extern "C" {
 // bi khuech dai thanh nhieu tren duong ga.
 #define TILT_COMP_MIN_COS           0.30f
 
-// ============================================================================
-// PHASE E2 -- EXPO TREN CAN NGHIENG
-// ============================================================================
-//     expo(x) = e*x^3 + (1-e)*x        voi x, ket qua trong [-1, 1]
-//
-// Giu nguyen hai dau mut: expo(0)=0, expo(1)=1. Chi lam VUNG GIUA thoai hon,
-// nen chinh nhe quanh diem can bang de hon ma van voi toi duoc goc nghieng toi
-// da khi day het can.
-//
-//   e = 0.0 -> tuyen tinh (hanh vi cu, khong doi gi)
-//   e = 0.4 -> tai 50% can: 0.4*0.125 + 0.6*0.5 = 0.35 (thay vi 0.50)
-//   e = 1.0 -> thuan bac ba, vung giua qua "chet", kho bay
-//
-// 0.40: bay trong nha, can chinh tinh o goc nho. Dat 0.0 de tat han.
+// Expo cho lenh nghieng: phim nhe thi goc nho, de giu vi tri. Chi ap cho
+// roll/pitch, KHONG ap cho UP/DOWN/yaw.
 #define MOVE_TILT_EXPO              0.40f
 
 
@@ -343,35 +181,8 @@ extern "C" {
 // học hover thật. hover_ff KHÔNG cần chính xác — sai bao nhiêu thì I bù bấy
 // nhiêu, chỉ là hội tụ nhanh hay chậm.
 
-// ---- 3a) PRIME — cho motor quay ĐỀU, KHÔNG chạy Z/Vz PID ----
-// Nhiệm vụ DUY NHẤT: đưa 4 motor brushed ra khỏi vùng chết (dead-zone) để chúng
-// quay đều nhau trước khi controller cầm lái, tránh cú kick lệch lúc khởi động.
-//
-// ⚠ PRIME_DUTY PHẢI **THẤP HƠN HẲN** hover — nó KHÔNG được đủ sức nhấc drone.
-// Đây là điều kiện then chốt của cả kiến trúc: nếu drone nhấc TRONG lúc PRIME
-// thì nó đang bay bằng ga hở không có vòng kín nào, đúng thứ ta vừa bỏ đi.
-// Bản trước dùng SPOOL_DUTY = 1350 (>= hover 1300) chính vì hồi đó ram ga là
-// thứ DUY NHẤT nhấc drone. Giờ việc nhấc do Z/Vz controller làm, nên số này
-// phải TỤT XUỐNG dưới hover.
-//
-// ĐANG DÙNG 0.90 (yêu cầu người dùng). Trước đó bị đặt 1.2 — VI PHẠM ràng buộc
-// ở trên: 1.2 nghĩa là PRIME mạnh HƠN hover, tức drone bay lên bằng ga hở trong
-// suốt TAKEOFF_PRIME_MS. Test C1/C2/C3 trong test_hover_model_offline.py bắt
-// đúng chuyện đó (ở 3.4V: prime=1870 >= hover=1559).
-//
-// ⚠ 0.90 LÀ MỨC SÁT BIÊN, không phải mức an toàn rộng rãi:
-//   - 0.70 (mặc định cũ) chừa 30% biên, chắc chắn không nhấc nổi.
-//   - 0.90 chỉ chừa 10%. Nếu hover thật bị ước lượng THẤP hơn thực tế >10%
-//     (pin đầy hơn dự đoán, drone nhẹ hơn model) thì PRIME vẫn có thể nhấc
-//     drone lên — đúng thứ kiến trúc này nói phải tránh.
-//   - Bù lại: PRIME gần hover thì lúc chuyển sang CLIMB ít bị hụt ga, nên
-//     cất cánh mượt hơn và Vz controller không phải kéo I từ quá xa.
-// Nếu thấy drone nhúc nhích/nhấc trong pha PRIME thì hạ về 0.80 hoặc 0.70.
-//
-// ⚠ ĐÂY LÀ NGUỒN DUY NHẤT của tỷ lệ PRIME/hover. hover_model.c dùng CHÍNH hằng
-// số này (hover_model_prime_duty()) để tính ga PRIME từ hover đã latch theo
-// pin. Đừng gõ lại 0.90 ở chỗ khác: lúc chưa latch và sau khi latch phải theo
-// CÙNG một tỷ lệ, nếu không ga PRIME sẽ đổi giữa hai lần bay mà không ai biết.
+// PRIME_DUTY phai THAP HON HAN hover: no chi de motor quay deu truoc khi vao
+// CLIMB. Bang hover thi drone nhac len ngay trong PRIME, mat ca pha chuan bi.
 #define TAKEOFF_PRIME_HOVER_FRAC    0.60f
 
 // Giá trị KHỞI TẠO của prime_duty (takeoff_default_tune()). Chỉ có tác dụng
@@ -386,97 +197,13 @@ extern "C" {
 // nghĩa thêm "TAKEOFF_HOVER_GUESS" sẽ tạo hai số cho cùng một thứ và bảo đảm
 // có ngày chúng lệch nhau -> bước nhảy ga đúng lúc bàn giao.
 
-// ---- 3b) SLEW — tốc độ TRƯỢT của target, và trần vz_target ----
-// Đây là thứ quyết định "leo nhanh hay chậm". CÙNG một số dùng cho hai việc:
-//   1. giới hạn tốc độ trượt của target_z  (m mỗi giây)
-//   2. trần |vz_target| ra khỏi tầng Z-PID (m/s)
-// Phải là cùng số: nếu trần vz nhỏ hơn tốc độ trượt, target chạy trước drone và
-// error phình dần đúng như PID ngây thơ; nếu lớn hơn, trần vz thành vô nghĩa.
-//
-// ĐÂY LÀ NÚM CHỈNH VỌT LỐ CHÍNH, không phải Kd của vòng Vz.
-// Vọt lố ở đỉnh sinh ra vì drone còn mang vz đi lên ĐÚNG LÚC target ngừng
-// trượt: quán tính + trễ lực đẩy + trễ ước lượng cộng lại. Vào đỉnh với vz nhỏ
-// hơn thì có ít động lượng phải hãm hơn -> vọt ít hơn. Đó là quan hệ vật lý
-// trực tiếp, không phải chuyện tune mò.
-//
-// ============================================================================
-// 0.15 -> 0.35 m/s  — SUA MOT LOI DO DUOC TREN LOG BAY, khong phai tune mo
-// ============================================================================
-// TRIEU CHUNG: suot ca pha CLIMB, PID DO CAO RA LENH HA trong khi drone dang
-// leo. Do duoc:
-//
-//     ALTm  0.12 -> 0.25   (+0.13m)   VZ that = +0.41..0.56 m/s
-//     ZSP   0.12 -> 0.15   (+0.03m)   <- target bo CHAM HON drone 3-4 lan
-//     -----------------------------------------------------------------
-//     ZERR   0.00 -> -0.10            <- drone VUOT target
-//     VZTGT  0.00 -> -0.10            <- PID ra lenh HA
-//     VZI    +2   -> -20              <- I sac AM lien tuc
-//
-// NGUYEN NHAN: 0.15 m/s thap hon TOC DO LEO TU NHIEN cua drone o muc ga
-// hover_ff hien tai (do duoc 0.41..0.56 m/s). Target khong the nao theo kip,
-// nen tang Z LUON thay "drone dang vuot" va lien tuc ep vz_target am. PID
-// khong sai -- no dang ham dung theo lenh -- nhung no phai danh nhau voi
-// chinh feedforward, va no thua.
-//
-// HAU QUA THEM: khi cham dich, I dang o gia tri AM lon (-20 va con tiep tuc),
-// nen luc vao HOLD drone se HUT XUONG truoc khi I kip hoc lai.
-//
-// 0.35 m/s: nam TREN toc do leo tu nhien do duoc, nen target di truoc drone
-// (dung chieu) thay vi bi bo lai. Voi target 1.0m doan truot mat 1.0/0.35
-// ~ 2.9s -- van cham va an toan.
-//
-// ⚠ VI SAO KHONG dong thoi ha hover_ff (1000 -> ~905, cung do duoc tu log:
-// THR=882 chua nhac, THR=929 van leo +0.4 m/s): NGUOI DUNG CHON giu nguyen
-// hover de tach bien khi test. Ghi lai o day de lan sau khong phai do lai.
-// Chung nao hover_ff con cao hon hover that ~100 duty thi drone VAN vot len
-// luc vao CLIMB; 0.35 chi lam PID thoi danh nhau voi cu vot do.
-//
-// ⚠ Rang buoc mot chieu o TAKEOFF_STUCK_MS (dong ~600) chi canh bao khi HA
-// so nay. Dang NANG nen khong dung toi.
-//
-// Số này dùng cho HAI việc (đọc mục 3b ngay trên): trần tốc độ trượt target VÀ
-// trần |vz_target|. Phải giữ là CÙNG một số.
+// Tran toc do leo cua chuoi cat canh. ⚠ Dat THAP hon toc do leo tu nhien se
+// lam PID ra lenh HA trong khi drone dang leo -- da do duoc voi gia tri cu
+// 0.15 m/s. 0.35 cao hon toc do leo thuc te nen PID khong con chong lai.
 #define TAKEOFF_MAX_CLIMB_MS        0.35f
 
-// ---- 3c) LIFTOFF — THEO THỜI GIAN, KHÔNG THEO ĐỘ CAO ĐO ĐƯỢC ----
-//
-// ⚠⚠ ĐÂY LÀ MỘT ĐÁNH ĐỔI CÓ Ý THỨC, ĐỌC HẾT TRƯỚC KHI ĐỔI ⚠⚠
-//
-// Bản trước dùng `est_z > ground_alt + TAKEOFF_LIFTOFF_DELTA_M` làm bằng chứng
-// "đã rời đất", và dùng `|est_z - final_target| <= tol` làm bằng chứng "đã tới
-// nơi". Cả hai đều dựa vào ĐỘ CAO ĐO ĐƯỢC.
-//
-// VÌ SAO BỎ: cấu hình hiện tại là BARO-ONLY (SENSOR_TOF_ENABLED=0). Đo được
-// trên mô phỏng (bảng đầy đủ ở alt_estimator.h): propwash ánh xạ 1:1 sang sai
-// số độ cao — propwash 10cm thì est_z sai 10cm, 30cm thì sai 30cm, và KHÔNG bộ
-// lọc nào loại được vì đó là lệch HỆ THỐNG của phép đo. Đòi est_z nằm trong
-// ±5cm suốt 800ms từ một nguồn sai lệch 10-30cm là đòi một thứ cảm biến không
-// có. Hệ quả thực tế: takeoff hoàn toàn bình thường bị ABORT -> EMERGENCY ->
-// LANDING, lặp lại y hệt mỗi lần vì sai lệch là hệ thống chứ không ngẫu nhiên.
-//
-// GIỜ: chuỗi cất cánh chạy theo THỜI GIAN. Sau TAKEOFF_LIFTOFF_MS kể từ lúc
-// vào CLIMB, coi như đã rời đất.
-//
-// ⚠ CÁI MẤT ĐI, nói thẳng: KHÔNG CÒN cơ chế tự phát hiện "drone không nhấc nổi"
-// (kẹt cánh, quá tải, pin yếu). Trước đây một drone bị chặn sẽ ABORT; giờ nó sẽ
-// được tuyên bố airborne rồi bàn giao sang HOLDING trong khi vẫn nằm trên đất,
-// và alt_hold sẽ đẩy ga lên tới trần để đuổi theo một độ cao không bao giờ tới.
-// Dấu hiệu nhìn thấy được: ALTSAT=1 (alt_pid_saturated) kéo dài + TKOI bò tới
-// trần. KHÔNG có auto-abort nào cho việc đó nữa — người lái phải tự KILL.
-//
-// Cơ chế an toàn CÒN LẠI (không phụ thuộc độ cao đo): guard nghiêng
-// (TAKEOFF_ABORT_TILT_DEG), mất hết nguồn đo độ cao (TAKEOFF_TOF_LOST_MS),
-// tổng thời gian (TAKEOFF_TOTAL_TIMEOUT_MS), và toàn bộ Commander (pin, tilt
-// cứng, heartbeat, loop health).
-//
-// CHỌN SỐ: đây là "bao lâu từ lúc bắt đầu leo cho tới khi bánh rời đất" trên
-// KHUNG CỦA BẠN. Đặt quá NGẮN -> mở Ki attitude khi còn đè đất -> ground
-// windup. Đặt quá DÀI -> Ki bị khoá trong lúc đã bay thật -> drone trôi.
-// 600ms là điểm khởi đầu, PHẢI đo lại trên phần cứng: quay video, đếm từ lúc
-// TKOP chuyển 1->2 (PRIME->CLIMB) tới lúc chân rời sàn.
-// Cửa sổ DUY TRÌ của lift_evidence. HẠ 1000 -> 200ms: giờ điều kiện chỉ còn
-// độ cao + ga (không còn vế Vz nhiễu), nên không cần cửa sổ dài để lọc nhiễu
-// nữa — 1000ms chỉ còn là độ trễ thuần trước khi mở Ki attitude.
+// Roi dat = BA bang chung (Z vuot nguong, vz duong, ga da qua hover) giu
+// lien tuc TAKEOFF_LIFTOFF_MS. Mot bang chung don le KHONG duoc quyet dinh.
 #define TAKEOFF_LIFTOFF_MS          200
 // Độ cao ToF tối thiểu để tính là "đã rời đất". HẠ 0.04 -> 0.01 (yêu cầu người
 // dùng, cùng đợt với ALT_EST_TOF_MIN_RANGE_M): 4cm là mức mà drone phải nhấc
@@ -568,67 +295,12 @@ extern "C" {
 // nguyen ly" khong phai bao dam. 1.5s: du cho mot cu vot lo binh thuong lang
 // xuong, va ngan hon nhieu so voi TAKEOFF_TOTAL_TIMEOUT_MS.
 #define TAKEOFF_VZ_SETTLE_TIMEOUT_MS  1500
-// ---- TRAN TOC DO TANG GA (duty/giay) ----
-// Ga chi duoc phep TANG toi da ngan nay moi giay. KHONG gioi han chieu GIAM:
-// ha ga la duong thoat an toan, chan no lai la tao ra mot che do hong moi.
-//
-// ⚠ VI SAO CAN: da do duoc tren log bay THAT. Bay o ~23cm, duoi nguong guard
-// khoang ho TERR_MIN_CLEARANCE_M (25cm), nen guard chay MOI TICK va moi lan
-// deu ghi ket qua vao s_flying_throttle_latch:
-//     THR=995 -> 995 -> 1095 -> 1995 -> 2000 -> 2000   (MHR=0, kich tran)
-// Buoc nhay +900 trong MOT tick (5ms). PID khong sinh ra so do (VZP=2.80,
-// VZI=-6.97 dung yen ca doan) — no den tu viec guard ghi de latch lien tuc.
-//
-// 150 duty/s tren dai 0..2047: tu hover (~1000) len tran mat ~7s. Du nhanh de
-// thoat mot vat can that, du cham de nguoi lai kip phan ung va de mixer con
-// thẩm quyen tao mo-men (MHR khong ve 0 tuc thi).
+// Tran toc do TANG ga cua guard khoang ho. Chan cu nhay +900 duty trong mot
+// tick. ⚠ Phai tich luy PHAN LE, ep (int) moi tick se lam ga khong bao gio tang.
 #define THROTTLE_MAX_RISE_DUTY_PER_S   500.0f
 
-// ---- 3e) ABORT — mọi nhánh đều dẫn về EMERGENCY ----
-// EMERGENCY tự phân giải thành LANDING (còn kiểm soát + đang trên không) hoặc
-// DISARMED + kill latch (mất kiểm soát hoặc còn ở mặt đất) — xem
-// fsm_on_emergency_resolve() + bước 7 của stabilize_task. Nhờ vậy takeoff KHÔNG
-// cần tự chọn policy trước/sau liftoff nữa.
-//
-// (1) ĐÃ BỎ — TAKEOFF_NO_LIFT_TIMEOUT_MS ("chưa nhấc nổi trong 3s -> TIMEOUT").
-//     Nó kết luận bằng est_z, thứ mà cấu hình baro-only không cung cấp đủ chính
-//     xác (propwash sai 10-30cm). Không còn cơ chế tự bắt kẹt cánh/quá tải —
-//     xem khối cảnh báo mục 3c.
-//
-// (2) ĐÃ BỎ — TAKEOFF_TOTAL_TIMEOUT_MS (hằng số cứng 15s).
-//     Thay bằng hạn chót TÍNH THEO TARGET trong takeoff_begin(). Hằng số cứng
-//     ghép chặt với TAKEOFF_MAX_CLIMB_MS và ghép sai thì hỏng ÂM THẦM: với
-//     max_climb 0.1 m/s hiện tại, target 3m cần 31.3s > 15s nên MỌI chuyến bay
-//     cao đều abort với lý do "TIMEOUT" — đổ lỗi cho phần cứng trong khi thủ
-//     phạm là hai hằng số không khớp nhau.
-//
-// (2b) THAY THẾ cho (1): "KHÔNG NHẤC NỔI" phát hiện bằng GA KỊCH TRẦN, không
-//     bằng độ cao đo được.
-//
-//     Cơ sở: drone đang bay thật thì vòng Vz cân bằng quanh hover, thấp hơn
-//     trần collective một khoảng rõ rệt. Drone kẹt cánh / quá tải / pin yếu thì
-//     controller đòi thêm lực mãi mà vz không đáp, nên I bò tới trần rồi nằm
-//     lì. Đó là bằng chứng vật lý, không cần altimeter.
-//
-//     BẰNG CHỨNG CHÍNH thực ra KHÔNG phải ga-kịch-trần mà là (a) "vz KHÔNG đáp
-//     lại lệnh leo". Ga-kịch-trần chỉ là lưới thứ hai. Lý do, đo được: I cần
-//     ~12s mới bò hết dải 500 duty, trong khi bàn giao (thuần thời gian) xảy ra
-//     ở ~5.8s — một mình ga-kịch-trần phát hiện QUÁ MUỘN, drone bị chặn đã được
-//     bàn giao xong trước khi nó kịp trip. Xem takeoff_land.c.
-//
-//     ⚠ VÌ SAO vz DÙNG ĐƯỢC dù z thì không: propwash tạo lệch VỊ TRÍ gần như
-//     hằng số (baro đọc thấp hơn thật 10-30cm suốt lúc ga cao). Đạo hàm của
-//     hằng số bằng 0 — nên nó KHÔNG tạo lỗi vận tốc. vz sống sót qua đúng cái
-//     nhiễu đã giết chết phép đo độ cao tuyệt đối.
-//
-//     5000ms: phải DÀI HƠN đoạn quá độ HỢP LỆ lúc I đang học hover thật, và số
-//     này suy ra từ chính các gain chứ không chọn bừa:
-//         t = (hover_thật - hover_ff) / (Ki * vz_err)
-//     Với lệch 150 duty, Ki=400, vz_err ~ max_climb 0.1 -> 150/(400*0.1) =
-//     3.75s. Suốt 3.75s đó một drone HOÀN TOÀN KHOẺ vẫn nằm im vì lực đẩy chưa
-//     đủ. Đặt 3000ms (bản đầu của tôi) làm test C1 ABORT OAN đúng một chuyến
-//     cất cánh bình thường — test bắt được.
-//     ⚠ HẠ TAKEOFF_MAX_CLIMB_MS hoặc ALT_HOLD_VZ_KI thì PHẢI nâng số này theo.
+// Chuoi cat canh KET: da het TAKEOFF_STUCK_MS ma van chua roi dat -> ABORT.
+// Khong co cai nay thi drone nam ru ga o san cho toi khi het pin.
 #define TAKEOFF_STUCK_MS                 5000
 
 
@@ -666,26 +338,8 @@ extern "C" {
 // 4) LANDING (takeoff_land.h) — descend -> flare -> touchdown (+ blind nếu mất ToF)
 // ============================================================================
 
-// ============================================================================
-// LANDING 3 PHA — ĐÃ CHỈNH LẠI CHO TRẦN BAY ~2.5m
-// ============================================================================
-// Bản cũ: DESCEND 0.25 m/s tới tận 0.15m rồi mới chậm lại. Từ 2.5m nghĩa là
-// 9.4 GIÂY rơi đều rồi phanh gấp trong 15cm cuối — vừa lâu vừa giật.
-//
-// Bản mới, ba pha theo ĐỘ CAO (không theo thời gian):
-//   > 0.50m          : DESCEND, vz = -0.35 m/s cố định
-//   0.50m -> 0.08m   : FLARE, vz nội suy TUYẾN TÍNH theo độ cao còn lại,
-//                      -0.35 -> -0.12 m/s. Càng gần đất càng chậm, LIÊN TỤC,
-//                      không có bước nhảy tốc độ nào.
-//   < 0.08m          : TOUCHDOWN, cắt ga theo dốc + phát hiện chạm đất
-//
-// Từ 2.5m: ~5.7s ở pha 1, ~2.9s ở pha 2 -> tổng ~8.6s, và 0.5m cuối được trải
-// ra gần 3 giây thay vì lao tới rồi phanh.
-//
-// VÌ SAO nội suy theo ĐỘ CAO chứ không theo thời gian: tốc độ hạ luôn tỉ lệ với
-// khoảng cách còn lại, nên sai số độ cao (ToF nhiễu, nền không phẳng) chỉ làm
-// tốc độ lệch một chút, KHÔNG làm drone chạm đất ở tốc độ sai. Theo thời gian
-// thì một lần ToF trễ là drone tiếp đất nhanh gấp đôi.
+// Chuoi ha canh: DESCEND (vz co dinh) -> FLARE (giam dan duoi flare_alt)
+// -> CONTACT_CANDIDATE (4 bang chung) -> TOUCHDOWN (ramp ga ve 0).
 #define LAND_DESCENT_VZ             0.25f    // m/s, tốc độ hạ pha DESCEND
 #define LAND_FLARE_ALT_M            0.50f    // m, ngưỡng vào FLARE
 #define LAND_FLARE_VZ                0.12f   // m/s, tốc độ hạ lúc gần chạm
@@ -712,22 +366,8 @@ extern "C" {
 #define LAND_BLIND_DESCENT_RATE     200.0f   // duty/giây, pha BLIND (thang duty 2000)
 #define LAND_CUTOFF_MS              100      // ramp ga về 0 lúc TOUCHDOWN
 
-// ---- TOUCHDOWN: BA NHÁNH ĐỘC LẬP, OR với nhau (spec C3) ----
-// Nhánh 1 (CHÍNH)  : alt AGL < touchdown_alt_m + vz lặng + ga đang giảm, giữ
-//                    LAND_CONTACT_TICKS -> đi qua CONTACT_CANDIDATE.
-// Nhánh 2 (BACKUP) : ga <= LAND_MIN_THROTTLE VÀ |vz| < LAND_SETTLE_VZ_MS giữ
-//                    liên tục LAND_SETTLE_MS. KHÔNG dùng độ cao — L0X ở cự ly
-//                    rất gần (<3-5cm) đọc kém tin cậy nên nhánh 1 có thể không
-//                    bao giờ đủ điều kiện dù drone đã nằm trên nền.
-// Nhánh 3 (VA CHẠM): az_earth vượt ngưỡng spike liên tục LAND_TOUCHDOWN_AZ_HOLD_MS.
-//
-// ⚠ DẤU CỦA LAND_TOUCHDOWN_AZ_MS2 — ĐỌC TRƯỚC KHI TUNE:
-// az_earth ở đây là az_after_bias_ms2 (trục Z hướng LÊN, ĐÃ TRỪ trọng lực), nên
-// đứng yên/hover = 0. Một cú CHẠM NỀN thật sẽ cho spike DƯƠNG (nền đẩy lên).
-// Giá trị ÂM -6.0 mà spec yêu cầu tương ứng với gia tốc HƯỚNG XUỐNG 6 m/s² —
-// tức là drone đang RƠI, không phải đang chạm. Số này giữ ĐÚNG THEO SPEC và
-// nhánh 3 vì vậy hiện chỉ bắt được "mất lực nâng đột ngột sát đất". Muốn nó
-// bắt VA CHẠM thì đổi sang so sánh chiều dương (+6.0). Đã báo lại, chờ chốt.
+// Nhanh 2 cua touchdown: ga da tut kich san VA vz lang, giu LAND_SETTLE_MS.
+// KHONG dung do cao vi ToF o cu ly rat gan doc khong tin duoc.
 #define LAND_SETTLE_VZ_MS           0.05f    // m/s, nhánh 2 (spec: |vz| < 0.05)
 #define LAND_TOUCHDOWN_AZ_MS2       (-6.0f)  // m/s², nhánh 3 — xem cảnh báo dấu ở trên
 #define LAND_TOUCHDOWN_AZ_HOLD_MS   60       // ms, spike phải DUY TRÌ bấy nhiêu
@@ -766,28 +406,8 @@ extern "C" {
 #define SP_YAW_RATE_MAX_DPS    180.0f
 #define TRIM_MAX_DEG            10.0f    // clamp riêng trim (khớp slider GUI UAV-Mini -10..10)
 
-// ---- TRIM MẶC ĐỊNH (bù lệch cơ khí/CG của khung) ----------------------------
-// Trim là HẰNG SỐ BÙ LỆCH của khung, KHÔNG phải setpoint: nó cộng vào
-// target_roll/pitch ở CẢ hai nhánh lệnh (timed-command lẫn SP bay tay), nên
-// drone bay thẳng khi cần lệnh 0. Xem flight_core.c bước 10.
-//
-// ⚠ QUY ƯỚC NGOÀI (đúng thứ GUI/@TRIM SET/NVS dùng) — KHÔNG phải trục vật lý:
-//     TRIM_ROLL_DEG_DEFAULT  = trái/phải  (dương -> dạt sang PHẢI thì giảm)
-//     TRIM_PITCH_DEG_DEFAULT = tiến/lùi   (dương -> dạt về TRƯỚC thì giảm)
-// flight_core.c hoán trục MỘT LẦN ở chỗ khởi tạo, y hệt cách nó hoán cho
-// CMD_SET_TRIM và cho đường nạp NVS. Nhờ vậy số ở đây copy THẲNG được từ
-// slider GUI, không phải đổi trục trong đầu.
-//
-// ⚠ THỨ TỰ ƯU TIÊN — đọc kỹ trước khi sửa số ở đây:
-//     NVS (đã từng bấm @TRIM SET / kéo slider)  >  hai hằng số này
-// flight_core_start() nạp trim từ NVS và GHI ĐÈ giá trị mặc định nếu
-// trim_valid=1. Nghĩa là: nếu bạn đã lưu trim một lần, sửa số ở đây sẽ KHÔNG
-// có tác dụng gì cho tới khi chạy `calib_erase` (xoá toàn bộ calib trong NVS,
-// gồm cả gyro/accel/mag — sẽ phải calib lại) hoặc ghi đè bằng chính @TRIM SET.
-// Log boot "TRIM nap tu NVS: ..." cho biết bạn đang ở trường hợp nào.
-//
-// Hai số dưới đây là giá trị đã dò trên khung thật (trước đây nằm chôn trong
-// flight_core.c dưới dạng số ma thuật, không ai sửa được từ tuning.h).
+// Trim roll/pitch mac dinh. Gia tri THAT den tu NVS (calibration.c) -- day
+// chi la moc khi NVS trong.
 #define TRIM_ROLL_DEG_DEFAULT    (0.85f)
 #define TRIM_PITCH_DEG_DEFAULT   (1.15f)
 
@@ -1051,51 +671,8 @@ _Static_assert(TRIM_PITCH_DEG_DEFAULT >= -TRIM_MAX_DEG &&
 // NHẬN nhưng chỉ log cảnh báo "BO QUA" — xem flight_core.c apply_set_param().
 // ============================================================================
 
-// ============================================================================
-// 11) MPU6050 HARDWARE DLPF (imu_driver.c) — LỚP LỌC RUNG ĐỘNG CƠ CHÍNH, quan
-//    trọng hơn LPF phần mềm trong alt_estimator.h vì lọc TRƯỚC KHI số vào MCU
-//    (LPF phần mềm chỉ là lớp phòng thủ THỨ 2). Estimator giờ accel-primary
-//    (KHÔNG có ToF kéo lại) nên rung motor lọt vào accel = drift Vz TRỰC TIẾP,
-//    không có gì sửa nhanh — cắt rung tại nguồn quan trọng hơn bao giờ hết.
-//
-//    DLPF_CFG (thanh ghi CONFIG 0x1A, bit[2:0]) theo bảng datasheet MPU6050
-//    (Register Map, mục 4.3) — accel bandwidth/delay, SAI Ở ĐÂY sẽ SAI CẢ dấu
-//    hiệu accel dùng để tích phân Vz VÀ tín hiệu gyro dùng cho attitude:
-//      0 = 260Hz (0ms delay)   1 = 184Hz (2.0ms)   2 = 94Hz (3.0ms)
-//      3 = 44Hz  (4.9ms)       4 = 21Hz  (8.5ms)   5 = 10Hz (13.8ms)
-//      6 = 5Hz   (19.0ms)
-//    Cả 6 giá trị 1-6 dùng CHUNG base rate 1kHz cho SMPLRT_DIV (xem
-//    IMU_SAMPLE_RATE_HZ, imu_driver.h) — đổi CFG trong khoảng 1-6 KHÔNG cần
-//    đổi SMPLRT_DIV. CHỈ CFG=0 (hoặc 7, không dùng) đổi sang base 8kHz.
-//
-//    Mặc định CŨ (94Hz, CFG=2) gần như không lọc gì so với rung motor thật
-//    (thường vài trăm Hz) — đổi sang 44Hz (CFG=3) làm điểm khởi đầu, delay
-//    4.9ms chấp nhận được ở loop 250Hz (dt=4ms, tương đương ~1.2 tick trễ).
-//
-//    ---- ĐANG Ở CFG=3 (gyro 42Hz / accel 44Hz) ----
-//    ĐÃ THỬ CFG=4 (21Hz) rồi TRẢ VỀ 3 theo yêu cầu người dùng.
-//
-//    ⚠ DLPF LÀ BỘ LỌC DÙNG CHUNG — con số này KHÔNG chỉ chạm accel:
-//      CFG=3 -> accel 44Hz / gyro 42Hz / delay ~4.9ms   <-- đang dùng
-//      CFG=4 -> accel 21Hz / gyro 20Hz / delay ~8.5ms
-//    Chênh lệch là +3.6ms trễ trên CẢ tín hiệu gyro mà rate PID dùng: ~1.2 tick
-//    so với ~2.1 tick ở loop 250Hz. Trễ pha ăn vào BIÊN PHA vòng rate và D-term
-//    chịu nặng nhất, vì nó vi phân một tín hiệu đã trễ hơn.
-//
-//    ĐÁNH ĐỔI ĐANG CHỌN: giữ biên pha cho vòng rate, chấp nhận lọc rung yếu
-//    hơn. Estimator là accel-primary nên rung lọt vào accel là drift Vz TRỰC
-//    TIẾP — nếu sau này thấy Vz trôi vì rung thì CFG=4 là nước đi tiếp theo,
-//    NHƯNG phải kiểm lại dao động roll/pitch lúc hover ngay sau khi đổi.
-//
-//    CFG 1-6 dùng CHUNG base rate 1kHz nên đổi trong khoảng này KHÔNG cần đụng
-//    SMPLRT_DIV (xem ghi chú ở trên) — đây là lý do đổi được bằng đúng một số.
-//
-//    ⚠ ĐỪNG NHẦM VỚI IMU_SAMPLES_PER_CONTROL (imu_driver.h). Hai hằng số đều
-//    liên quan tới "lọc/nhịp IMU" và đều hay nhận giá trị 3-4, nhưng KHÁC HẲN
-//    nhau: cái này là bộ lọc PHẦN CỨNG trong chip; cái kia là số mẫu mà
-//    sensor_hub gộp lại cho MỘT vòng điều khiển, và nó bị ràng buộc cứng bởi
-//    IMU_SAMPLE_RATE_HZ == CONTROL_TASK_HZ * IMU_SAMPLES_PER_CONTROL.
-// ============================================================================
+// IMU DLPF: cat rung canh quat truoc khi vao Mahony/estimator. Dat qua thap
+// thi tre pha lam attitude dao; qua cao thi rung lot vao vong dieu khien.
 #define IMU_ACCEL_DLPF_CFG   3
 
 #ifdef __cplusplus
