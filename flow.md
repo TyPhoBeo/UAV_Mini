@@ -1010,6 +1010,28 @@ quá nhỏ đã làm một chuyến cất cánh HOÀN TOÀN ĐÚNG bị abort v�
 nhau theo hướng nào cũng sai (trần nhỏ hơn tốc độ trượt → target chạy trước
 drone, error phình đúng kiểu PID ngây thơ; trần lớn hơn → vô nghĩa).
 
+⚠ **`0.15 → 0.35 m/s`** — sửa một lỗi đo được trên log: suốt pha CLIMB, PID
+độ cao **ra lệnh HẠ** trong khi drone đang leo.
+
+```
+ALTm  0.12 → 0.25 (+0.13m)    VZ thật = +0.41..0.56 m/s
+ZSP   0.12 → 0.15 (+0.03m)    ← target bò chậm hơn drone 3–4 lần
+────────────────────────────────────────
+ZERR   0.00 → −0.10          ← drone VƯỢT target
+VZTGT  0.00 → −0.10          ← PID ra lệnh HẠ
+VZI    +2   → −20           ← I sạc ÂM liên tục
+```
+
+0.15 m/s **thấp hơn tốc độ leo tự nhiên** ở mức ga hover_ff hiện tại, nên
+target không thể theo kịp và tầng Z luôn thấy "drone đang vượt". PID không
+sai — nó đang hãm đúng theo lệnh — nhưng nó phải đánh nhau với chính
+feedforward, và nó thua.
+
+⚠ **Chưa sửa `ALT_HOLD_HOVER_NOMINAL = 1000`** (người dùng chọn giữ để
+tách biến khi test). Đo được: `THR=882` chưa nhấc, `THR=929` vẫn leo
++0.4 m/s → hover thật ≈ **900–910**, cao hơn thực tế ~100 duty. 0.35 chỉ
+làm PID thôi đánh nhau với cú vọt đó, không xoá được nó.
+
 #### `liftoff_flag` — CHỈ LÀ THÔNG TIN, không gate gì
 
 `est_z > ground_alt_m + TAKEOFF_LIFTOFF_DELTA_M (0.05m)` → cờ lên. Không đổi
@@ -1103,6 +1125,17 @@ việc phát hiện sang `HOLDING` (Commander coi "alt-PID bão hoà kéo dài" 
 fault → `LANDING`).
 
 ### 4.3 Chuỗi LANDING — touchdown đa điều kiện
+
+> ⚠ **LANDING chạy trên KHOẢNG HỞ, tuyệt đối không dùng Z tuyệt đối.**
+> Đang bay trên bàn mà bấm land thì phải hạ xuống **mặt bàn**, không phải cố
+> xuống cao độ sàn — làm vậy là đâm bàn. `landing_run()` nhận `land_height_m`
+> và `land_tof_agl_m` từ `alt_estimator_agl_m()` / `alt_estimator_tof_agl_m()`,
+> và hai hàm đó lấy từ `tof_vertical_m` **thô** (mục 4.6) nên vẫn đúng kể cả
+> khi `terrain_off_m` đã stale.
+>
+> Bỏ qua điều này là lỗi đã đo được: `TOFF` cũ 0.693 + khoảng hở thật 0.019m
+> → landing tưởng còn 70cm để hạ → touchdown không bao giờ kích hoạt.
+
 
 ```mermaid
 stateDiagram-v2
@@ -1272,18 +1305,49 @@ vẫn là 0, nhưng để rõ điều kiện để không ai vô tình "hồi si
 Bật/tắt lúc compile: `TERRAIN_OFFSET_ENABLED` (`app_config.h`). Tắt = hành vi
 cũ y nguyên, `terrain_off_m` luôn 0.
 
-**Hai hệ quy chiếu:**
+**Ba đại lượng, ba nghĩa — đừng trộn:**
 
 ```
-tof_vertical_m   // range đã bù cos(tilt) — khoảng cách tới BỀ MẶT dưới (AGL)
-terrain_off_m    // độ cao bề mặt đó so với SÀN cất cánh
-alt_m            // = raw_agl + terrain_off_m   <- PID alt ăn cái này
-agl_m            // = alt_m - terrain_off_m     <- guard va chạm ăn cái này
+tof_vertical_m   // ĐO THÔ, đã bù cos(tilt). Khoảng cách tới BỀ MẶT ngay dưới.
+                 // KHÔNG qua terrain_off, KHÔNG qua fusion.
+terrain_off_m    // Cao độ của bề mặt đó so với SÀN cất cánh.
+alt_m            // Độ cao TUYỆT ĐỐI so với sàn = raw_agl + terrain_off_m.
+                 //   <- PID alt ăn cái này
+agl_m()          // KHOẢNG HỞ dưới bụng. Ưu tiên tof_vertical_m THÔ.
+                 //   <- guard va chạm + landing touchdown ăn cái này
 ```
 
 Sàn cất cánh `terrain_off_m = 0`; trên mặt bàn 0.75m thì `= 0.75`. COMMIT offset
 đúng bằng bước nhảy → `alt_m` **liên tục** xuyên qua cú nhảy → PID không thấy gì
 bất thường.
+
+#### ⚠ `agl_m()` phải lấy từ SỐ ĐO THÔ, không phải `alt_m − terrain_off_m`
+
+Công thức cũ:
+
+```c
+agl = alt_m - terrain_off_m;      // SAI khi offset đã hỏng
+```
+
+Trông thì đúng đại số, nhưng `alt_m` **đã chứa** `terrain_off_m` bên trong nó.
+Khi offset sai, cả hai vế mang **cùng một sai số** — nó không tự triệt tiêu, mà
+truyền thẳng sang clearance.
+
+Đo được trên log bay lên bàn:
+
+| | |
+|---|---|
+| `TOFF` cũ (đã stale) | 0.693 |
+| Khoảng hở THẬT (`TOFV`) | **0.019m** — sắp chạm |
+| `agl` theo công thức cũ | **0.712m** |
+
+Landing tưởng còn 70cm để hạ trong khi drone đã sát mặt bàn → touchdown không
+bao giờ kích hoạt → motor quay mãi.
+
+Bản mới ưu tiên `tof_vertical_m` thô — nó **không phụ thuộc** `terrain_off` nên
+vẫn đúng kể cả khi offset sai hoàn toàn. Chỉ rơi về `alt_m − terrain_off_m` khi
+số đo thô ngoài tầm hình học (ToF hấp thụ / quá xa), lúc đó đó là ước lượng tốt
+nhất còn lại.
 
 **Phát hiện bằng residual, không phải ngưỡng thô:**
 
@@ -1291,7 +1355,16 @@ bất thường.
 d_range  = tof_vertical_m - prev_tof_vertical_m;
 expected = vz_accel_only_ms * tof_dt_s;      // ⚠ accel-only, KHÔNG phải vz_ms
 residual = d_range - expected;
-if (fabsf(residual) > TERR_JUMP_THRESH_M) -> terr_pending = true
+
+if (fabsf(residual) > TERR_JUMP_THRESH_M) {
+    if (!terr_pending) {                     // CẠNH LÊN: khởi tạo một lần
+        terr_pending = true;
+        terr_cand_offset_m = terrain_off_m;
+        terr_pending_since_us = now_us;
+    }
+    terr_cand_offset_m -= residual;          // ⚠ CỘNG DỒN, không ghi đè
+    terr_confirm_cnt = 0;
+}
 ```
 
 ⚠ **`expected` PHẢI dùng `vz_accel_only_ms`.** `vz_ms` đã bị ToF chỉnh (xem khối
@@ -1300,13 +1373,151 @@ nhảy range bơm vào `vz_ms` → `expected` phình lên theo đúng hướng c
 residual bị triệt tiêu một phần → bậc terrain thật có thể tụt xuống dưới ngưỡng
 và **không bao giờ được phát hiện**.
 
-**Xác nhận rồi mới commit** — `TERR_CONFIRM_N = 4` mẫu liên tiếp khớp trong
+#### ⚠ Ứng viên offset phải CỘNG DỒN — lỗi đo được trên log bay
+
+**Bậc địa hình KHÔNG đến trong một mẫu.** Log bay lên bàn:
+
+```
+TOFV   0.890 → 0.338 → 0.126 → 0.119 → 0.110     (alt_m coast ~0.86)
+TRES   −0.552 ở mẫu đầu, rồi tiếp tục âm nhỏ dần
+TPEND  0 → 1        ← detect ĐÚNG
+TTMO   0 → 1        ← nhưng HẾT HẠN, không commit
+FAULT  0 → 1,  MODE 5 → 4 (LANDING giữa chuyến)
+```
+
+Bản cũ chốt ứng viên **một lần** ở mẫu đầu rồi đóng băng:
+
+```c
+terr_cand_offset_m = terrain_off_m - residual;   // SAI: chỉ lấy mẫu đầu
+```
+
+Range còn trượt thêm ~0.23m ở các mẫu sau, nên ứng viên lỗi thời ngay lập tức:
+
+| `raw_agl` | `cand_z = raw + 0.552` | `alt_m` | lệch |
+|---:|---:|---:|---:|
+| 0.126 | 0.678 | 0.86 | **0.182** |
+| 0.119 | 0.671 | 0.86 | **0.189** |
+| 0.110 | 0.662 | 0.86 | **0.198** |
+
+Lệch **0.19m** > `TERR_CONFIRM_TOL_M` (0.10) → `confirm_cnt` reset **mỗi mẫu** →
+không bao giờ đạt `TERR_CONFIRM_N` → hết `TERR_PENDING_TIMEOUT_MS` → huỷ → hết
+correction → soft fault → LANDING.
+
+**Bản mới:** mỗi mẫu còn vượt ngưỡng đều **cộng thêm** phần của nó. Bậc đi qua
+hết thì residual về ~0, ứng viên ngừng đổi, `cand_z` khớp `alt_m` → commit.
+
+Kiểm chứng trên chính số liệu log đó
+(`python/test_terrain_accumulate_offline.py`):
+
+| | Bản cũ | Bản mới |
+|---|---|---|
+| Dữ liệu thật | **không commit** → LANDING | **COMMIT** `TOFF = +0.764` sau **120ms** |
+
+⚠ **Không sợ báo giả:** cộng dồn CHỈ xảy ra với mẫu vượt `TERR_JUMP_THRESH_M`.
+Nhiễu ToF bình thường (±1–3cm) không qua được ngưỡng đó nên không bao giờ vào
+nhánh này — test khoá cả ba mức nhiễu.
+
+**Xác nhận rồi mới commit** — `TERR_CONFIRM_N = 3` mẫu liên tiếp khớp trong
 `TERR_CONFIRM_TOL_M`. Mép bàn làm range nhảy qua nhảy lại; một mẫu lệch là đếm
 lại từ đầu.
 
 **Sanity check (B3):** `|cand − hiện tại| ≤ TERR_MAX_STEP_M` (1.5m). Vượt =
 đo sai (mẫu rác / phản xạ gương / ngoài tầm), TỪ CHỐI commit, giữ offset cũ,
-tăng `TREJ`.
+tăng `TREJ`. Vẫn chặn được cả tổng cộng dồn vô lý.
+
+#### ⚠ Chuyển tiếp terrain — BA lỗi độc lập, đã sửa cả ba
+
+Log bay **terrain → ground** (bay ra khỏi bàn):
+
+```
+TOFF_cũ = 0.693     TRES:  +0.365  +0.194  −0.043  −0.029  −0.039
+                           └── bậc ──┘     └── đã hội tụ ~0 ──┘
+TPEND=1  →  TTMO=1  →  FAULT=1  →  LANDING
+```
+
+Residual **đã hội tụ về ~0**, tức ứng viên offset đúng. Nhưng nó không commit
+được, và sau khi hết hạn thì ToF bị fuse lại bằng offset CŨ:
+
+```
+raw 1.01 + TOFF_cũ 0.693 = 1.70      vs   alt_m đang coast = 1.09
+                                          → innovation +0.61m
+```
+
+Estimator bị kéo nhảy giả 0.5m → `FAULT` → hạ cánh giữa chuyến.
+
+**Ba nguyên nhân khác nhau, không phải một:**
+
+##### (1) Timeout đếm bằng ĐỒNG HỒ, commit đếm bằng MẪU
+
+```
+if (tof_new) {                    ← 25 Hz  (nhịp ToF)
+    if (geometry_ok) {
+        confirm + commit          ← chỉ chạy 6–7 lần trong 260ms
+    }
+}
+if (terr_pending && hết hạn) {    ← 250 Hz (nhịp điều khiển)
+    TTMO++                        ← chạy 65 lần trong 260ms
+}
+```
+
+Hai nhịp lệch nhau **một bậc**. Ứng viên trong log ĐÃ đạt điều kiện commit:
+
+```
+cand_z = 1.144   vs   alt_m = 1.09   →   lệch 0.054 < TERR_CONFIRM_TOL_M (0.10)
+```
+
+Nhưng cần 2 mẫu để detect + 3 mẫu để confirm = 200ms, chỉ còn 60ms biên. Mà
+`TOFAGE` trong log nhảy 7→45ms — trượt một mẫu là vượt hạn.
+
+**Sửa:** thêm `terr_samples_seen`. Timeout giờ đòi **hai** điều kiện:
+
+```c
+if (terr_pending && terr_pending_since_us &&
+    terr_samples_seen >= TERR_MIN_SAMPLES_BEFORE_TIMEOUT &&   // ← MỚI
+    (now_us - terr_pending_since_us) > TERR_PENDING_TIMEOUT_MS * 1000)
+```
+
+`TERR_MIN_SAMPLES_BEFORE_TIMEOUT = TERR_CONFIRM_N + 1` — đúng bằng số mẫu lý
+thuyết cần thiết. Không nới lỏng tiêu chí, chỉ bảo đảm confirm có đủ cơ hội
+chạy. ToF chết hẳn thì bộ đếm đứng yên, và đường `degraded` (300ms) vẫn hạ cánh
+bình thường — cờ này **không thể** treo hệ thống.
+
+##### (2) Timeout KHÔNG fail-safe
+
+Bản cũ hết hạn xong chỉ bỏ riêng lần nghi ngờ, rồi cho ToF fuse lại **ngay** bằng
+`terrain_off_m` cũ. Đó là chỗ sinh ra cú nhảy 0.5m.
+
+Lý do sâu xa: hết hạn nghĩa là *"ta BIẾT bề mặt đã đổi nhưng KHÔNG BIẾT đổi bao
+nhiêu"*. Một offset cũ trong tình huống đó **là rác**, không phải "giá trị an
+toàn để tạm dùng".
+
+**Sửa:** thêm cờ `terr_offset_stale`.
+
+```c
+// timeout:
+terr_offset_stale = true;
+
+// trong khối chọn tof_fusable:
+if (terr_offset_stale) {
+    tof_fusable = false;              // KHÔNG sửa Z tuyệt đối nữa
+    tof_surface_state = OTHER;
+}
+```
+
+Estimator sống bằng IMU bridge, `degraded` lo phần hạ cánh **có kiểm soát** thay
+vì mất kiểm soát vì một cú nhảy giả.
+
+⚠ **Raw range VẪN dùng được** — `agl_m()` lấy từ `tof_vertical_m` thô nên guard
+va chạm và landing touchdown vẫn có số đo thật để làm việc. Chỉ riêng Z **tuyệt
+đối** là không còn tin.
+
+Cờ được xoá ở ba chỗ: commit thành công, `terrain_rebase()`, và reset
+(`lock_floor_at` / `prepare_takeoff`). Không xoá thì một lần timeout sẽ khoá ToF
+vĩnh viễn.
+
+##### (3) Ứng viên offset phải CỘNG DỒN
+
+Bậc địa hình không đến trong một mẫu — xem mục bên dưới.
 
 #### ⚠ Vòng luẩn quẩn `terr_pending` — lỗi đã làm feature này bị TẮT
 
@@ -1328,13 +1539,18 @@ không có mẫu         ->  terr_confirm_cnt KHÔNG tăng, cũng KHÔNG reset
 
 **Ba điều kiện phải đúng ĐỒNG THỜI, thiếu một là lỗi quay lại:**
 
-1. `TERR_PENDING_TIMEOUT_MS = 200` — hết hạn thì **HUỶ** nghi ngờ, KHÔNG commit.
+1. `TERR_PENDING_TIMEOUT_MS = 260` — hết hạn thì **HUỶ** nghi ngờ, KHÔNG commit.
    Commit một ứng viên chưa xác nhận là ghi offset có thể sai vào trạng thái BỀN
    VỮNG — đúng cái đã tạo ra `TOFF=-0.315` rồi loại hết mọi mẫu sau đó.
 2. Timeout phải **NGẮN HƠN `ALT_EST_NO_CORRECTION_DEGRADED_MS`** (300ms).
    Có `_Static_assert` bảo vệ. ⚠ Bản vá đầu so nhầm với `ALT_EST_TOF_LOST_MS`
    — ngưỡng chặn TRƯỚC là `DEGRADED_MS`, và nếu không sửa `degraded` thành đếm
-   theo thời gian (mục 4.4) thì fault nổ ở **tick đầu**, timeout 200ms vô dụng.
+   theo thời gian (mục 4.4) thì fault nổ ở **tick đầu**, timeout vô dụng.
+   ⚠ 260ms không phải số tùy ý — nhịp ToF 40ms kẹp nó từ hai đầu:
+   sàn dưới `(N+1)×40 = 160ms` (vào pending + N mẫu confirm), trần trên
+   `300 − 40 = 260ms`. Cấu hình cũ `N=4, 200ms` cần đúng 200ms / có đúng
+   200ms — **biên bằng 0**, trượt một mẫu là hỏng. Có `_Static_assert`
+   khoá cả sàn dưới lẫn trần trên.
 3. Khối lối thoát phải nằm **NGOÀI `if (tof_new)`**. Nằm trong thì nó cũng chỉ
    chạy khi có mẫu mới — đúng cái điều kiện nó sinh ra để sửa.
 
@@ -1636,7 +1852,11 @@ hỏng → **mọi lệnh TAKEOFF bị từ chối** dù phần cứng hoàn to�
 | `TREJ` | số lần commit bị TỪ CHỐI vì sanity (`TERR_MAX_STEP_M`) |
 | **`TTMO`** | số lần nghi ngờ bị HUỶ vì hết hạn `TERR_PENDING_TIMEOUT_MS` |
 | `TRES` | residual mẫu gần nhất (m) — số để tune `TERR_JUMP_THRESH_M` |
-| `CLR` | khoảng hở THẬT dưới bụng (`agl_m`) — số quyết định va chạm, **KHÔNG** phải `ALT` |
+| **`TSTALE`** | **1 = terrain offset đã MẤT TIN CẬY** (transition timeout). ToF không còn sửa Z tuyệt đối, estimator sống bằng IMU bridge |
+| `TCAND` | offset **ứng viên** đang chờ xác nhận (khác `TOFF` = offset đã nhận) |
+| `TCNT` | số mẫu liên tiếp đã khớp ứng viên (0…`TERR_CONFIRM_N`) |
+| `TSEEN` | số mẫu ToF đã đi qua khối confirm kể từ khi vào pending |
+| `CLR` | khoảng hở THẬT dưới bụng — lấy từ `tof_vertical_m` **thô**, KHÔNG phụ thuộc `TOFF`. Số quyết định va chạm và touchdown, **KHÔNG** phải `ALT` |
 | `FRAME` | `0`=DATUM (giữ cao so với sàn) `1`=AGL (bám địa hình) |
 
 ⚠ **`TTMO` là số cần nhìn nhất khi debug terrain:**
@@ -1645,6 +1865,9 @@ hỏng → **mọi lệnh TAKEOFF bị từ chối** dù phần cứng hoàn to�
 |---|---|
 | `TPEND=1` kéo dài, `TTMO` **tăng đều** | Lối thoát ĐANG chạy → `TERR_JUMP_THRESH_M` đặt quá thấp, báo động giả trên nhiễu ToF bình thường |
 | `TPEND=1` kéo dài, `TTMO` **đứng yên** | Lối thoát **KHÔNG** chạy → đúng vòng luẩn quẩn cũ (mục 4.6) → tắt `TERRAIN_OFFSET_ENABLED` lại và đi tìm tiếp |
+| `TPEND=1`, `TSEEN` **đứng yên** | ToF **không cấp mẫu** — confirm không có gì để chạy. Soi `TOFAGE`/`TOFR`, không phải lỗi terrain |
+| `TSTALE=1` | Đã có một lần timeout. ToF không còn sửa Z; drone đang bay bằng IMU bridge → sẽ `degraded` rồi hạ cánh. **Số cần nhìn đầu tiên** khi thấy `FAULT` sau lúc qua vật thể |
+| `TCNT` nhảy về 0 liên tục | Ứng viên chưa ổn định — `TCAND` còn đang đổi, hoặc `alt_m` coast trôi quá `TERR_CONFIRM_TOL_M` |
 
 Bay qua vật thể mà `TCMT` tăng 1 và `TOFF` khớp chiều cao vật thể = đang hoạt
 động đúng.

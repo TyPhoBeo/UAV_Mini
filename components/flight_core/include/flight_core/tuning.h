@@ -155,8 +155,8 @@ extern "C" {
 // ⚠ SỐ NÀY CHƯA ĐO TRÊN PHẦN CỨNG THẬT. Plant mô phỏng không có rung
 // động cơ, không có hiệu ứng mặt đất, không có sụt áp pin. Bay thử phải THÁO
 // CÁNH/giữ trên giá trước, xem `status` (vz_i, throttle) có mượt không.
-#define ALT_HOLD_VZ_KP              100.0f
-#define ALT_HOLD_VZ_KI              200.0f
+#define ALT_HOLD_VZ_KP              200.0f
+#define ALT_HOLD_VZ_KI              400.0f
 #define ALT_HOLD_VZ_ILIMIT          500.0f
 // ============================================================================
 // hover_ff DÙNG TỪ HOLDING TRỞ ĐI — feed-forward của cascade độ cao
@@ -372,14 +372,14 @@ extern "C" {
 // số này (hover_model_prime_duty()) để tính ga PRIME từ hover đã latch theo
 // pin. Đừng gõ lại 0.90 ở chỗ khác: lúc chưa latch và sau khi latch phải theo
 // CÙNG một tỷ lệ, nếu không ga PRIME sẽ đổi giữa hai lần bay mà không ai biết.
-#define TAKEOFF_PRIME_HOVER_FRAC    0.90f
+#define TAKEOFF_PRIME_HOVER_FRAC    0.60f
 
 // Giá trị KHỞI TẠO của prime_duty (takeoff_default_tune()). Chỉ có tác dụng
 // khi latch theo pin KHÔNG chạy (HOVER_LATCH_ENABLED=0, hoặc trước lần ARM đầu
 // tiên) — ARM thành công sẽ GHI ĐÈ s_tko_tune.prime_duty bằng giá trị suy ra
 // từ hover thật đo theo pin. Xem hover_model.h.
 #define TAKEOFF_PRIME_DUTY          ((int)(ALT_HOLD_HOVER_NOMINAL * TAKEOFF_PRIME_HOVER_FRAC))
-#define TAKEOFF_PRIME_MS            800
+#define TAKEOFF_PRIME_MS            1000
 
 // hover_ff (feedforward thô) KHÔNG định nghĩa riêng ở đây — nó LÀ
 // ALT_HOLD_HOVER_NOMINAL (mục 2). Một đại lượng vật lý -> một hằng số. Định
@@ -399,13 +399,44 @@ extern "C" {
 // hơn thì có ít động lượng phải hãm hơn -> vọt ít hơn. Đó là quan hệ vật lý
 // trực tiếp, không phải chuyện tune mò.
 //
-// 0.5 -> 0.35 m/s. Với target 1.0m: đoạn trượt mất 1.0/0.35 ~ 2.9s (trước là
-// 2.0s), tổng thời gian vào HOLD ~6s — còn rất xa TAKEOFF_TOTAL_TIMEOUT_MS
-// (15s), nên không có nguy cơ đụng trần thời gian.
+// ============================================================================
+// 0.15 -> 0.35 m/s  — SUA MOT LOI DO DUOC TREN LOG BAY, khong phai tune mo
+// ============================================================================
+// TRIEU CHUNG: suot ca pha CLIMB, PID DO CAO RA LENH HA trong khi drone dang
+// leo. Do duoc:
+//
+//     ALTm  0.12 -> 0.25   (+0.13m)   VZ that = +0.41..0.56 m/s
+//     ZSP   0.12 -> 0.15   (+0.03m)   <- target bo CHAM HON drone 3-4 lan
+//     -----------------------------------------------------------------
+//     ZERR   0.00 -> -0.10            <- drone VUOT target
+//     VZTGT  0.00 -> -0.10            <- PID ra lenh HA
+//     VZI    +2   -> -20              <- I sac AM lien tuc
+//
+// NGUYEN NHAN: 0.15 m/s thap hon TOC DO LEO TU NHIEN cua drone o muc ga
+// hover_ff hien tai (do duoc 0.41..0.56 m/s). Target khong the nao theo kip,
+// nen tang Z LUON thay "drone dang vuot" va lien tuc ep vz_target am. PID
+// khong sai -- no dang ham dung theo lenh -- nhung no phai danh nhau voi
+// chinh feedforward, va no thua.
+//
+// HAU QUA THEM: khi cham dich, I dang o gia tri AM lon (-20 va con tiep tuc),
+// nen luc vao HOLD drone se HUT XUONG truoc khi I kip hoc lai.
+//
+// 0.35 m/s: nam TREN toc do leo tu nhien do duoc, nen target di truoc drone
+// (dung chieu) thay vi bi bo lai. Voi target 1.0m doan truot mat 1.0/0.35
+// ~ 2.9s -- van cham va an toan.
+//
+// ⚠ VI SAO KHONG dong thoi ha hover_ff (1000 -> ~905, cung do duoc tu log:
+// THR=882 chua nhac, THR=929 van leo +0.4 m/s): NGUOI DUNG CHON giu nguyen
+// hover de tach bien khi test. Ghi lai o day de lan sau khong phai do lai.
+// Chung nao hover_ff con cao hon hover that ~100 duty thi drone VAN vot len
+// luc vao CLIMB; 0.35 chi lam PID thoi danh nhau voi cu vot do.
+//
+// ⚠ Rang buoc mot chieu o TAKEOFF_STUCK_MS (dong ~600) chi canh bao khi HA
+// so nay. Dang NANG nen khong dung toi.
 //
 // Số này dùng cho HAI việc (đọc mục 3b ngay trên): trần tốc độ trượt target VÀ
 // trần |vz_target|. Phải giữ là CÙNG một số.
-#define TAKEOFF_MAX_CLIMB_MS        0.15f
+#define TAKEOFF_MAX_CLIMB_MS        0.35f
 
 // ---- 3c) LIFTOFF — THEO THỜI GIAN, KHÔNG THEO ĐỘ CAO ĐO ĐƯỢC ----
 //
@@ -655,7 +686,7 @@ extern "C" {
 // khoảng cách còn lại, nên sai số độ cao (ToF nhiễu, nền không phẳng) chỉ làm
 // tốc độ lệch một chút, KHÔNG làm drone chạm đất ở tốc độ sai. Theo thời gian
 // thì một lần ToF trễ là drone tiếp đất nhanh gấp đôi.
-#define LAND_DESCENT_VZ             0.35f    // m/s, tốc độ hạ pha DESCEND
+#define LAND_DESCENT_VZ             0.25f    // m/s, tốc độ hạ pha DESCEND
 #define LAND_FLARE_ALT_M            0.50f    // m, ngưỡng vào FLARE
 #define LAND_FLARE_VZ                0.12f   // m/s, tốc độ hạ lúc gần chạm
 #define LAND_TOUCHDOWN_ALT_M        0.080f   // m, ToF height tren floor
@@ -670,7 +701,7 @@ extern "C" {
 // rơi giữa không trung khi baro tụt một nhịp. Nên chấm điểm 4 bằng chứng +
 // yêu cầu duy trì, và có pha CONTACT_CANDIDATE (VẪN giữ điều khiển) ở giữa.
 #define LAND_CONTACT_THR_MARGIN     40       // duty trên LAND_MIN_THROTTLE vẫn coi là "sát sàn"
-#define LAND_CONTACT_VZ_MS          0.08f
+#define LAND_CONTACT_VZ_MS          0.15f
 #define LAND_CONTACT_ALT_MARGIN_M   0.10f    // m, cộng vào touchdown_alt_m cho bằng chứng "Z thấp"
 #define LAND_CONTACT_Z_PROGRESS_M   0.03f    // m, Z giảm ÍT HƠN mức này = "đã bị chặn"
 #define LAND_CONTACT_SCORE_MIN      3         // /4 điểm mới vào CONTACT_CANDIDATE
@@ -757,8 +788,8 @@ extern "C" {
 //
 // Hai số dưới đây là giá trị đã dò trên khung thật (trước đây nằm chôn trong
 // flight_core.c dưới dạng số ma thuật, không ai sửa được từ tuning.h).
-#define TRIM_ROLL_DEG_DEFAULT    (0.68f)
-#define TRIM_PITCH_DEG_DEFAULT   (0.49f)
+#define TRIM_ROLL_DEG_DEFAULT    (0.85f)
+#define TRIM_PITCH_DEG_DEFAULT   (1.15f)
 
 // Canh lúc BIÊN DỊCH: mặc định phải nằm trong dải mà runtime chấp nhận. Đường
 // CMD_SET_TRIM có clampf(), còn khởi tạo tĩnh thì KHÔNG — thiếu dòng này thì

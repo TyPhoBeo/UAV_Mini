@@ -34,6 +34,24 @@ Thoát (--cli):
     exit
 """
 
+# PHAI DUNG DAU (truoc moi import khac) -- day la yeu cau cua Python.
+#
+# VI SAO CAN: annotation kieu `def f(var: tk.StringVar)` duoc Python danh gia
+# NGAY luc dinh nghia ham, tuc luc import module. Neu tkinter khong co (chay
+# bang python cua venv ESP-IDF, python cua he thong khong kem Tk, container...)
+# thi `tk` khong ton tai va module CHET NGAY o dong do:
+#
+#     NameError: name 'tk' is not defined     (class FlightCommandGroup)
+#
+# Nghia la ca nhanh --cli (khong can GUI) cung khong chay duoc, va cai gate
+# `if not _TK_AVAILABLE` o cuoi file KHONG BAO GIO toi luot chay -- module da
+# vo truoc do roi.
+#
+# `from __future__ import annotations` bien moi annotation thanh CHUOI, chi
+# danh gia khi co ai do that su hoi (typing.get_type_hints). Khong ai hoi ->
+# `tk` khong can ton tai -> file import duoc du khong co Tk.
+from __future__ import annotations
+
 import argparse
 import queue
 import re
@@ -280,6 +298,39 @@ PID_ERR_RE = re.compile(r"^PID ERR (.*)$")
 # sample out (vibration / non-gravity accel) and skipped the tilt correction.
 # Dùng để phân biệt "pitch tăng that vi rung dong co" voi "pitch tang vi
 # khung/prop mat can bang" khi tang throttle.
+# ============================================================================
+# TOF_DIAG_RE — CHAN DOAN ToF THO, parse DOC LAP voi STATUS_RE
+# ============================================================================
+# Ba so nay nam sau HOVLD trong dong STATUS, tuc trong phan ma STATUS_RE co y
+# nuot bang r"(?:\s.*)?$". Them chung vao STATUS_RE tuan tu se buoc phai
+# liet ke DUNG THU TU moi field o giua (TOFZ, TOFF, TPEND, ...) — mot rang buoc
+# gion, va chinh la loai loi ma khoi "DUOI TU DO" duoc them vao de tranh.
+#
+# Parse rieng bang mot regex tu do thi thu tu khong con quan trong, va firmware
+# cu (khong co ba field nay) chi don gian khong khop -> tra None.
+TOF_DIAG_RE = re.compile(
+    r"TOFRS=(\d+)\s+TOFSIG=(\d+)\s+TOFAMB=(\d+)"
+)
+
+# Ma range_status THO cua VL53L1X (truoc bang map cua ST).
+# Nguon: VL53L1X datasheet + ST API. Chi liet ke ma hay gap khi debug.
+L1X_RAW_STATUS = {
+    0:  "VALID",
+    1:  "SIGMA_FAIL (nhieu lon)",
+    2:  "SIGNAL_FAIL (khong du phan xa)",
+    3:  "MIN_RANGE (qua gan)",
+    4:  "OUTOFBOUNDS (ngoai tam)",
+    5:  "HARDWARE_FAIL",
+    6:  "NO_UPDATE",
+    7:  "WRAP_TARGET (bong ma)",
+    8:  "PROCESSING_FAIL",
+    9:  "XTALK_SIGNAL_FAIL",
+    12: "RANGE_IGNORE (crosstalk)",
+    13: "USER_ROI_NOT_VALID",
+    18: "SYNCRONISATION_INT",
+}
+
+
 STATUS_RE = re.compile(
     r"^ARM=(\d) THR=(-?\d+) \| R=([-\d.]+) P=([-\d.]+) Y=([-\d.]+) \| "
     r"G=([-\d.]+) ([-\d.]+) ([-\d.]+) \| "
@@ -1959,10 +2010,10 @@ class PidTunerApp:
         brakef = ttk.LabelFrame(outer, text="Auto-brake (roll/pitch)")
         brakef.pack(side=tk.TOP, anchor="w", pady=(0, 10))
         self._autobrake_var = tk.BooleanVar(value=True)
-        self.brake_k_var = tk.DoubleVar(value=0.9)
-        self.brake_ratio_var = tk.DoubleVar(value=0.8)
-        self.brake_min_var = tk.DoubleVar(value=0.10)
-        self.brake_max_var = tk.DoubleVar(value=1.00)
+        self.brake_k_var = tk.DoubleVar(value=0.0)
+        self.brake_ratio_var = tk.DoubleVar(value=0.0)
+        self.brake_min_var = tk.DoubleVar(value=0.0)
+        self.brake_max_var = tk.DoubleVar(value=0.0)
         ttk.Checkbutton(brakef, text="Auto-brake", variable=self._autobrake_var).grid(
             row=0, column=0, padx=4, pady=3, sticky="w")
 
@@ -2353,6 +2404,29 @@ class PidTunerApp:
     # Nguong suc khoe ToF — khop SENSOR_TOF_STALE_US (200ms) ben firmware.
     TOF_STALE_MS = 200
 
+    def _tof_reject_reason(self):
+        """Vi sao chip TU CHOI mau gan nhat. Tra chuoi ngan, hoac "" neu khong ro.
+
+        Doc TOFRS/TOFSIG/TOFAMB — ba so den THANG tu chip, TRUOC moi tang loc
+        cua firmware. Chung tra loi cau hoi ma TOFAGE/TOFA/TOFR khong tra loi
+        duoc: "mau bi loai, NHUNG TAI SAO".
+        """
+        d = getattr(self, "_last_tof_diag", None)
+        if not d:
+            return ""
+        rs, sig, amb = d
+        name = L1X_RAW_STATUS.get(rs, f"ma {rs}")
+        if rs == 0:
+            return f"chip bao VALID (sig={sig} amb={amb}) -- loi o tang tren"
+        if rs == 255:
+            return "doc I2C loi (status ngoai bang)"
+        # signal/ambient chi co nghia khi chip tu bao khong dung duoc
+        if rs == 2:
+            if amb > sig * 3 and amb > 100:
+                return f"{name}: anh sang nen at tin hieu (sig={sig} amb={amb})"
+            return f"{name}: be mat khong du phan xa (sig={sig} amb={amb})"
+        return f"{name} (sig={sig} amb={amb})"
+
     def _tof_health(self, tofage, tof_raw, tofen=None, tofalive=None):
         """Ket luan ToF co dang chay khong. Tra (text, mau).
 
@@ -2393,7 +2467,9 @@ class PidTunerApp:
         if age < 0:
             if alive is not None and not hw_dead:
                 # Chip dang do nhung chua mau nao hop le: dung luc nam tren san.
-                return (f"ToF: chip do binh thuong ({alive}ms) nhung chua co mau dung duoc (nam sat san?)", "#b35c00")
+                why = self._tof_reject_reason()
+                extra = f" -- {why}" if why else " (nam sat san?)"
+                return (f"ToF: chip do binh thuong ({alive}ms) nhung chua co mau dung duoc{extra}", "#b35c00")
             return ("ToF LOI: CHUA TUNG co mau (hub khong doc) -> chay 'tof_test'", "#c0392b")
 
         if age > self.TOF_STALE_MS:
@@ -2646,18 +2722,17 @@ class PidTunerApp:
         """
         if not hasattr(self, "btn_w"):
             return
-        if amode == "2":        # HOLD — PID do cao dang lai throttle
-            self.btn_w.configure(text=f"W\nlen +{self.WS_ALT_STEP_M*100:.0f}cm")
-            self.btn_s.configure(text=f"S\nxuong -{self.WS_ALT_STEP_M*100:.0f}cm")
-            self.ws_hint_var.set(f"HOLD: BAM = +/-{self.WS_ALT_STEP_M*100:.0f}cm")
+        # HOLD ('2') va FLYING ('5') gio GIONG HET NHAU: PID do cao chay o ca
+        # hai, W/S = buoc +/-0.10m. Chi khac nhan de nguoi lai biet minh dang
+        # nghieng hay dang treo yen.
+        if amode in ("2", "5"):
+            step_cm = self.WS_ALT_STEP_M * 100
+            self.btn_w.configure(text=f"W\nlen +{step_cm:.0f}cm")
+            self.btn_s.configure(text=f"S\nxuong -{step_cm:.0f}cm")
+            name = "HOLD" if amode == "2" else "FLYING"
+            self.ws_hint_var.set(f"{name}: BAM = +/-{step_cm:.0f}cm")
             if hasattr(self, "alt_frame"):
-                self.alt_frame.configure(text="Do cao (HOLD)")
-        elif amode == "5":      # FLYING — PID do cao TAT, ga tay
-            self.btn_w.configure(text=f"W\nga +{self.WS_THROTTLE_OFFSET_DUTY}")
-            self.btn_s.configure(text=f"S\nga -{self.WS_THROTTLE_OFFSET_DUTY}")
-            self.ws_hint_var.set(f"FLYING: GIU = +/-{self.WS_THROTTLE_OFFSET_DUTY} ga")
-            if hasattr(self, "alt_frame"):
-                self.alt_frame.configure(text="Ga tay (FLYING)")
+                self.alt_frame.configure(text=f"Do cao ({name})")
         else:
             # Cac state con lai (DISARMED/ARMED/TAKEOFF/LANDING): W/S van gui
             # offset ga nhu truoc, nhung firmware phan lon se bo qua. Noi ro
@@ -2676,14 +2751,27 @@ class PidTunerApp:
         """Bat dau giu W/S. Hanh vi phu thuoc state — xem khoi comment tren."""
         self._stop_ws_repeat()
 
-        if self._ws_mode() == "2":
-            # HOLD: mot buoc do cao roi rac. KHONG dat _ws_repeat_key -> khong co
-            # keepalive, khong lap lai khi giu phim.
+        # ⚠ HOLD ('2') VA FLYING ('5') GIO DUNG CHUNG MOT DUONG: buoc do cao.
+        #
+        # TRUOC DAY FLYING di duong rieng (offset ga +/-150 duty) vi o state do
+        # firmware TAT PID do cao -- khong con vong nao an duoc lenh do cao, nen
+        # buoc phai lai ga tay. Dieu do DA DOI: FLYING gio chay y het HOLDING
+        # (flight_core.c, FLYING_DISABLES_ALT_PID = 0), PID do cao chay lien tuc
+        # o ca hai state, va viec bay qua vat the do lop terrain trong estimator
+        # xu ly.
+        #
+        # Nen W/S gio co MOT y nghia duy nhat o moi state dang bay: +/-0.10m vao
+        # alt target. Khong con "cung mot nut lam hai viec khac han nhau".
+        if self._ws_mode() in ("2", "5"):
+            # Mot buoc do cao ROI RAC. KHONG dat _ws_repeat_key -> khong co
+            # keepalive, khong lap lai khi giu phim (giu lau khong tuot len mai).
             self._alt_step(sign)
-            self._log(f"[GUI] HOLD: W/S -> alt target {sign:+d} x {self.WS_ALT_STEP_M:.2f}m")
+            self._log(f"[GUI] W/S -> alt target {sign:+d} x {self.WS_ALT_STEP_M:.2f}m")
             return
 
-        # FLYING (va cac state con lai): offset momentary + keepalive.
+        # Cac state con lai (BENCH_RAMP...): offset ga momentary + keepalive.
+        # BENCH_RAMP van can duong nay -- o do throttle di thang, khong qua
+        # alt_hold, nen "buoc do cao" khong co y nghia gi.
         self._ws_repeat_key = sign
         self._send_thr_offset(sign * self.WS_THROTTLE_OFFSET_DUTY)
         self._ws_repeat_after = self.root.after(
@@ -3534,6 +3622,14 @@ class PidTunerApp:
         if line.startswith("FLIGHT MODE OFF"):
             self.telem_stream_var.set("STATUS streaming: OFF")
             return
+
+        # Chan doan ToF tho: parse DOC LAP, truoc va khong phu thuoc STATUS_RE.
+        # Firmware cu khong co ba field nay -> search() tra None -> giu None,
+        # va _tof_reject_reason() tu tra "" nen khong hien gi them.
+        _d = TOF_DIAG_RE.search(line)
+        self._last_tof_diag = (
+            (int(_d.group(1)), int(_d.group(2)), int(_d.group(3))) if _d else None
+        )
 
         m = STATUS_RE.match(line)
         if m:

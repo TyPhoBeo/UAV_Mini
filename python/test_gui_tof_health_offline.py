@@ -107,6 +107,13 @@ class Fake:
     """Chi can TOF_STALE_MS + method that -- khong dung tkinter."""
     TOF_STALE_MS = gui.PidTunerApp.TOF_STALE_MS
     _tof_health = gui.PidTunerApp._tof_health
+    # _tof_health() goi _tof_reject_reason() de giai thich VI SAO mau bi loai
+    # (doc TOFRS/TOFSIG/TOFAMB). Phai co ca hai o day, neu khong Fake se lech
+    # khoi lop that va test bao loi gia.
+    _tof_reject_reason = gui.PidTunerApp._tof_reject_reason
+    # None = firmware cu / chua nhan dong STATUS nao co ba field chan doan.
+    # _tof_reject_reason() tra "" -> thong bao giu nguyen dang cu.
+    _last_tof_diag = None
 
 
 f = Fake()

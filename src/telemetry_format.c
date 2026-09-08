@@ -189,6 +189,18 @@ void telemetry_format_status_line(char *out, size_t out_size) {
         // khong chay -> tat terrain lai va di tim tiep (xem app_config.h).
         // TREJ tang = sanity check dang chan commit sai (TERR_MAX_STEP_M).
         " TOFF=%.3f TPEND=%d TCMT=%u TREJ=%u TTMO=%u TRES=%.3f"
+        " TSTALE=%d TCAND=%.3f TCNT=%u TSEEN=%u"
+        // TGTS = target HIEU DUNG so voi be mat = TGT - TOFF. O DATUM, TGT giu
+        // nguyen ca chuyen; day moi la con so doi khi qua bac dia hinh.
+        //   bay 1.5m, len ban 1.0m -> TGT=1.50 TOFF=1.00 TGTS=0.50
+        //   roi ban                -> TGT=1.50 TOFF=0.00 TGTS=1.50
+        // TGTS am = target nam DUOI mat ban -> B8 guard ep leo.
+        " TGTS=%.3f TSNAP=%u"
+        // ---- CHAN DOAN ToF THO: vi sao mau bi loai ----
+        // Xem telemetry.h muc "TOFRS / TOFSIG / TOFAMB" de biet cach doc.
+        // TOFRS la ma THO tu chip (truoc bang map); TOFSIG/TOFAMB nhan 100 de
+        // giu 2 chu so thap phan ma khong can format float.
+        " TOFRS=%u TOFSIG=%u TOFAMB=%u"
         " CLR=%.3f FRAME=%d"
         // Gyro calibration diagnostics ở cadence STATUS, không phải 1kHz.
         " GRAWX=%.3f GRAWY=%.3f GRAWZ=%.3f"
@@ -283,6 +295,12 @@ void telemetry_format_status_line(char *out, size_t out_size) {
         (double)t.terrain_off_m, t.terr_pending ? 1 : 0,
         (unsigned)t.terr_commit_count, (unsigned)t.terr_reject_count,
         (unsigned)t.terr_timeout_count, (double)t.terr_residual_m,
+        t.terr_offset_stale ? 1 : 0, (double)t.terr_cand_offset_m,
+        (unsigned)t.terr_confirm_cnt, (unsigned)t.terr_samples_seen,
+        (double)t.alt_target_surface_m,
+        (unsigned)t.coast_snap_count,
+        (unsigned)t.tof_range_status_raw,
+        (unsigned)t.tof_signal_mcps, (unsigned)t.tof_ambient_mcps,
         (double)t.clearance_m, (int)t.alt_frame,
         (double)t.gyro_raw_dps.x, (double)t.gyro_raw_dps.y, (double)t.gyro_raw_dps.z,
         (double)t.gyro_bias_dps.x, (double)t.gyro_bias_dps.y, (double)t.gyro_bias_dps.z,

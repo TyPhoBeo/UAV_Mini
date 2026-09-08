@@ -61,6 +61,29 @@ def const_of(src, name):
     return float(m.group(1)) if m else None
 
 
+# =============================================================================
+# ⚠ NHANH NAY GIO LA DEAD CODE MAC DINH (FLYING_DISABLES_ALT_PID = 0)
+# =============================================================================
+# Bay thu cho thay: trong FLYING, nghieng de bay ngang thi drone LUON tut do
+# cao -- vi tang ngoai bi tat va latch dung yen, khong co vong nao keo lai.
+# Ly do cu de tat tang ngoai ("range nhay khi bay qua vat the") gio da duoc
+# LOP TERRAIN trong estimator xu ly, nen tat nua la vua thua vua co hai.
+#
+# Co bien dich duoc GIU LAI de quay ve hanh vi cu ngay neu lop terrain to ra
+# khong du tin khi bay thuc. Test nay vi vay van con y nghia: no khoa TINH
+# DUNG cua nhanh do PHONG KHI ai do bat lai co.
+print("== (0) Trang thai co bien dich ==")
+_m = re.search(r"#define\s+FLYING_DISABLES_ALT_PID\s+(\d)", CODE)
+check("co FLYING_DISABLES_ALT_PID ton tai", _m is not None)
+if _m:
+    _on = _m.group(1) == "1"
+    print("  INFO  FLYING_DISABLES_ALT_PID = %s -> nhanh nay %s"
+          % (_m.group(1), "DANG CHAY" if _on else "la DEAD CODE (mac dinh moi)"))
+    check("mac dinh = 0 (FLYING chay PID do cao nhu HOLDING)",
+          not _on,
+          "co dang bat: FLYING se lai tut do cao khi nghieng")
+
+print()
 print("== (1) Hang so Phase A ton tai va hop ly ==")
 en = const_of(TUNE, "FLYING_VZ_HOLD_ENABLED")
 check("FLYING_VZ_HOLD_ENABLED = 1", en == 1.0, "duoc = %r" % en)

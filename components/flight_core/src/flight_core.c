@@ -232,12 +232,27 @@ static int     s_last_hold_throttle = 0;
 // Setpoint điều khiển bởi lệnh Python (xem apply_command()).
 // ---- Frame độ cao (alt_estimator.h alt_frame_t) — ĐỔI ĐƯỢC LÚC RUNTIME qua
 // fc.set_param("alt_frame", 0=DATUM | 1=AGL).
-//   DATUM = giữ độ cao so với SÀN cất cánh (mặc định, hành vi cũ). Bay qua bàn
-//           thì khoảng hở GIẢM đúng bằng chiều cao bàn.
+//   DATUM = giữ độ cao so với SÀN cất cánh. Bay qua bàn thì khoảng hở GIẢM
+//           đúng bằng chiều cao bàn.
 //   AGL   = giữ KHOẢNG CÁCH so với bề mặt đang nhìn (terrain following). Bay
 //           qua bàn thì drone LEO LÊN đúng bằng chiều cao bàn.
 // KHÔNG reset trong reset_all_controllers(): đây là lựa chọn của người lái,
 // không phải state điều khiển.
+//
+// ⚠ MẶC ĐỊNH = DATUM, và đó là lựa chọn CÓ CHỦ Ý — xem mục "TARGET HIỆU DỤNG"
+// ngay dưới đây để hiểu vì sao terrain offset vẫn có nghĩa ở frame này.
+//
+//   Bay 1.5m, lên bàn 1.0m  ->  Z TUYỆT ĐỐI giữ nguyên 1.5m
+//                           ->  target hiệu dụng = 1.5 - 1.0 = 0.5m TRÊN BÀN
+//   Rời bàn (offset -> 0)   ->  target hiệu dụng về lại 1.5m, Z vẫn 1.5m
+//
+// Tức là drone KHÔNG lên không xuống khi qua vật thể — chỉ khoảng hở đổi.
+// Đó là ngữ nghĩa của "giữ độ cao": độ cao so với SÀN, một mốc cố định, chứ
+// không phải so với thứ tình cờ đang ở dưới bụng.
+//
+// AGL (terrain following) là hành vi NGƯỢC LẠI: bay lên bàn thì LEO THÊM đúng
+// chiều cao bàn để giữ khoảng hở. Có ích cho bay ngoài trời theo địa hình,
+// KHÔNG phải cái muốn khi bay trong nhà qua bàn ghế.
 static alt_frame_t s_alt_frame = ALT_FRAME_DATUM;
 
 // ---- D4: cửa sổ degrade khi mất nguồn Z giữa lúc HOLD ----
@@ -3170,6 +3185,12 @@ static void stabilize_task(void *arg) {
         // ra thanh 'vua do xong').
         s_telemetry.tof_alive_ms = (snap.tof_alive_us == 0)
             ? -1 : (int32_t)((now_us - snap.tof_alive_us) / 1000);
+        // Chan doan ToF tho — xem telemetry.h muc "TOFRS / TOFSIG / TOFAMB".
+        // Lay tu snap.tof (publish_tof copy nguyen struct BAT KE ok), nen ba so
+        // nay VAN co gia tri ngay ca khi mau bi loai — do chinh la luc can chung.
+        s_telemetry.tof_range_status_raw = snap.tof.range_status_raw;
+        s_telemetry.tof_signal_mcps      = snap.tof.signal_mcps;
+        s_telemetry.tof_ambient_mcps     = snap.tof.ambient_mcps;
         s_telemetry.imu_healthy = snap.imu_h.healthy;
         s_telemetry.mag_healthy = snap.mag_h.healthy;
         s_telemetry.baro_healthy_hub = snap.baro_h.healthy;
@@ -3754,7 +3775,37 @@ static void stabilize_task(void *arg) {
                 // nó chứa lượng ga hover đã học được: khi thả phím nghiêng về
                 // HOLDING, alt_hold nhận lại với đúng I đó nên không phải học
                 // lại từ đầu. Reset ở đây sẽ gây tụt ga ngay lúc vừa về HOLD.
+                // ====================================================================
+                // FLYING KHONG CON TAT PID DO CAO  (FLYING_DISABLES_ALT_PID = 0)
+                // ====================================================================
+                // LY DO DOI — do duoc khi bay thu: trong FLYING, nghieng de bay
+                // ngang thi drone LUON co xu huong TUT do cao. Dung, vi thanh
+                // phan thang dung cua luc day giam theo cos(tilt) va khong co
+                // vong nao keo lai: tang ngoai bi tat, latch thi dung yen.
+                //
+                // Ly do CU de tat tang ngoai la "range nhay khi bay qua vat the".
+                // Nhung viec do gio da co LOP TERRAIN xu ly ngay trong estimator
+                // (terr_pending/commit, xem alt_estimator.c): alt_m da LIEN TUC
+                // xuyen qua bac dia hinh, nen tang ngoai KHONG con nhin thay cu
+                // nhay nao de ma phan ung sai. Tat no nua la vua thua vua co hai.
+                //
+                // GIO: FLYING chay y het HOLDING — ca hai tang cascade deu chay,
+                // PID giu do cao lien tuc, ToF van la nguon do cao chuan.
+                // Bu cos(tilt) cho throttle (TILT_COMP_*) lo phan feedforward,
+                // I-term lo phan con lai.
+                //
+                // ⚠ GIU LAI CO BIEN DICH thay vi xoa han khoi code: neu lop
+                // terrain to ra khong du tin khi bay thuc, dat co nay = 1 la quay
+                // ve hanh vi cu NGAY, khong phai revert mot dong code nao.
+                // Toan bo nhanh ben duoi la dead code khi co = 0 (compiler tu cat).
+#ifndef FLYING_DISABLES_ALT_PID
+#define FLYING_DISABLES_ALT_PID 0
+#endif
+#if FLYING_DISABLES_ALT_PID
                 const bool flying_no_alt_pid = (s_fsm.state == FSM_FLYING);
+#else
+                const bool flying_no_alt_pid = false;
+#endif
                 if (flying_no_alt_pid) {
                     if (s_flying_throttle_latch < 0) {
                         // Tick ĐẦU vào FLYING: chốt duty mà alt_hold đang xuất.
@@ -4334,11 +4385,21 @@ static void stabilize_task(void *arg) {
         s_telemetry.state = s_fsm.state;
         s_telemetry.armed = (s_fsm.state != FSM_DISARMED);
         s_telemetry.terrain_off_m      = s_alt_est.terrain_off_m;
+        // TARGET HIEU DUNG so voi BE MAT dang bay tren. O DATUM, s_alt_target_m
+        // la Z so voi SAN va KHONG doi khi qua bac dia hinh — thu doi la con so
+        // nay. Chi de DOC (khong co duong dieu khien nao dung): cascade so
+        // target voi alt_m, va alt_m da mang terrain_off ben trong roi.
+        s_telemetry.alt_target_surface_m = s_alt_target_m - s_alt_est.terrain_off_m;
+        s_telemetry.coast_snap_count   = s_alt_est.coast_snap_count;
         s_telemetry.terr_pending       = s_alt_est.terr_pending;
         s_telemetry.terr_commit_count  = s_alt_est.terr_commit_count;
         s_telemetry.terr_reject_count  = s_alt_est.terr_reject_count;
         s_telemetry.terr_timeout_count = s_alt_est.terr_timeout_count;
         s_telemetry.terr_residual_m    = s_alt_est.terr_residual_m;
+        s_telemetry.terr_offset_stale  = s_alt_est.terr_offset_stale;
+        s_telemetry.terr_cand_offset_m = s_alt_est.terr_cand_offset_m;
+        s_telemetry.terr_confirm_cnt   = (uint8_t)s_alt_est.terr_confirm_cnt;
+        s_telemetry.terr_samples_seen  = s_alt_est.terr_samples_seen;
         s_telemetry.terrain_pending    = s_alt_est.terr_pending;
         s_telemetry.terrain_commits    = s_alt_est.terr_commit_count;
         s_telemetry.terrain_residual_m = s_alt_est.terr_residual_m;

@@ -7,7 +7,26 @@ h = (ROOT / "components/flight_core/include/flight_core/alt_estimator.h").read_t
 c = (ROOT / "components/flight_core/src/alt_estimator.c").read_text(encoding="utf-8")
 
 assert "tof_range_m * rzz" in c
-assert "e->tof_vertical_m - e->tof_ground_range_m" in c
+
+# ---------------------------------------------------------------------------
+# MAY DO SAN DA BI XOA — raw_agl KHONG con tru tof_ground_range_m
+# ---------------------------------------------------------------------------
+# Dong nay TRUOC DAY khoa `e->tof_vertical_m - e->tof_ground_range_m`.
+# Phep tru do den tu may do san (floor_add + Welford), da bi xoa han: nam sat
+# san thi VL53L1X doc 0.000m (duoi tam mu ~4cm) -> driver loai mau -> cua so
+# thong ke khong bao gio dong -> tof_ground_ref_valid ket false -> MOI lenh
+# TAKEOFF bi tu choi.
+#
+# Duong fusion chinh da bo phep tru tu luc do (raw_agl = tof_vertical_m).
+# Phep tru chi con SOT LAI trong alt_estimator_terrain_rebase() -- mot nhanh
+# CHET CUNG (gate `tof_ground_ref_valid` khong ai set true), nen assert cu van
+# xanh trong khi thu no bao ve da khong con chay. Da don not.
+#
+# Gio khoa chieu NGUOC LAI: ToF do TUYET DOI, khong duoc tru gi ca.
+assert "e->tof_vertical_m - e->tof_ground_range_m" not in c, \
+    "may do san da bi xoa -- tof_ground_range_m luon 0 nen phep tru la vo nghia"
+assert "float raw_agl = e->tof_vertical_m;" in c, \
+    "raw_agl phai lay thang tof_vertical_m (ToF do tuyet doi)"
 assert "e->tof_reacquire_count >= ALT_EST_TOF_REACQUIRE_SAMPLES" in c
 assert "e->tof_dt_s <= ALT_EST_TOF_GAP_DERIV_MAX_MS/1000.0f" in c
 assert "fabsf(zt - e->prev_tof_z_m) <= ALT_EST_TOF_DERIV_JUMP_M" in c

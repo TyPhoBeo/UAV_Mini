@@ -250,6 +250,37 @@ typedef struct {
     // voi 'mat cam bien' -- va no da bao do nham dung o ca hai ca.
     // -1 = chua tung doc duoc mau nao.
     int32_t tof_alive_ms;
+
+    // ---- CHAN DOAN ToF THO (TOFRS / TOFSIG / TOFAMB) ----
+    // Ba so nay tra loi cau hoi "vi sao mau bi loai", thu ma TOFA/TOFR khong
+    // noi duoc. Chung den THANG tu chip, TRUOC moi tang loc cua firmware.
+    //
+    // TOFRS = range_status THO (5 bit), TRUOC khi tra bang L1X_STATUS_MAP.
+    //         Driver chi chap nhan mau khi map(TOFRS) == 0. Ma tho hay gap:
+    //           0  = RANGE_VALID          (tot)
+    //           1  = SIGMA_FAIL           (nhieu do lech chuan qua lon)
+    //           2  = SIGNAL_FAIL          (be mat hap thu / qua xa / khong du
+    //                                      anh phan xa)
+    //           4  = OUTOFBOUNDS_FAIL     (ngoai tam)
+    //           7  = WRAP_TARGET_FAIL     (bong ma do phan xa vong lai)
+    //           5  = HARDWARE_FAIL
+    //         ⚠ 255 = raw_status >= 24 (ngoai bang) — gan nhu chac chan la loi
+    //         doc I2C, KHONG phai chip tu bao.
+    //
+    // TOFSIG = peak signal count rate (MCPS x 100). Cang cao cang tin cay.
+    //          Sat 0 nghia la KHONG CO anh phan xa quay ve — be mat den/hap thu,
+    //          hoac khong co gi trong tam nhin.
+    // TOFAMB = ambient count rate (MCPS x 100). Cao = anh sang nen manh (nang,
+    //          den halogen) dang lan at tin hieu.
+    //
+    // CACH DOC (ba kich ban thuong gap):
+    //   TOFRS=2, TOFSIG thap, TOFAMB thap  -> be mat khong phan xa du
+    //   TOFRS=2, TOFSIG thap, TOFAMB CAO   -> anh sang nen at tin hieu
+    //   TOFRS=1, TOFSIG kha    -> co tin hieu nhung nhieu (rung / cua so ban)
+    //   TOFRS=0 ma van TOFA=0  -> loi o TANG TREN, khong phai chip
+    uint8_t  tof_range_status_raw;
+    uint16_t tof_signal_mcps;
+    uint16_t tof_ambient_mcps;
     bool    imu_healthy, mag_healthy, baro_healthy_hub;
 
     // heading_degraded — yaw đang CHỈ dựa vào tích phân gyro (mag mất/chưa
@@ -506,6 +537,23 @@ typedef struct {
     // CLR   = khoảng hở THẬT tới bề mặt dưới bụng (AGL). Đây là con số quyết
     //         định drone có đâm vào bàn hay không, KHÔNG phải ALTm.
     // FRAME = 0 DATUM (giữ độ cao so với sàn) / 1 AGL (terrain following).
+    // TGTS  = TARGET HIỆU DỤNG so với BỀ MẶT đang bay trên = TGT - TOFF.
+    //         Ở DATUM, TGT là Z so với SÀN và giữ NGUYÊN cả chuyến; thứ thực
+    //         sự đổi khi qua bậc địa hình là con số này:
+    //             bay 1.5m, lên bàn 1.0m -> TGT=1.50 TOFF=1.00 TGTS=0.50
+    //             rời bàn                 -> TGT=1.50 TOFF=0.00 TGTS=1.50
+    //         Z tuyệt đối không đổi — chỉ khoảng cách tới mặt dưới bụng đổi.
+    //         ⚠ CHỈ ĐỂ ĐỌC. Không có đường điều khiển nào dùng TGTS: cascade
+    //         so TGT với alt_m (DATUM) và phép trừ offset đã nằm sẵn trong
+    //         alt_m, nên cộng thêm ở đây sẽ tính hai lần.
+    //         TGTS < 0 = target nằm DƯỚI mặt bàn (bàn cao hơn độ cao đang bay)
+    //         -> B8 guard sẽ ép leo giữ TERR_MIN_CLEARANCE_M.
+    // TSNAP = so lan alt_m bi EP ve so do that vi coast qua
+    //         ALT_EST_COAST_SNAP_MS (400ms) ma ToF khong sua duoc.
+    //         0 = binh thuong. Tang deu = ToF dang bi chan fuse lien tuc
+    //         (terrain ket / mau bi vut) -> di tim nguyen nhan do.
+    uint16_t coast_snap_count;
+    float    alt_target_surface_m;
     float    terrain_off_m;
     // TPEND = dang NGHI co bac, chua xac nhan.
     // TCMT  = so lan da COMMIT offset.  TREJ = so lan bi TU CHOI (sanity fail).
@@ -517,6 +565,18 @@ typedef struct {
     uint16_t terr_reject_count;
     uint16_t terr_timeout_count;
     float    terr_residual_m;
+    // TSTALE = terrain offset da mat tin cay (transition timeout). Khi =1:
+    //          ToF KHONG duoc fuse vao Z tuyet doi nua, estimator song bang
+    //          IMU bridge. Day la so can nhin dau tien khi thay FAULT sau khi
+    //          bay qua vat the.
+    // TCAND  = offset UNG VIEN dang cho xac nhan (khac TOFF = offset da nhan).
+    // TCNT   = so mau lien tiep da khop ung vien (0..TERR_CONFIRM_N).
+    // TSEEN  = so mau ToF da di qua khoi confirm ke tu khi vao pending.
+    //          TSEEN dung yen trong khi TPEND=1 nghia la ToF khong cap mau.
+    bool     terr_offset_stale;
+    float    terr_cand_offset_m;
+    uint8_t  terr_confirm_cnt;
+    uint8_t  terr_samples_seen;
     bool     terrain_pending;
     uint32_t terrain_commits;
     float    terrain_residual_m;

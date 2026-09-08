@@ -165,9 +165,13 @@ if m_age:
         # khong co debounce o nhanh do). Gio degraded duoc tinh theo THOI GIAN
         # ke tu correction cuoi -- dung hop dong viet o commander.h.
         # Kiem YEU CAU chu khong kiem CACH VIET.
+        # Moc dem phai DOC LAP voi tof_fusable. last_tof_accept_us khong dat
+        # yeu cau do: terr_pending va terr_offset_stale deu ep tof_fusable=false
+        # nen moc dung yen, va moi lan roi ban lai dem nguoc toi fault.
         check("chip do + khong fuse -> degraded tinh theo thoi gian (khong gan cung true)",
               "e->degraded = true;" not in branch_coast and
-              "last_tof_accept_us" in branch_coast and
+              re.search(r"last_\w*_us", branch_coast) is not None and
+              "last_tof_accept_us" not in branch_coast and
               "ALT_EST_NO_CORRECTION_DEGRADED_MS" in branch_coast,
               branch_coast.strip()[:200])
 

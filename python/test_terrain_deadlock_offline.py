@@ -122,10 +122,19 @@ if mesc:
 
 print()
 print("== (5) Moc thoi gian dat o CANH LEN, khong dat lai moi tick ==")
-check("stamp nam trong if (!e->terr_pending_since_us)",
-      re.search(r"if\s*\(!e->terr_pending_since_us\)\s*e->terr_pending_since_us\s*=\s*now_us",
-                CODE) is not None,
-      "dat lai moi tick = timeout khong bao gio het han = deadlock quay lai")
+# ⚠ Kiem Y DINH, khong kiem CACH VIET.
+# Truoc day dieu kien la `if (!e->terr_pending_since_us)`. Sau khi sua loi
+# "cand_offset phai cong don" (xem test_terrain_accumulate_offline.py), canh len
+# duoc nhan bang `if (!e->terr_pending)` va moc dat trong do. Ca hai deu dat
+# moc DUNG MOT LAN o canh len -- yeu cau that su la vay.
+_m = re.search(r"if\s*\(!e->terr_pending(?:_since_us)?\)\s*\{?[^}]*?"
+               r"terr_pending_since_us\s*=\s*now_us", CODE, re.S)
+check("moc thoi gian chi dat o CANH LEN cua nghi ngo", _m is not None,
+      "dat lai moi mau = timeout khong bao gio het han = deadlock quay lai")
+# Va phai KHONG co duong nao dat moc ngoai canh len.
+_all = re.findall(r"terr_pending_since_us\s*=\s*now_us", CODE)
+check("chi co DUNG MOT cho dat moc = now_us", len(_all) == 1,
+      "co %d cho -- them duong nao khac la co the dat lai giua chung" % len(_all))
 
 print()
 print("== (6) Moi cho clear terr_pending deu clear ca moc ==")
@@ -148,12 +157,29 @@ check("commit duoc bao ve boi fabsf(...) <= TERR_MAX_STEP_M",
       "khong co sanity = mot mau rac co the ghi offset khong lo")
 
 print()
-print("== (8) Residual dung du doan DOC LAP, khong dung vz da fuse ToF ==")
-check("expected tinh tu vz_accel_only_ms",
-      re.search(r"expected\s*=\s*e->vz_accel_only_ms\s*\*\s*e->tof_dt_s", CODE) is not None,
-      "dung vz_ms la vong hoi tiep kin: cu nhay range bom vao vz_ms -> expected "
-      "phinh theo dung huong cu nhay -> residual bi triet tieu -> bac that "
-      "khong bao gio duoc phat hien")
+print("== (8) Residual la BUOC NHAY THO, khong tru chuyen dong cua drone ==")
+# ⚠ YEU CAU DA DAO NGUOC so voi ban dau cua test nay.
+#
+# Ban dau doi `expected = vz_accel_only_ms * tof_dt_s` (tru phan range doi do
+# chinh drone leo/ha). Can do lai tren log bay cho thay so hang do LAM HAI:
+#     thu no SUA duoc (drone tu leo, 1 mau) :  0.018 m
+#     thu no BOM VAO  (sai so cua VZAO)     :  0.082 m
+#     bac ban that                          :  0.75 .. 1.20 m
+# Chiem 2.4% tin hieu ma sai so gap 5 lan thu no sua. Do TRES tren SAN PHANG
+# voi cong thuc cu: dinh +0.108m tren nguong 0.12 -> con 12mm la bao dong gia.
+#
+# Doi lai: TERR_JUMP_THRESH_M phai noi 0.12 -> 0.20 (bien 2.6x so voi
+# |d_range| lon nhat do duoc luc leo, 0.076m). Hai thay doi nay di CUNG NHAU --
+# bo so hang accel ma khong noi nguong la doi mot loi lay mot loi khac.
+check("residual = d_range (khong tru vz)",
+      re.search(r"residual\s*=\s*d_range\s*;", CODE) is not None,
+      "phai la buoc nhay THO")
+check("KHONG con tru vz_accel_only_ms * tof_dt_s",
+      re.search(r"=\s*e->vz_accel_only_ms\s*\*\s*e->tof_dt_s", CODE) is None,
+      "so hang nay bom 0.082m sai so vao mot phep do can 0.018m")
+check("nguong da noi len de bu lai",
+      float(const_of(HDR, "TERR_JUMP_THRESH_M") or 0) >= 0.18,
+      "bo so hang accel ma giu nguong 0.12 -> bien chi 1.6x |d_range| leo")
 
 print()
 print("== (9) terr_pending KHONG duoc bien thanh SOFT FAULT ngay tick dau ==")
@@ -170,10 +196,20 @@ if mbridge:
           re.search(r"degraded\s*=\s*true\s*;", seg) is None,
           "gan cung true = mot mau ToF khong fusable (ngoai tam / hap thu / "
           "terr_pending) se fault NGAY -> LANDING giua chuyen")
-    check("degraded tinh theo thoi gian tu correction cuoi",
-          "last_tof_accept_us" in seg and
+    # Moc phai la mot TIMESTAMP bat ky, so voi NO_CORRECTION_DEGRADED_MS.
+    # KHONG khoa ten bien: ban dau dem tu last_tof_accept_us, nhung moc do bi
+    # terr_pending/terr_offset_stale lam DUNG YEN (ca hai ep tof_fusable=false),
+    # nen moi lan phat hien dia hinh lai tu dem nguoc toi SOFT FAULT du ToF van
+    # khoe. Gio dem tu last_tof_geom_ok_us -- "chip con tra mau hop le" -- doc
+    # lap voi trang thai terrain.
+    check("degraded tinh theo thoi gian tu mot moc _us",
+          re.search(r"last_\w*_us", seg) is not None and
           "ALT_EST_NO_CORRECTION_DEGRADED_MS" in seg,
-          "phai dem tu moc correction cuoi, dung hop dong o commander.h")
+          "phai dem theo thoi gian, dung hop dong o commander.h")
+    check("moc degraded KHONG phai last_tof_accept_us (bi terrain lam dung)",
+          "last_tof_accept_us" not in seg,
+          "last_tof_accept_us chi refresh khi tof_fusable; terr_pending ep no "
+          "false -> dong ho dung -> roi ban la fault sau 300ms")
     check("van giu valid = true (coast bang IMU khong phai loi)",
           re.search(r"valid\s*=\s*true", seg) is not None)
 

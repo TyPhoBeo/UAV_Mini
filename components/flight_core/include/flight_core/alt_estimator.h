@@ -69,6 +69,23 @@ typedef struct {
     uint32_t bias_adapt_count;
 
     int64_t last_tof_accept_us;
+    // ⚠ HAI MOC, HAI CAU HOI KHAC NHAU -- dung gop lam mot.
+    //
+    //   last_tof_accept_us   : lan cuoi mot mau duoc DUNG DE SUA Z tuyet doi.
+    //                          Tat khi terr_pending / terr_offset_stale.
+    //   last_tof_geom_ok_us  : lan cuoi CHIP tra ve mot mau hop le ve HINH HOC
+    //                          (trong tam do, tilt trong nguong). KHONG phu
+    //                          thuoc terrain state.
+    //
+    // degraded phai doc moc THU HAI. Ly do: trong luc nghi ngo terrain ta co y
+    // dat tof_fusable=false de alt_m COAST -- do la thiet ke, khong phai su co.
+    // Neu degraded doc last_tof_accept_us thi moi lan phat hien dia hinh se tu
+    // dong dem nguoc toi SOFT FAULT sau ALT_EST_NO_CORRECTION_DEGRADED_MS, du
+    // cam bien van khoe va van tra mau deu 25Hz.
+    //
+    // Da do duoc: roi ban -> TPEND=1 -> dong ho dung -> 300ms sau FAULT ->
+    // LANDING giua chuyen, trong khi ToF hoan toan binh thuong.
+    int64_t last_tof_geom_ok_us;
     float tof_corr_z_m, tof_corr_vz_ms;
 
 #if FC_FEATURE_BARO
@@ -113,8 +130,62 @@ typedef struct {
     float    terrain_off_m;        // do cao BE MAT dang nhin so voi san da khoa
     float    agl_m;                // alt_m - terrain_off_m (do cao tren BE MAT)
     bool     terr_pending;
+    // ⚠ TERRAIN OFFSET DA MAT TIN CAY (transition timeout).
+    // Bat khi mot lan nghi ngo HET HAN ma khong confirm duoc. Y nghia: ta BIET
+    // be mat da doi nhung KHONG BIET doi bao nhieu -- nen terrain_off_m hien
+    // tai la mot so CU, khong con mo ta dia hinh ben duoi.
+    //
+    // Fuse ToF bang offset do se bom mot buoc nhay GIA vao alt_m. Do duoc:
+    //     TOFF_cu = 0.693, raw = 1.01  ->  tof_z = 1.70
+    //     alt_m dang coast = 1.09      ->  innovation +0.61m
+    // -> estimator bi keo nhay 0.5m -> FAULT -> LANDING.
+    //
+    // Khi co nay bat: KHONG fuse ToF (xem alt_estimator_update), estimator
+    // song bang IMU bridge va bao degraded de commander ha canh co kiem soat.
+    // Raw range VAN dung duoc lam ground-clearance (agl), chi khong dung de
+    // sua Z tuyet doi.
+    //
+    // Xoa khi: commit thanh cong mot offset moi, hoac ve mat dat (ground lock).
+    bool     terr_offset_stale;
+    // So MAU ToF da di qua khoi confirm ke tu khi vao pending.
+    //
+    // ⚠ VI SAO CAN, khi da co terr_pending_since_us (dong ho tuong):
+    // timeout duoc kiem MOI TICK dieu khien (250Hz = 65 lan trong 260ms),
+    // nhung confirm chi chay khi CO MAU ToF MOI va HOP LE HINH HOC
+    // (25Hz = 6-7 lan). Hai nhip khac nhau mot bac.
+    //
+    // Do duoc tren log: ung vien DA dat dieu kien commit
+    //     cand_z = 1.144  vs  alt_m = 1.09  ->  lech 0.054 < TOL 0.10
+    // nhung TTMO van tang. Can 2 mau de detect + 3 mau confirm = 200ms,
+    // chi con 60ms bien; TOFAGE trong log nhay 7->45ms nen truot mot mau la
+    // vuot han.
+    //
+    // Timeout gio doi HAI dieu kien: het gio tuong VA da co du co hoi
+    // (>= TERR_MIN_SAMPLES_BEFORE_TIMEOUT mau di qua confirm). Ung vien hop le
+    // khong con bi mat chi vi ToF truot vai mau.
+    uint8_t  terr_samples_seen;
     // Moc bat dau nghi ngo -- de huy nghi ngo khi qua TERR_PENDING_TIMEOUT_MS.
     int64_t terr_pending_since_us;         // dang NGHI co bac, chua COMMIT
+    // ⚠ MOC NEO: so do THO ngay TRUOC khi bac bat dau.
+    //
+    // Bac dia hinh la HIEU CUA HAI MUC, khong phai TONG CUA CAC MAU vuot nguong.
+    // Ban truoc cong don `cand -= d_range` va CHI cong khi |d_range| > JUMP_THRESH
+    // -> moi mau duoi nguong bi BO IM LANG du be mat van dang doi. Bat doi xung:
+    // di len bat duoc nhieu hon di xuong, nen offset KHONG ve 0 khi quay lai san.
+    //
+    // Do duoc tren log bay (qua dia hinh roi VE LAI SAN): TOFF ket o +0.165
+    // thay vi 0. Mo phong mep khong sac cho +0.150 -- trung khop.
+    // He qua khi DI LEN: bac that +0.70 nhung chi bat duoc +0.55 -> alt_m THAP
+    // hon that 0.15m -> PID tuong drone dang thap -> tang ga -> DRONE VOT LEN.
+    //
+    // GIO: offset_moi = offset_cu + (anchor_raw - raw_hien_tai).
+    // Mot phep tru, khong phu thuoc bac trai ra may mau hay mau nao vuot nguong.
+    // Len va xuong doi xung TUYET DOI -> TOFF luon ve dung 0 khi ve san.
+    //
+    // ⚠ HAN CHE DA BIET: neu drone TU leo/ha trong cua so pending (~200ms) thi
+    // phan do bi tinh nham vao bac. O 0.3 m/s la ~6cm. Cach cong don cu dinh
+    // dung loi nay, khong te hon.
+    float    terr_anchor_raw_m;
     float    terr_cand_offset_m;   // offset ung vien dang cho xac nhan
     int      terr_confirm_cnt;     // so mau lien tiep da khop ung vien
     uint32_t terr_commit_count;    // so lan COMMIT (telemetry + landing reset pha)
@@ -124,6 +195,10 @@ typedef struct {
     uint16_t terr_timeout_count;
     // So lan COMMIT bi TU CHOI vi vuot TERR_MAX_STEP_M (sanity fail).
     uint16_t terr_reject_count;
+    // So lan alt_m bi EP ve so do that vi coast qua ALT_EST_COAST_SNAP_MS.
+    // Tang deu = ToF dang bi chan fuse lien tuc (terrain ket, hoac mau bi vut)
+    // -> di tim nguyen nhan do, dung coi snap la binh thuong.
+    uint16_t coast_snap_count;
     float    terr_residual_m;      // residual mau gan nhat (telemetry/tune)
     float    prev_tof_vertical_m;  // range da bu tilt cua mau TRUOC
     bool     prev_tof_vertical_valid;
@@ -248,6 +323,37 @@ typedef struct {
 #define ALT_EST_NO_CORRECTION_DEGRADED_MS    ALT_EST_TOF_LOST_MS
 
 // ============================================================================
+// TRAN COAST CUA alt_m -- chan "tich phan troi vo han"
+// ============================================================================
+// alt_m la mot TRANG THAI CO TRI NHO: no duoc tich phan tu vz moi tick 250Hz va
+// chi duoc ToF keo ve o 25Hz. Moi khi ToF ngung sua no (terr_pending,
+// terr_offset_stale, mau bi vut vi hinh hoc), no COAST bang accel -- va giu lai
+// nguyen sai so da tich duoc.
+//
+// Toan bo chuoi loi da duoi trong cac ban va truoc deu la bien the CUA MOT
+// CHUYEN: alt_m troi trong luc khong duoc sua.
+//     - van toc ToF cu tiem luc cat canh   -> alt_m sai
+//     - dong ho degraded dung khi pending  -> coast qua lau -> FAULT
+//     - slew tao doc gia                   -> alt_m bi keo tut 0.2m
+//     - TOFF khong ve 0                    -> alt_m lech vinh vien
+//     - terr_offset_stale KET vinh vien    -> alt_m troi TU DO, khong ai keo lai
+//
+// Cai cuoi la nang nhat: stale chi duoc xoa khi COMMIT thanh cong hoac
+// terrain_rebase() (ma rebase chi chay tu guard B8, doi khoang ho < 0.25m).
+// Bay tiep tren san phang thi khong con bac nao de commit -> stale ket -> ToF
+// KHONG BAO GIO fuse lai -> alt_m tich phan tu do het chuyen bay.
+//
+// Sai so tich phan tang theo BAC HAI: bias accel 0.1 m/s^2 cho
+//     300ms -> 0.005m     1s -> 0.05m     3s -> 0.45m
+// Vai tram ms thi khong sao; vai giay thi bang ca chieu cao cai ban.
+//
+// GIO: qua nguong nay ma alt_m van chua duoc sua thi ep no ve so do THAT.
+// Chon 400ms: dai hon TERR_PENDING_TIMEOUT_MS (260) nen KHONG cat ngang mot
+// lan nghi ngo dia hinh dang chay binh thuong, nhung du ngan de sai so tich
+// phan con o muc mili-met.
+#define ALT_EST_COAST_SNAP_MS                400
+
+// ============================================================================
 // TERRAIN OFFSET (FC_FEATURE_TERRAIN_OFFSET <- app_config.h TERRAIN_OFFSET_ENABLED)
 // ============================================================================
 // VAN DE: alt_m la do cao tren MAT SAN DA KHOA luc cat canh. Bay qua mot cai
@@ -266,18 +372,45 @@ typedef struct {
 // COMMIT offset DUNG BANG buoc nhay -> tof_z_m (va qua do alt_m) LIEN TUC
 // xuyen qua cu nhay -> PID khong thay gi bat thuong -> KHONG can tat PID.
 //
-// PHAT HIEN BANG RESIDUAL, KHONG PHAI NGUONG THO:
-//     d_range  = range - range_prev
-//     expected = vz_est * dt          (drone leo thi range tang)
-//     residual = d_range - expected
-// Co so nguong: |vz| bi tran o ALT_HOLD_VZ_LIMIT_MS (0.5 m/s) va ToF ~30Hz,
-// nen MOT mau chuyen dong toi da dich ~0.017m. 0.12m KHONG THE do chuyen dong
-// cua drone tao ra.
-#define TERR_JUMP_THRESH_M                   0.12f
+// PHAT HIEN BANG BUOC NHAY THO:
+//     d_range = range - range_prev        -> |d_range| > nguong = co bac
+//
+// ⚠ TRUOC DAY con tru them `expected = vz_accel_only_ms * dt` ("bo phan range
+// doi do CHINH DRONE leo/ha"). DA BO. Can do lai tren log bay:
+//
+//     thu no SUA duoc (drone tu leo, 1 mau) :  0.018 m
+//     thu no BOM VAO  (sai so cua VZAO)     :  0.082 m
+//     bac ban that can phat hien            :  0.75 .. 1.20 m
+//
+// So hang do chi chiem 2.4% tin hieu, ma sai so cua no gap 5 LAN chinh thu no
+// sua. O 25Hz thi 40ms drone khong di duoc bao xa -- bac ban lon hon chuyen
+// dong cua no ~55 lan. Do TRES tren SAN PHANG voi cong thuc cu: trung binh
+// +0.078m, dinh +0.108m tren nguong 0.12 -> con 12mm la BAO DONG GIA.
+//
+// CO SO NGUONG MOI (0.20), do tu chinh log thay vi suy luan:
+//     |d_range| lon nhat tren SAN PHANG luc dang leo = 0.076 m
+//     0.20 / 0.076 = 2.6x bien an toan
+// Cac muc khac da can nhac: 0.12 -> 1.6x (qua hep), 0.15 -> 2.0x (hep).
+// Van thua suc bat ghe (~0.45m) va ban (~0.75m) -- thu ta thuc su quan tam.
+#define TERR_JUMP_THRESH_M                   0.20f
 // Mep ban la cho te nhat: FoV 25deg o 1m cho vet sang ~44cm, beam nua tren ban
 // nua hut xuong san -> range nhay qua nhay lai. Phai xac nhan N mau LIEN TIEP
 // khop ung vien moi duoc COMMIT.
-#define TERR_CONFIRM_N                       4
+// 4 -> 3: voi nhip ToF 40ms, N=4 can (4+1)*40 = 200ms de confirm, dung BANG
+// TERR_PENDING_TIMEOUT_MS cu (200) -> bien an toan BANG 0 -> truot mot mau la
+// het han -> KHONG BAO GIO commit duoc, TTMO tang mai. N=3 can 160ms, con
+// 100ms (2.5 mau) du phong. Xem bang tinh o TERR_PENDING_TIMEOUT_MS.
+//
+// N=3 KHONG kem an toan hon: TERR_CONFIRM_TOL_M moi la thu loc nhieu mep ban,
+// N chi quyet dinh phai khop LIEN TIEP bao lau. Quan trong hon la no chay duoc.
+#define TERR_CONFIRM_N                       3
+// ⚠ DA NGHI HUU — khong con dong code nao doc hang so nay.
+// No thuoc ve tieu chi confirm CU: |cand_z - alt_m| < TOL, tuc tron mot so THO
+// (cand_z) voi mot so DA LOC (alt_m) roi doi chung khop nhau. Ma dung trong cua
+// so pending ta CO Y ngung fuse nen alt_m dang COAST va troi moi luc mot xa --
+// cang pending lau cang kho confirm, mot vong tu lam kho chinh minh.
+// Tieu chi moi chi hoi "range da dung yen chua" (|d_range| <= JUMP_THRESH), chi
+// dung so do THO. Giu #define de test cu con doc duoc; DUNG dung lai cho viec moi.
 #define TERR_CONFIRM_TOL_M                   0.10f
 // Guard khoang ho toi thieu (luoi an toan CUOI, B8). Duoi muc nay -> ep leo
 // bat ke frame nao dang chon, VA rebase terrain_off_m ngay (rebase thay vi
@@ -308,18 +441,53 @@ typedef struct {
 // quay lai fuse binh thuong -- chap nhan mot buoc nhay do cao con hon mat han
 // nguon do cao roi tu ha canh.
 //
-// 200ms -- PHAI NGAN HON ALT_EST_TOF_LOST_MS (300ms), co _Static_assert bao ve.
-// Neu dat dai hon thi soft-fault se no TRUOC khi loi thoat kip chay, va ban va
-// nay thanh vo dung. Van du cho TERR_CONFIRM_N=4 mau o nhip ToF ~40ms (L1X)
-// ke ca khi truot mot vai mau.
-#define TERR_PENDING_TIMEOUT_MS              200
+// PHAI NGAN HON ALT_EST_NO_CORRECTION_DEGRADED_MS -- co _Static_assert bao ve.
+// Dat dai hon thi soft-fault no TRUOC khi loi thoat kip chay, va ban va nay
+// thanh vo dung.
+//
+// ---- BANG TINH (nhip ToF = BOARD_TOF_L1X_INTER_MEASUREMENT_MS = 40ms) ----
+//
+//   SAN duoi = (N+1) * 40ms    1 mau de VAO pending + N mau de confirm
+//       N=3 -> 160ms     N=4 -> 200ms     N=5 -> 240ms
+//   TRAN tren = DEGRADED_MS (300ms) tru 1 mau bien an toan = 260ms
+//
+//   N=4, tmo=200  ->  can 200, co 200  ->  BIEN = 0, truot 1 mau la hong
+//   N=3, tmo=260  ->  can 160, co 260  ->  du 100ms (2.5 mau)     <= DANG CHON
+//   N=5, tmo=200  ->  can 240, co 200  ->  KHONG BAO GIO confirm duoc
+//
+// ⚠ Cau "van du ke ca khi truot vai mau" o ban truoc la SAI: N=4 voi 200ms co
+// bien BANG 0. Chi can mot mau bi loai la het han -> khong bao gio commit ->
+// TTMO tang mai ma TCMT dung yen.
+//
+// 500ms (de xuat ban dau): VUOT 300ms -> moi lan qua ban deu soft-fault ->
+// LANDING giua chuyen. Muon 500ms thi phai noi DEGRADED_MS -- ma so do la luoi
+// an toan khi ToF CHET THAT, khong nen noi.
+//
+// ⚠ DIEU CAN BIET KHI DOC LOG: vet sang ToF o 1m rong ~48cm (FoV ~27 deg). Bay
+// ngang 0.3 m/s thi mat ~1.6 GIAY moi qua het vung mep -- dai hon MOI timeout
+// kha di. Nen hanh vi that la: mep ban -> PENDING -> het han -> huy -> fuse lai
+// -> detect lai... cho toi khi qua han. Do la DUNG THIET KE (an toan, khong
+// ket), va TTMO se tang vai lan moi lan qua ban. KHONG phai loi.
+#define TERR_PENDING_TIMEOUT_MS              260
+
+// So MAU ToF toi thieu phai di qua khoi confirm truoc khi timeout duoc phep
+// huy mot ung vien. Xem terr_samples_seen o tren de biet ly do day du.
+//
+// (N+1) = 1 mau vao pending + N mau confirm. Dat DUNG bang so mau ly thuyet
+// can thiet: khong noi long tieu chi, chi bao dam timeout khong ban truoc khi
+// confirm co du co hoi chay.
+//
+// ⚠ Van bi chan tren boi ALT_EST_NO_CORRECTION_DEGRADED_MS: neu ToF chet han
+// thi khong co mau nao di qua, terr_samples_seen dung yen, va duong degraded
+// (300ms) van ha canh binh thuong. Co nay KHONG the treo he thong.
+#define TERR_MIN_SAMPLES_BEFORE_TIMEOUT      (TERR_CONFIRM_N + 1)
 
 // B3 -- SANITY CHECK truoc khi COMMIT offset.
 // Mot buoc terrain trong nha khong the lon hon nay: ban ~0.75m, ghe ~0.45m,
 // tu ~1.8m nhung bay ben tren tu thi ToF het tam truoc da. Vuot nguong nay
 // nghia la do sai (mau rac / phan xa gong / ToF ngoai tam), khong phai co
 // mot cai bac that cao nhu vay -> TU CHOI commit, giu offset cu.
-#define TERR_MAX_STEP_M                      1.50f
+#define TERR_MAX_STEP_M                      2.0f
 
 // Frame do cao — CHON DUOC LUC RUNTIME (fc.set_param("alt_frame", 0|1)).
 typedef enum {
