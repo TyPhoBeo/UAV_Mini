@@ -10,12 +10,15 @@
 #include "../main/board_config.h"
 #include "../main/board_setup.h"   // board_config_fill() -- dung chung voi fc_bridge.c
 #include "command_parser.h"
+#include "cpu_bench.h"
 #include "flight_core/drivers/imu_driver.h"   // IMU_SAMPLE_RATE_HZ (nhip ngat ky vong, imu_int_test)
 #include "flight_core/drivers/tof_driver.h"   // tof_driver_stall_restarts() trong tof_test
 #include "flight_core/flight_core.h"
 #include "flight_core/mahony_filter.h"   // MAHONY_DEFAULT_MAG_ERROR_GATE (in kem 'status')
 #include "net_link.h"
 #include "telemetry_format.h"
+#include "uav_camera/camera_driver.h"
+#include "uav_camera/camera_stream.h"
 
 #include "esp_console.h"
 #include "esp_log.h"
@@ -93,15 +96,49 @@ static void net_task(void *arg) {
     (void)arg;
 
     esp_err_t err = net_link_init(WIFI_HOSTNAME);
-    if (err != ESP_OK) {
+    const bool net_ok = (err == ESP_OK);
+    if (!net_ok) {
         ESP_LOGE(TAG, "net_link_init() THAT BAI: %s -- dieu khien qua WiFi/UDP se KHONG hoat "
 "dong (console USB van dung binh thuong). Kiem tra WIFI_STA_SSID/PASS "
 "trong app_config.h da dien dung chua.", esp_err_to_name(err));
+    } else {
+        ESP_LOGI(TAG, "WiFi/UDP san sang tai %s:%d -- chay 'python tools/uav_udp_console.py %s' tren PC",
+                  net_link_ip_string(), (int)WIFI_UDP_PORT, net_link_ip_string());
+    }
+
+#if SENSOR_CAMERA_ENABLED
+    // THU TU CO CHU DICH, va no da tung SAI o ban truoc.
+    //
+    // camera_init() dat SAU net_link_init() vi no cap phat framebuffer LON tu
+    // DRAM noi (chua bat PSRAM). De mang lay bo nho TRUOC: camera hong = mat
+    // video, mang hong = mat DIEU KHIEN.
+    //
+    // Nhung KHONG duoc vTaskDelete khi mang hong. Ban truoc lam vay, hau qua la
+    // WiFi rot thi camera KHONG BAO GIO duoc khoi tao -- dung luc can chan doan
+    // no nhat, va console USB thi van song. Gio mang hong chi bo qua phan
+    // /stream, camera van len va 'cam_test' van chay.
+    if (camera_init() == ESP_OK) {
+        if (!net_ok) {
+            ESP_LOGW(TAG, "Camera DA LEN nhung chua co mang -> chua co /stream. "
+                          "Go 'cam_test' tren console USB de kiem tra.");
+        } else if (camera_stream_start() == ESP_OK) {
+            ESP_LOGI(TAG, "Camera MJPEG: http://%s:%d/stream (snapshot: /snapshot)",
+                      net_link_ip_string(), (int)CAMERA_HTTP_PORT);
+        } else {
+            ESP_LOGE(TAG, "camera_stream_start() that bai -- van bay binh thuong, chi mat video");
+        }
+    } else {
+        ESP_LOGE(TAG, "camera_init() that bai -- van bay binh thuong, chi mat video. "
+                      "Go 'cam_test' tren console USB de biet hong o dau.");
+    }
+#endif
+
+    // Khong co mang thi vong telemetry duoi day khong co gi de lam. Thoat SAU
+    // khi camera da duoc khoi tao o tren.
+    if (!net_ok) {
         vTaskDelete(NULL);
         return;
     }
-    ESP_LOGI(TAG, "WiFi/UDP san sang tai %s:%d -- chay 'python tools/uav_udp_console.py %s' tren PC",
-              net_link_ip_string(), (int)WIFI_UDP_PORT, net_link_ip_string());
 
     char rx_buf[256];
 
@@ -143,6 +180,9 @@ static void net_task(void *arg) {
     static char reply[STATUS_LINE_BUF];
     static char status_line[STATUS_LINE_BUF];
     int64_t last_telemetry_us = 0;
+#if SENSOR_CAMERA_ENABLED
+    int64_t last_cam_telemetry_us = 0;
+#endif
 
     while (1) {
         const int n = net_link_read(rx_buf, sizeof(rx_buf));
@@ -173,6 +213,25 @@ static void net_task(void *arg) {
             telemetry_format_status_line(status_line, sizeof(status_line));
             net_link_write(status_line, strlen(status_line));
         }
+
+#if SENSOR_CAMERA_ENABLED
+        // ---- Dong CAM: 1Hz, TACH KHOI dong STATUS ----
+        // KHONG nhet 9 field camera vao STATUS. Ba ly do, deu la rang buoc that:
+        //   1. STATUS di 20Hz. Chan doan camera 1-2Hz la du (muc 13) — nhet vao
+        //      la spam gap 20 lan khong loi ich.
+        //   2. STATUS da ~1010 byte va tung bi cat mat duoi vi buffer nho (xem
+        //      ghi chu STATUS_LINE_BUF o tren). Cong them ~80 byte la ep no lai
+        //      gan mep do.
+        //   3. STATUS duoc parse boi mot regex 118 nhom (test_status_parse_offline.py)
+        //      va boi GUI. Them field = doi hop dong parse cua ca hai.
+        if (command_parser_telemetry_enabled() &&
+            (now_us - last_cam_telemetry_us) > 1000000) {
+            last_cam_telemetry_us = now_us;
+            char cam_line[192];
+            telemetry_format_camera_line(cam_line, sizeof(cam_line));
+            net_link_write(cam_line, strlen(cam_line));
+        }
+#endif
 
         vTaskDelay(pdMS_TO_TICKS(NET_POLL_INTERVAL_MS));
     }
@@ -1087,9 +1146,12 @@ static int cmd_tasks(int argc, char **argv) {
     printf("=== NHIP VONG BAY ===\n");
     // loop_dt phai bam quanh 1000/IMU_SAMPLE_RATE_HZ. deadline_miss TANG DEU =
     // vong bay khong kip han -> xem lai priority/core/stack, khong phai tune PID.
-    printf("  loop_dt=%.3f ms (ky vong %.3f ms @ %d Hz)  deadline_miss=%u\n",
-           t.loop_dt_ms, 1000.0 / (double)IMU_SAMPLE_RATE_HZ, IMU_SAMPLE_RATE_HZ,
-           (unsigned)t.deadline_miss_count);
+    // IMU_SAMPLE_RATE_HZ (1000) la nhip CAM BIEN, KHONG phai nhip vong dieu
+    // khien (CONTROL_TASK_HZ=250). Ban truoc in nham cai dau -> bao "ky vong
+    // 1.000 ms" trong khi chu ky that la 4 ms, tuc bang chan doan sai 4 lan.
+    printf("  loop_dt=%.3f ms (ky vong %.3f ms @ %u Hz)  deadline_miss=%u\n",
+           t.loop_dt_ms, 1000.0 / (double)st.control_task_hz,
+           (unsigned)st.control_task_hz, (unsigned)t.deadline_miss_count);
     printf("  imu_int: active=%d isr=%u wake=%u timeout=%u no_new_sample=%u\n",
            (int)t.imu_int_active, (unsigned)t.imu_int_isr_count,
            (unsigned)t.imu_int_wake_count, (unsigned)t.imu_int_timeout_count,
@@ -1099,11 +1161,259 @@ static int cmd_tasks(int argc, char **argv) {
     return 0;
 }
 
+static int cmd_cpu(int argc, char **argv) {
+    (void)argc; (void)argv;
+
+    cpu_bench_t cb;
+    cpu_bench_read(&cb);
+    telemetry_snapshot_t t;
+    flight_core_read_telemetry(&t);
+
+    printf("=== TAI CPU (uoc luong tu idle hook) ===\n");
+    if (!cb.calibrated) {
+        printf("  chua du mot cua so 1s -- go lai sau mot giay\n");
+        return 0;
+    }
+    for (int c = 0; c < 2; ++c) {
+        printf("  core %d: tai ~%5.1f%%   idle %u/s (moc chung %u/s)%s\n",
+               c, (double)cb.load_pct[c], (unsigned)cb.idle_hz[c],
+               (unsigned)cb.idle_hz_ref[c],
+               (c == 1) ? "   <- stabilize + sensor_hub" : "   <- net/udp/console/camera");
+    }
+
+    // Core 1 co MOT so do TRUC TIEP, khong phai uoc luong: LBUSY/LDT. In kem de
+    // doi chieu -- neu hai con so lech nhau nhieu thi tin LBUSY, vi no dem thang
+    // thoi gian xu ly chu khong suy ra tu idle.
+    printf("=== VONG BAY (so do TRUC TIEP) ===\n");
+    flight_core_task_stats_t ts;
+    flight_core_get_task_stats(&ts);
+    const double period_us = t.loop_dt_ms * 1000.0;
+    const double duty = period_us > 0.0 ? (double)t.loop_busy_us / period_us * 100.0 : 0.0;
+    printf("  LBUSY=%u us / chu ky %.0f us  -> duty %.1f%% (CHI stabilize_task)\n",
+           (unsigned)t.loop_busy_us, period_us, duty);
+    printf("  nhip thuc %.1f Hz (danh nghia %u Hz)  dt=%.3f ms  dinh=%d us\n",
+           t.loop_dt_ms > 0.0f ? 1000.0 / t.loop_dt_ms : 0.0,
+           (unsigned)ts.control_task_hz, t.loop_dt_ms, (int)t.loop_max_us);
+
+    // TONG don tu boot KHONG tra loi duoc "bay gio co dang tre khong". Mot con
+    // so 3000 co the la 3000 lan trong 10 giay dau roi thoi, hoac 3 lan/giay
+    // deu dan -- hai tinh huong khac han nhau. Do TOC DO giua hai lan go lenh.
+    static uint32_t s_prev_miss = 0;
+    static int64_t  s_prev_us = 0;
+    const int64_t now_us = esp_timer_get_time();
+    printf("  deadline_miss=%u tu boot (han = 1.5 x %.1f ms = %.1f ms)\n",
+           (unsigned)t.deadline_miss_count, 1000.0 / (double)ts.control_task_hz,
+           1.5 * 1000.0 / (double)ts.control_task_hz);
+    if (s_prev_us != 0) {
+        const double win_s = (double)(now_us - s_prev_us) / 1e6;
+        const uint32_t d = t.deadline_miss_count - s_prev_miss;
+        if (win_s > 0.2) {
+            const double per_s = (double)d / win_s;
+            printf("  -> %u lan trong %.1fs ke tu lan go truoc = %.1f lan/s (%.2f%% so tick)\n",
+                   (unsigned)d, win_s, per_s,
+                   per_s / (double)ts.control_task_hz * 100.0);
+        }
+    } else {
+        printf("  -> go 'cpu' lan nua sau vai giay de thay TOC DO miss (so tren la tong don)\n");
+    }
+    s_prev_miss = t.deadline_miss_count;
+    s_prev_us = now_us;
+
+    printf("  heap free=%u B (thap nhat=%u B)\n",
+           (unsigned)esp_get_free_heap_size(), (unsigned)esp_get_minimum_free_heap_size());
+    return 0;
+}
+
+static int cmd_cpu_reset(int argc, char **argv) {
+    (void)argc; (void)argv;
+    cpu_bench_reset();
+    printf("Da xoa moc. Giu he thong o trang thai NEN muon lay lam chuan "
+            "(vd tat stream) vai giay, roi go 'cpu'.\n");
+    return 0;
+}
+
+#if SENSOR_CAMERA_ENABLED
+// cam_test — chan doan camera QUA CONSOLE USB. Co y KHONG phu thuoc WiFi:
+// khi mang rot thi day la duong duy nhat con lai, va cung la luc can nhat.
+static int cmd_cam_test(int argc, char **argv) {
+    (void)argc; (void)argv;
+
+    printf("=== CHAN CAMERA (main/board_config.h) ===\n");
+    printf("  D2..D9 = %d %d %d %d %d %d %d %d\n",
+           CAM_D2_GPIO, CAM_D3_GPIO, CAM_D4_GPIO, CAM_D5_GPIO,
+           CAM_D6_GPIO, CAM_D7_GPIO, CAM_D8_GPIO, CAM_D9_GPIO);
+    printf("  PCLK=%d VSYNC=%d HREF=%d XCLK=%d SIOC=%d SIOD=%d PWDN=%d RESET=%d\n",
+           CAM_PCLK_GPIO, CAM_VSYNC_GPIO, CAM_HREF_GPIO, CAM_XCLK_GPIO,
+           CAM_SIOC_GPIO, CAM_SIOD_GPIO, CAM_PWDN_GPIO, CAM_RESET_GPIO);
+
+    camera_selftest_t st;
+    camera_selftest(&st);
+
+    printf("=== KET QUA ===\n");
+    printf("  init      : %s\n", st.init_ok ? "OK" : "THAT BAI");
+    if (!st.init_ok) {
+        printf("  -> esp_camera_init() chua chay duoc. Nguyen nhan hay gap:\n");
+        printf("     1. Xung dot chan (xem log khoi dong, tag \"cam\")\n");
+        printf("     2. Thieu nguon 2V8/1V2 cho module\n");
+        printf("     3. XCLK khong ra xung -> chip khong tinh\n");
+        printf("  heap internal con: %u B\n", (unsigned)st.free_internal);
+        return 0;
+    }
+
+    // PID la bang chung SCCB (SIOC/SIOD) noi chuyen duoc voi chip.
+    printf("  sensor id : PID=0x%02X VER=0x%02X MID=0x%02X%02X\n",
+           st.pid, st.ver, st.midh, st.midl);
+    if (st.pid == 0x26) {
+        printf("  -> OV2640 dung chip, SCCB (SIOC/SIOD) OK\n");
+    } else {
+        printf("  -> PID KHONG PHAI 0x26. SCCB doc duoc rac hoac khong doc duoc:\n");
+        printf("     kiem CAM_SIOC_GPIO/CAM_SIOD_GPIO va nguon 2V8.\n");
+    }
+
+    // Lay duoc khung = bus du lieu DVP chay. Magic FFD8..FFD9 = dung thu tu bit.
+    printf("  frame     : %s", st.frame_ok ? "lay duoc" : "KHONG lay duoc");
+    if (st.frame_ok) printf(" (%u byte)", (unsigned)st.frame_len);
+    printf("\n");
+    if (!st.frame_ok) {
+        // Do THANG ba duong dong bo: "PCLK/VSYNC/HREF hay D2..D9" la hai gia
+        // thiet rat khac nhau, va chi phep do nay tach duoc chung.
+        camera_sync_probe_t sp;
+        camera_probe_sync(&sp, 150);
+        printf("  -> khong ra khung. Do 3 duong dong bo trong %ums (%u mau):\n",
+               (unsigned)sp.window_ms, (unsigned)sp.samples);
+        printf("     VSYNC=%u  HREF=%u  PCLK=%u  (so lan doi muc)\n",
+               (unsigned)sp.vsync_edges, (unsigned)sp.href_edges,
+               (unsigned)sp.pclk_edges);
+        if (sp.vsync_edges == 0 && sp.href_edges == 0 && sp.pclk_edges == 0) {
+            printf("     CA BA DUNG YEN -> cam bien KHONG phat khung nao.\n");
+            printf("     Nghi: sai CAM_VSYNC/HREF/PCLK_GPIO, hoac cap DVP chua cam chac.\n");
+        } else if (sp.vsync_edges == 0) {
+            printf("     PCLK/HREF co dao nhung VSYNC DUNG YEN -> gan chac sai\n");
+            printf("     CAM_VSYNC_GPIO (=%d).\n", CAM_VSYNC_GPIO);
+        } else if (sp.pclk_edges == 0) {
+            printf("     VSYNC co dao nhung PCLK DUNG YEN -> sai CAM_PCLK_GPIO\n");
+            printf("     (=%d), hoac duong PCLK ho.\n", CAM_PCLK_GPIO);
+        } else {
+            printf("     Ca ba DEU dao -> dong bo TOT. Loi nam o tam duong\n");
+            printf("     D2..D9, hoac XCLK %d Hz qua nhanh cho duong day nay\n",
+                   (int)CAMERA_XCLK_HZ);
+            printf("     (thu ha CAMERA_XCLK_HZ xuong 10000000 trong app_config.h).\n");
+        }
+    } else if (!st.jpeg_magic_ok) {
+        printf("  -> Co khung nhung KHONG phai JPEG hop le (thieu FFD8/FFD9).\n");
+        printf("     Dau hieu dien PHAI ca 8 duong du lieu nhung SAI THU TU,\n");
+        printf("     hoac mot duong ho. Doi chieu lai anh xa D2..D9.\n");
+    } else {
+        printf("  jpeg      : FFD8..FFD9 OK -> DUONG DU LIEU CHUAN\n");
+    }
+    printf("  heap internal con: %u B\n", (unsigned)st.free_internal);
+    return 0;
+}
+#endif  // SENSOR_CAMERA_ENABLED
+
+// wifi_test — chan doan duong truyen + IP qua console USB.
+// KHONG di qua telemetry/UDP: khi WiFi hong thi ca hai duong do deu chet, ma
+// day dung la luc can nhin nhat.
+static int cmd_wifi_test(int argc, char **argv) {
+    net_link_diag_t d;
+    net_link_get_diag(&d);
+
+    printf("=== WIFI ===\n");
+    printf("  che do        : %s\n",
+           d.is_ap ? "AP - ESP TU PHAT wifi (WIFI_HOTSPOT=1)"
+                   : "STA - ESP DI BAT wifi router (WIFI_HOTSPOT=0)");
+    printf("  SSID          : \"%s\"   (bien dich san trong app_config.h)\n", d.ssid);
+    printf("  esp_wifi      : %s\n", d.started ? "da start" : "CHUA START");
+    printf("  MAC           : %s\n", d.mac[0] ? d.mac : "-");
+
+    if (d.is_ap) {
+        // O che do AP KHONG co RSSI/BSSID: ta CHINH LA AP. Cau hoi dung o day
+        // la "da co ai vao chua", khong phai "song manh khong".
+        printf("  IP cua drone  : %s   <== go dia chi nay vao GUI/trinh duyet\n",
+               d.ip[0] ? d.ip : "-");
+        printf("  netmask / gw  : %s / %s\n", d.netmask, d.gateway);
+        printf("  may dang noi  : %u\n", (unsigned)d.ap_clients);
+        if (d.ap_clients == 0) {
+            printf("  -> CHUA co may nao vao. Tren PC/dien thoai, tim SSID \"%s\"\n", d.ssid);
+            printf("     roi ket noi. Luu y: noi vao drone thi PC MAT INTERNET.\n");
+        }
+    } else if (d.got_ip) {
+        printf("  trang thai    : CO IP\n");
+        printf("  IP            : %s\n", d.ip);
+        printf("  netmask / gw  : %s / %s\n", d.netmask, d.gateway);
+        printf("  AP dang noi   : bssid=%s kenh=%u RSSI=%d dBm\n",
+               d.bssid[0] ? d.bssid : "-", (unsigned)d.channel, (int)d.rssi);
+        // RSSI quyet dinh MJPEG co truot khung hay khong -- dich no ra loi
+        // khuyen thay vi bat nguoi doc tu nho nguong.
+        if (d.rssi > -60)      printf("  -> song TOT\n");
+        else if (d.rssi > -70) printf("  -> song TAM DUOC, MJPEG co the truot khung\n");
+        else                   printf("  -> song YEU (duoi -70dBm): stream se giat, lai gan AP\n");
+    } else {
+        printf("  trang thai    : KHONG CO IP\n");
+    }
+
+    // Reason code chi co nghia o STA: o AP thi ta khong "bi ngat" khoi dau ca.
+    if (!d.is_ap) {
+        printf("  so lan ngat   : %u\n", (unsigned)d.disc_count);
+        printf("  ngat gan nhat : reason=%u  %s\n", (unsigned)d.last_disc_reason,
+               net_link_disc_reason_str(d.last_disc_reason));
+    }
+
+    printf("=== PEER UDP (may tinh chay GUI) ===\n");
+    if (d.peer_known) {
+        printf("  da hoc peer   : %s\n", d.peer);
+    } else {
+        printf("  CHUA co peer. Peer duoc HOC tu goi UDP dau tien gui toi\n");
+        printf("  <ip-uav>:%d -- chay uav_udp_console.py roi bam Connect.\n",
+               (int)WIFI_UDP_PORT);
+    }
+
+    // Quet CHI khi duoc yeu cau: no ngat ket noi ~2s.
+    if (argc >= 2 && strcmp(argv[1], "scan") == 0) {
+        printf("=== QUET AP (~2s, ngat ket noi trong luc quet) ===\n");
+        net_link_ap_t aps[24];
+        const int n = net_link_scan(aps, 24);
+        if (n == -2) {
+            printf("  Dang o che do AP -> KHONG quet duoc. esp_wifi_scan doi\n");
+            printf("  interface STA. Dat WIFI_HOTSPOT=0 neu can quet.\n");
+            return 0;
+        }
+        if (n < 0) {
+            printf("  quet that bai (WiFi chua start?)\n");
+            return 0;
+        }
+        bool found = false;
+        for (int i = 0; i < n; ++i) {
+            const bool hit = (strcmp(aps[i].ssid, d.ssid) == 0);
+            if (hit) found = true;
+            printf("  %-32s kenh %2u  %4d dBm  auth=%u%s\n",
+                   aps[i].ssid, (unsigned)aps[i].channel, (int)aps[i].rssi,
+                   (unsigned)aps[i].authmode,
+                   hit ? "   <== SSID DANG NHAM TOI" : "");
+        }
+        printf("  -> thay %d AP. SSID \"%s\": %s\n", n, d.ssid,
+               found ? "CO trong danh sach" : "KHONG THAY");
+        if (!found) {
+            printf("  Khong thay SSID: sai ten (phan biet HOA/thuong va dau cach),\n");
+            printf("  AP dang tat, hoac AP chi phat 5GHz (ESP32-S3 chi bat 2.4GHz).\n");
+        }
+    } else {
+        printf("(go \"wifi_test scan\" de quet AP xung quanh)\n");
+    }
+    return 0;
+}
+
 static void register_commands(void) {
     esp_console_register_help_command();
 
     const esp_console_cmd_t cmds[] = {
         { .command = "status", .help = "In telemetry hien tai (state/attitude/alt/motor/battery)", .func = cmd_status },
+#if SENSOR_CAMERA_ENABLED
+        { .command = "cam_test", .help = "Kiem camera OV2640 qua USB (khong can WiFi): chan, PID, lay thu mot khung", .func = cmd_cam_test },
+#endif
+        { .command = "wifi_test", .help = "Chan doan WiFi: IP, RSSI, ly do ngat, peer UDP. Them 'scan' de quet AP", .func = cmd_wifi_test },
+        { .command = "cpu", .help = "Tai CPU tung core + nhip vong bay -- CHI DOC, an toan khi dang bay", .func = cmd_cpu },
+        { .command = "cpu_reset", .help = "Do lai moc 'ranh hoan toan' cho lenh cpu", .func = cmd_cpu_reset },
         { .command = "tasks", .help = "Do stack con trong (BYTE) tung task + nhip vong bay + heap -- CHI DOC, an toan khi dang bay", .func = cmd_tasks },
         { .command = "tof_test", .help = "tof_test [sec] -- kiem tra ToF co cap mau deu + on dinh khong", .func = cmd_tof_test },
         { .command = "i2c_scan", .help = "Quet bus I2C 0x08..0x77 -- buoc DAU TIEN khi mot cam bien khong init duoc", .func = cmd_i2c_scan },
@@ -1184,6 +1494,13 @@ void app_main(void) {
     // static (xem net_task) nen khong con nam o day, nhung van de bien
     // rong: tran stack o task nay bieu hien thanh panic o cho khac han
     // (ISR GPIO nhay vao con tro rac), rat kho lan nguoc.
+    // Dang ky SOM: moc "ranh hoan toan" cua cpu_bench can mot khoang he thong
+    // chua co task nang nao. Dang ky sau khi tao net/camera thi moc se bi thap
+    // va tai luon bao thap hon thuc te.
+    if (cpu_bench_init() != ESP_OK) {
+        ESP_LOGW(TAG, "cpu_bench_init() that bai -- lenh 'cpu' se khong co so lieu");
+    }
+
     xTaskCreatePinnedToCore(net_task, "net", NET_TASK_STACK_BYTES, NULL, 5, &s_net_task, APP_TASK_CORE);
 
     esp_console_repl_t *repl = NULL;

@@ -52,6 +52,28 @@ void telemetry_format_status_line(char *out, size_t out_size) {
     // nen 'out' PHAI luon la chuoi hop le, neu khong se doc bo nho rac.
     (void)out_size;
     if (out && out_size > 0) out[0] = '\0';
+
+#elif TELEMETRY_LEVEL == 1
+    // ---- MINIMAL: DUNG SAU truong, khong hon ----
+    //   ARM  co dang armed khong        THR  collective duty gui ra motor
+    //   R/P  roll/pitch (deg)           ALTm do cao uoc luong (m)
+    //   TGT  do cao muc tieu (m)
+    //
+    // VI SAO CAT MANH NHU VAY: dong FULL dai ~1010 byte, phat 20Hz = ~19.7
+    // KB/s, di CHUNG duong Wi-Fi voi MJPEG. Dong nay 47 byte = ~0.9 KB/s,
+    // tra lai ~18.8 KB/s cho video. Do la ly do ton tai cua muc nay.
+    //
+    // ⚠ DANH DOI THAT: GUI MAT gan het o so va do thi -- STATUS_RE khong khop
+    // dong nay. tools/uav_udp_console.py co parser rieng (COMPACT_RE) chi cap
+    // nhat nhung o co du lieu, khong ghi de bang so rac. Muon day du: dat
+    // TELEMETRY_LEVEL = 2.
+    telemetry_snapshot_t t;
+    flight_core_read_telemetry(&t);
+    snprintf(out, out_size,
+              "ARM=%d THR=%d R=%.2f P=%.2f ALTm=%.2f TGT=%.2f\n",
+              t.armed ? 1 : 0, t.throttle_duty,
+              (double)t.roll_deg, (double)t.pitch_deg,
+              (double)t.alt_m, (double)t.alt_target_m);
 #else
     telemetry_snapshot_t t;
     flight_core_read_telemetry(&t);
@@ -163,11 +185,9 @@ void telemetry_format_status_line(char *out, size_t out_size) {
         // LWT tang deu = hub khong publish kip (nghi I2C/ToF chiem bus).
         // LBUSY gan 4000 = CPU that su khong du.
         " LWH=%u LWT=%u LBUSY=%u"
-#if TELEMETRY_LEVEL >= 2
-        // ================= TU DAY TRO XUONG CHI CO O MUC FULL =================
-        // GUI (STATUS_RE) khong parse bat ky field nao duoi day -- no ket thuc
-        // o HOVLD roi nuot phan con lai bang r"(?:\s.*)?$". Cat chung o muc
-        // MINIMAL KHONG lam mat gi tren man hinh, chi bot format float.
+        // ---- Duoi chan doan gyro calib ----
+        // Khong field nao duoi day duoc GUI parse (STATUS_RE ket thuc o HOVLD
+        // roi nuot phan con lai). Chung chi de doc trong khung log text.
         // IMU+ToF altitude debug; append-only de GUI cu van parse duoc.
         " TOFZ=%.3f TOFVZ=%.3f TOFVZV=%d TOFFUSE=%d TOFTRACK=%d"
         // ---- FLOOR/BARO: DA CAT (5 field) ----
@@ -209,7 +229,6 @@ void telemetry_format_status_line(char *out, size_t out_size) {
         " GSTDRAWX=%.3f GSTDRAWY=%.3f GSTDRAWZ=%.3f"
         " GSTDCORRX=%.3f GSTDCORRY=%.3f GSTDCORRZ=%.3f"
         " GCAL=%d GCALSTATE=%d GCALFAIL=%d GTEMP=%.1f GCALTEMP=%.1f"
-#endif  // TELEMETRY_LEVEL >= 2
         "\n",
         t.armed ? 1 : 0,
         t.throttle_duty,
@@ -279,7 +298,7 @@ void telemetry_format_status_line(char *out, size_t out_size) {
         (int)t.tof_alive_ms,
         (unsigned)t.loop_wake_by_hub, (unsigned)t.loop_wake_timeout,
         (unsigned)t.loop_busy_us
-#if TELEMETRY_LEVEL >= 2
+        // ---- doi so cua duoi chan doan: PHAI khop 1-1 voi format string ----
         // ---- doi so cua phan FULL: PHAI khop 1-1 voi khoi #if o format string ----
         ,
         (double)t.tof_z_m, (double)t.tof_vz_ms, t.tof_vz_valid ? 1 : 0,
@@ -311,7 +330,33 @@ void telemetry_format_status_line(char *out, size_t out_size) {
         (double)t.gyro_corr_std_dps.z,
         t.calib_gyro_valid ? 1 : 0, t.gyro_cal_state, t.gyro_cal_fail,
         (double)t.imu_temp_c, (double)t.gyro_cal_temp_c
-#endif  // TELEMETRY_LEVEL >= 2
     );
 #endif  // TELEMETRY_LEVEL == 0
 }
+
+#if SENSOR_CAMERA_ENABLED
+#include "uav_camera/camera_driver.h"
+#include "esp_timer.h"
+
+void telemetry_format_camera_line(char *out, size_t out_size) {
+    if (out == NULL || out_size == 0) return;
+
+    camera_stats_t st;
+    camera_get_stats(&st);
+
+    // LASTMS la TUOI cua frame gan nhat, khong phai dau thoi gian tuyet doi:
+    // "frame cuoi cach day bao lau" moi la thu doc duoc tren GUI. 0 khi chua
+    // co frame nao.
+    const uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    const uint32_t age_ms = st.last_frame_ms ? (now_ms - st.last_frame_ms) : 0u;
+
+    snprintf(out, out_size,
+              "CAM READY=%d FPS=%.1f FRAME=%u DROP=%u ERR=%u LASTMS=%u "
+              "FB=%u HEAP=%u PSRAM=%u OUT=%d\n",
+              st.ready ? 1 : 0, (double)st.fps, (unsigned)st.frames,
+              (unsigned)st.drops, (unsigned)st.errors, (unsigned)age_ms,
+              (unsigned)st.last_frame_len, (unsigned)st.free_internal,
+              (unsigned)st.free_psram, (int)st.outstanding);
+}
+#endif
+

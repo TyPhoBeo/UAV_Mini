@@ -1,0 +1,10 @@
+# Dependency cua component nay, do IDF component manager keo ve.
+#
+# esp32-camera khai esp_jpeg la dependency PUBLIC (xem idf_component.yml cua
+# no), va esp_camera.h include img_converters.h -> jpeg_decoder.h. Khong co
+# esp_jpeg thi build chet ngay o dong include, du ta khong he decode JPEG.
+# Duong lib_deps cua PlatformIO chi keo duoc esp32-camera, KHONG doc duoc
+# dependency long nhau -> phai di duong component manager.
+dependencies:
+  idf: ">=5.1"
+  espressif/esp32-camera: "^2.0.0"

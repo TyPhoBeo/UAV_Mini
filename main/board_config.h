@@ -43,18 +43,24 @@
 // "*_driver_read that bai") thì hạ về 100000 TRƯỚC khi nghi driver.
 #define BOARD_I2C_FREQ_HZ    400000
 
-// IO36 INT_MPU — data-ready interrupt, ĐANG DÙNG làm đồng hồ nhịp của
+// IO38 INT_MPU — data-ready interrupt, ĐANG DÙNG làm đồng hồ nhịp của
 // stabilize_task (xem imu_driver_enable_data_ready_int()). Đặt < 0 để quay về
-// polling bằng đồng hồ FreeRTOS.
+// polling bằng đồng hồ FreeRTOS — nhưng ĐỪNG: log thực đo nhịp 250.4 Hz bám
+// đúng danh nghĩa 250 Hz chính là nhờ ngắt này.
 //
-// ⚠ GPIO33..37 trên ESP32-S3 là bus SPI cho PSRAM octal. Module N16R8 CÓ chip
-// PSRAM nối vào đúng nhóm chân này, nên IO36 chỉ dùng được vì PSRAM đang TẮT
-// trong sdkconfig (`CONFIG_SPIRAM is not set`). BẬT PSRAM lên là chân này bị
-// chiếm và ngắt IMU sẽ hỏng — lúc đó phải dời INT sang chân khác, đừng đi tìm
-// lỗi ở MPU6050.
+// ✅ IO38 AN TOÀN KHI BẬT PSRAM. Tra bảng pin-mux của chính IDF
+// (components/soc/esp32s3/register/soc/io_mux_reg.h):
+//     GPIO33 = SPIIO4   GPIO34 = SPIIO5   GPIO35 = SPIIO6
+//     GPIO36 = SPIIO7   GPIO37 = SPIDQS
+//     GPIO38 = KHÔNG CÓ chức năng MSPI nào  (chỉ FSPIWP/SUBSPIWP, tức SPI2/
+//              SPI3 dùng chung — không phải bus flash/PSRAM)
+// Bus flash/PSRAM nội (MSPI) không thể chiếm IO38 vì phần cứng không hề route
+// tín hiệu nào của nó tới chân đó.
 //
-// (Giá trị cũ trong file này là IO16 — số đó là phỏng đoán chưa từng xác nhận;
-// IO36 là số đo từ phần cứng thật.)
+// ⚠ Comment CŨ ở đây ghi "IO36 INT_MPU" và cảnh báo bật PSRAM sẽ hỏng ngắt.
+// Cả hai đều SAI: macro luôn là 38, và log bay thật cho nhịp đúng 250.4 Hz —
+// nếu dây INT nằm ở IO36 thì cấu hình 38 đã không thể chạy. Ghi lại đây để
+// không ai đọc bản cũ rồi kết luận nhầm là PSRAM và IMU loại trừ nhau.
 #define BOARD_MPU_INT_GPIO   38
 
 #define BOARD_IMU_I2C_ADDR   0x68  // MPU6050, AD0=GND -> 0x68 (xác nhận lại nếu AD0 kéo lên VCC -> 0x69)
@@ -321,9 +327,69 @@
 //
 // UART0 vật lý (mặc định TXD0/RXD0, KHÔNG wire trên bo) coi như KHÔNG dùng.
 
-// ================= Camera OV2640 =================
-// Có trên bo nhưng KHÔNG dùng ở firmware bay -> KHÔNG khai báo pin, bỏ qua
-// hoàn toàn (đúng yêu cầu).
+// ================= Camera OV2640 (DVP 8-bit) =================
+// ⚠ CHUA DIEN. Toan bo 16 chan duoi day dang la -1 = CHUA BIET, KHONG phai
+// "khong dung". Doc tu SCHEMATIC/PCB that roi dien vao; TUYET DOI khong chep
+// pinout ESP32-CAM AiThinker — day la bo custom, mapping khac han.
+//
+// Dien xong thi doi BOARD_CAM_PINS_CONFIGURED thanh 1. Bat camera ma co nay
+// con 0 se LOI BIEN DICH (#error trong camera_driver.c) — co y: pin sai tren
+// mot con drone dang bay khong phai "camera khong len", ma la ghi de chan
+// motor hoac chan INT cua IMU.
+//
+// ---- Chan DANG BI CHIEM (khong duoc trung) ----
+//   I2C   43,44   IMU INT 38   Flow SPI 40,41,42,1
+//   Motor 2,3,4,48            VBAT ADC 6   RGB LED 5
+// ---- Chan KHONG DUNG DUOC tren N16R8 ----
+//   26..32  SPI flash
+//   33..37  octal PSRAM (chi bi chiem KHI bat CONFIG_SPIRAM_MODE_OCTAL)
+//   19,20   USB-Serial-JTAG (console + nap code)
+//   0,45,46 strapping — tranh cho tin hieu toc do cao (PCLK/XCLK/data)
+// ---- Con lai an toan: 7..18, 21, 39, 47 = 15 chan ----
+// OV2640 DVP can 16 (hoac 14 neu PWDN/RESET noi cung ngoai). Tuc la mapping
+// BI EP SAT BIEN: rat co the SIOC/SIOD dung chung bus I2C 43/44 voi
+// MPU6050+VL53L1X. Neu dung vay thi dien 43/44 vao SIOC/SIOD va doc ky ghi
+// chu ve tranh chap bus o cuoi khoi nay.
+#define BOARD_CAM_PINS_CONFIGURED   1    // da dien du 14 chan (D0/D1 khong noi)
+
+// ---- BUS DU LIEU: danh so theo SCHEMATIC (D2..D9), khong theo esp32-camera ----
+// OV2640 co bus 10 bit. O che do 8 bit ma ta dung, D0/D1 KHONG DAU (dung nhu
+// bo nay) va tam duong D2..D9 la bus that. esp32-camera lai danh so 8 duong
+// DA DAU do tu 0 (pin_d0..pin_d7), tuc la LECH HAI so voi schematic:
+//
+//     schematic  D0 D1 | D2  D3  D4  D5  D6  D7  D8  D9
+//     esp32-cam  -- -- | d0  d1  d2  d3  d4  d5  d6  d7
+//
+// Macro o day theo SO CUA SCHEMATIC de dien vao khong phai tru nham trong dau;
+// viec doi sang pin_dN nam trong camera_driver.c, mot cho duy nhat.
+// KHONG con CAM_D0/CAM_D1: chung khong noi, va de lai mot macro "-1" chi tao
+// cho cho nguoi sau tuong la "chua dien".
+#define CAM_D2_GPIO      (13)
+#define CAM_D3_GPIO      (21)
+#define CAM_D4_GPIO      (47)
+#define CAM_D5_GPIO      (14)
+#define CAM_D6_GPIO      (12)
+#define CAM_D7_GPIO      (10)
+#define CAM_D8_GPIO      (9)
+#define CAM_D9_GPIO      (18)
+#define CAM_PCLK_GPIO    (11)
+#define CAM_VSYNC_GPIO   (16)
+#define CAM_HREF_GPIO    (17)
+#define CAM_XCLK_GPIO    (8)
+#define CAM_SIOC_GPIO    (15)   // SCCB RIENG, khong phai bus I2C 43/44 cua IMU/ToF
+#define CAM_SIOD_GPIO    (7)    // SCCB RIENG -> khong co tranh chap voi sensor_hub
+#define CAM_PWDN_GPIO    (-1)   // NOI DAT tren bo -> luon bat, MCU khong tat duoc camera
+#define CAM_RESET_GPIO   (-1)   // khong dua ra MCU -> chi reset duoc bang cach cat nguon
+
+// PWDN/RESET: -1 la gia tri HOP LE that su voi esp32-camera (nghia la "khong
+// dieu khien duoc, bo tu noi"). Nen camera_driver.c KHONG the dung -1 de biet
+// "chua dien" — do chinh la ly do phai co BOARD_CAM_PINS_CONFIGURED rieng.
+//
+// ⚠ NEU SIOC/SIOD DUNG CHUNG I2C VOI IMU/ToF: esp32-camera tu dieu khien SCCB
+// bang driver rieng cua no, khong di qua i2c_master handle ma sensor_hub dang
+// giu. Hai master tren cung bus se dam nhau. Luc do PHAI dat
+// CAMERA_SCCB_SHARES_I2C 1 trong app_config.h de camera_init() chay TRUOC khi
+// sensor_hub start, va sau do KHONG doi thanh ghi camera nao trong luc bay.
 
 // ================= PSRAM + Flash (N16R8: 16MB flash, 8MB octal PSRAM) =================
 // KHÔNG cấu hình được qua macro C — bật qua sdkconfig của project MicroPython

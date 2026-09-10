@@ -32,7 +32,50 @@
 #define SENSOR_FLOW_ENABLED      0   // PMW3901 optical flow — mới khai báo pin SPI, CHƯA có driver
 #define SENSOR_RGB_LED_ENABLED   0   // WS2812 — mới khai báo pin, CHƯA có driver
 #define SENSOR_BATTERY_ENABLED   1   // ADC1 pin sense (IO6)
-#define SENSOR_CAMERA_ENABLED    0   // OV2640 — có trên bo, KHÔNG dùng cho firmware bay, không khai báo pin
+#define SENSOR_CAMERA_ENABLED    1   // OV2640 DVP — xem khoi CAMERA duoi day
+
+// ================= CAMERA OV2640 + MJPEG stream =================
+// BAT (=1). Chan da dien va da doi chieu voi schematic (board_config.h khoi
+// "Camera OV2640"). Dependency esp32-camera + esp_jpeg do IDF component
+// manager keo ve theo components/uav_camera/idf_component.yml.
+//
+// ⚠ LAN BUILD DAU tren may moi CAN MANG (tai ~2 component). Sau do
+// managed_components/ nam trong .gitignore nhung van o tren dia, build offline
+// duoc. Neu bao thieu idf_component_manager:
+//     ~/.platformio/penv/Scripts/pip install "idf-component-manager>=1.4,<2"
+//
+// ⚠ CAMERA KHONG BAO GIO duoc chay tren core 1. Core 1 danh rieng cho
+// stabilize (prio 23) + sensor_hub (prio 22). Xem CAMERA_TASK_CORE duoi.
+
+// SCCB (I2C cua camera) dung chung bus voi IMU/ToF? Xem ghi chu cuoi khoi
+// camera trong board_config.h. 1 = camera_init() phai chay TRUOC sensor_hub.
+#define CAMERA_SCCB_SHARES_I2C   0
+
+// Task stream: core 0 cung voi net/udp_rx/console. Prio 2 = DUOI udp_rx (3)
+// va net (5) — camera la thu bo duoc dau tien khi CPU cang.
+#define CAMERA_TASK_CORE         0
+#define CAMERA_TASK_PRIORITY     2
+#define CAMERA_TASK_STACK_BYTES  4096
+
+// Tran FPS. Khong co gang stream toi da: 12 fps du cho color detection sau
+// nay, ma de lai bang thong + CPU cho telemetry bay.
+#define CAMERA_TARGET_FPS        12
+
+// JPEG quality theo quy uoc esp32-camera: SO NHO = DEP HON + NANG HON.
+// 14 nam giua khoang 12..18 ma Espressif khuyen cho QVGA.
+#define CAMERA_JPEG_QUALITY      14
+
+// XCLK 20MHz — gia tri reference chinh thuc cua esp32-camera cho OV2640.
+#define CAMERA_XCLK_HZ           20000000
+
+// So framebuffer. 2 chi dung duoc khi CO PSRAM; khong co PSRAM thi
+// camera_driver.c tu ha ve 1 luc chay (xem camera_init).
+#define CAMERA_FB_COUNT_PSRAM    2
+#define CAMERA_FB_COUNT_NO_PSRAM 1
+
+// Cong HTTP cho MJPEG. KHAC cong UDP telemetry (4210) — hai duong doc lap,
+// nghen video khong duoc lam nghen lenh bay.
+#define CAMERA_HTTP_PORT         8080
 
 // ---- Latch ga hover theo dien ap pin (hover_model.h) ----
 // 1 = luc ARM, do vbat roi chot hover_ff + ga PRIME theo model hover(V).
@@ -142,25 +185,29 @@
 // Dung de quen no o 1 roi tuong drone hong.
 #define BENCH_MODE_ENABLED       0
 
-// ================= MỨC CHI TIẾT DÒNG STATUS (telemetry_format.c) =================
-// Dòng STATUS có 157 field. Phần lớn là số debug của các giai đoạn đã xong
-// (gyro calib, terrain offset, floor gate...) — vẫn được format mỗi 50ms dù
-// không ai đọc. Cờ này CẮT BỚT phần đuôi đó, KHÔNG đổi phần đầu.
+// ================= MUC CHI TIET DONG STATUS (telemetry_format.c) =================
+//   0 = OFF     — khong gui STATUS (chi reply lenh truc tiep)
+//   1 = MINIMAL — DUNG SAU truong:  ARM THR R P ALTm TGT  (21.5x nho hon)
+//   2 = FULL    — toan bo ~157 field
 //
-//   0 = OFF     — không gửi STATUS (chỉ reply lệnh trực tiếp)
-//   1 = MINIMAL — tới HOVLD. Đây là TOÀN BỘ phần GUI thật sự parse
-//                 (tools/uav_udp_console.py::STATUS_RE kết thúc ở HOVLK/HOVLV/
-//                 HOVLD, sau đó là r"(?:\s.*)?$" nuốt mọi thứ dư). Nên MINIMAL
-//                 KHÔNG làm mất bất kỳ thứ gì GUI đang hiển thị.
-//   2 = FULL    — thêm đuôi chẩn đoán: az/PID nội bộ, terrain, gyro calib.
+// Do dai dong va bang thong o 20Hz:
+//   FULL     ~1010 byte  ->  ~19.7 KB/s
+//   MINIMAL     47 byte  ->   ~0.9 KB/s
 //
-// VÌ SAO ranh giới đúng ở HOVLD: mọi field sau nó (TOFZ AZBZ ZREQ VZOUT TOFF
-// CLR FRAME GRAWX GCAL...) đã được kiểm tra là KHÔNG xuất hiện trong bất kỳ
-// regex nào của GUI — chúng chỉ hiện ở khung log text. Cắt chúng không làm
-// hỏng đồ thị hay ô số nào.
+// VI SAO CO MUC MINIMAL: telemetry di CHUNG duong Wi-Fi voi MJPEG cua camera.
+// Cat ~18.8 KB/s tra lai cho video la khac biet thay duoc khi song yeu.
 //
-// KHÔNG ảnh hưởng điều khiển: telemetry_format_status_line() chạy trong
-// net_task (prio 5, core 0), tách hẳn stabilize_task (prio 23, core 1).
+// ⚠ MINIMAL LAM MAT GAN HET GUI. Dong gon KHONG khop STATUS_RE, nen moi o so
+// va do thi ngoai ARM/THR/R/P/ALTm/TGT deu ngung cap nhat.
+// tools/uav_udp_console.py co COMPACT_RE doc dong nay va GIU NGUYEN cac o con
+// lai (khong xoa trang), kem nhan "TELEMETRY MINIMAL" tren thanh trang thai.
+// Dang tune PID hay soi terrain thi dung muc 2.
+//
+// (Ban truoc mo ta muc 1 la "cat toi HOVLD, KHONG lam mat gi tren GUI" —
+// mo ta do da khong con dung tu khi muc 1 tro thanh dong 6 truong.)
+//
+// KHONG anh huong dieu khien: telemetry_format_status_line() chay trong
+// net_task (prio 5, core 0), tach han stabilize_task (prio 23, core 1).
 #ifndef TELEMETRY_LEVEL
 #define TELEMETRY_LEVEL          2   // 2=FULL (giữ nguyên hành vi cũ)
 #endif
@@ -179,10 +226,39 @@
 // telemetry/ACK gửi ngược lại peer đó, lệnh từ peer (arm/kill/PID tune/setpoint
 // bay tay...) được đọc qua net_link — xem src/net_link.c + src/command_parser.c.
 //
-// !!! SỬA 2 DÒNG DƯỚI trước khi build — KHÔNG có SSID/pass thật của bạn ở đây
-// (không thể đoán được) !!!
-#define WIFI_STA_SSID              "INNOVISION"
-#define WIFI_STA_PASS              "@Innovision68"
+// ---- CHON MOT TRONG HAI CHE DO ----
+//   WIFI_HOTSPOT = 0 : ESP DI BAT wifi cua router (STA). Dung WIFI_STA_*.
+//                      May tinh phai o CUNG mang router do.
+//   WIFI_HOTSPOT = 1 : ESP TU PHAT wifi (AP). Dung WIFI_AP_*. May tinh ket noi
+//                      thang vao SSID cua drone.
+//
+// Khi nao dung AP: bay ngoai troi/khong co router, hoac muon bo hop router ra
+// khoi duong dieu khien. Do tre thap hon va khong phu thuoc DHCP cua nguoi
+// khac -- IP cua drone CO DINH 192.168.4.1, khong phai di do moi lan bat.
+//
+// ⚠ DANH DOI THAT cua AP: may tinh noi vao drone thi MAT INTERNET (card wifi
+// chi noi duoc mot mang). Va ESP32-S3 chi co MOT radio -- AP va STA khong chay
+// that su song song duoc o day.
+#define WIFI_HOTSPOT               1
+
+// ---- Che do STA (WIFI_HOTSPOT = 0) ----
+// !!! SUA 2 DONG DUOI truoc khi build — KHONG co SSID/pass that cua ban o day
+// (khong the doan duoc) !!!
+#define WIFI_STA_SSID              "typho.beo"
+#define WIFI_STA_PASS              "66668888"
+
+// ---- Che do AP / phat wifi (WIFI_HOTSPOT = 1) ----
+// Mat khau PHAI >= 8 ky tu (WPA2 yeu cau). De chuoi RONG "" = mang MO, ai
+// cung vao duoc -- net_link.c co _Static_assert chan truong hop 1..7 ky tu,
+// vi do la loi im lang: esp_wifi tu ha xuong mang mo ma khong bao gi, va ban
+// tuong minh dang co mat khau.
+#define WIFI_AP_SSID               "NextStem-UAV"
+#define WIFI_AP_PASS               "nextstem68"
+// Kenh 1/6/11 khong chong lan nhau o 2.4GHz. Doi neu khu vuc dong wifi.
+#define WIFI_AP_CHANNEL            6
+// Chi can 1 may tinh dieu khien. Gioi han thap = it RAM cho lwip, va chan
+// nguoi la vao chung mang voi drone.
+#define WIFI_AP_MAX_CONN           2
 
 #define WIFI_HOSTNAME              "uav-s3"
 #define WIFI_UDP_PORT              4210

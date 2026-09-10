@@ -3,3 +3,8 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+
+# IDF component manager: thu muc tai ve + lock file. Sinh lai duoc tu
+# components/uav_camera/idf_component.yml, khong phai ma nguon.
+/managed_components/
+/dependencies.lock

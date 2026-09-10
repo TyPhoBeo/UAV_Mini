@@ -13,6 +13,17 @@ chon se lam fault khong bao gio trip duoc.
 """
 import io, os, re, sys
 
+
+def strip_c_comments(src):
+    """Bo comment truoc khi quet "code co lam X khong".
+
+    Khoi giai thich cua chinh test nay trich dan "#if FC_FEATURE_HOVER_LATCH",
+    nen quet tren ban goc se bat nham chinh doan van do.
+    """
+    src = re.sub(r"/\*.*?\*/", " ", src, flags=re.S)
+    return re.sub(r"//[^\n]*", " ", src)
+
+
 FAILED = []
 
 
@@ -188,6 +199,64 @@ print("  pin YEU THAT (trung binh %.2f V):" % (sum(yeu) / len(yeu)))
 print("    trung vi  -> %s" % ("bat duoc o mau %d (~%.1f s)" % (j + 1, j * 0.125) if j is not None else "BO SOT"))
 check("trung vi VAN bat duoc pin yeu that", j is not None,
       "loc qua manh -> guard mu")
+
+print()
+
+# =====================================================================
+# (N2) RING PHAI DUOC NAP -- loi that, do duoc tren phan cung
+# =====================================================================
+# battery_v lay qua hover_vbat_median(). Ring do duoc nap bang
+# hover_vbat_push(), va lenh do TUNG nam trong `#if FC_FEATURE_HOVER_LATCH`.
+# Voi HOVER_LATCH_ENABLED=0 (mac dinh) thi ring khong bao gio co mau:
+#     median() -> false  ->  battery_v = 0.0f
+# Hau qua, ca hai deu IM LANG:
+#   (a) Commander gate `if (in->battery_v > 0.0f)` -> BO QUA HAN cong san pin.
+#       Mat bao ve pin ma khong mot dong log nao.
+#   (b) prearm tu choi ARM voi ARM_REJECT_BATTERY_SAMPLE = 8.
+# Log thuc do: BATRAW=2364 BATMV=2037 BATVRAW=4.074 BATVALID=1 BATCALI=1
+#              nhung BATV=0.00 va ARMREJ=8.
+print()
+print("== (N2) hover_vbat_push KHONG duoc nam trong bat ky #if nao ==")
+
+# PHAI bo comment truoc: khoi giai thich o tren trich dan chinh chuoi
+# "#if FC_FEATURE_HOVER_LATCH", nen quet tren ban goc se bat nham chinh no.
+FC2 = strip_c_comments(read("components/flight_core/src/flight_core.c"))
+i_push = FC2.find("hover_vbat_push(&s_vbat_ring")
+check("tim thay cho nap ring", i_push != -1)
+if i_push != -1:
+    # Dem theo TOKEN dong lenh, khong dem chuoi con: "#if" la tien to cua
+    # "#ifdef"/"#ifndef" nen dem tho se lech.
+    truoc = FC2[:i_push]
+    mo = len(re.findall(r"(?m)^\s*#\s*(?:if|ifdef|ifndef)", truoc))
+    dong = len(re.findall(r"(?m)^\s*#\s*endif", truoc))
+    print("     truoc cho push: %d mo / %d dong" % (mo, dong))
+    check("push khong bi bat ky #if nao bao", mo == dong,
+          "con %d khoi chua dong -> ring co the khong duoc nap" % (mo - dong))
+
+    j = truoc.rfind("#if FC_FEATURE_HOVER_LATCH")
+    gated = j != -1 and "#endif" not in truoc[j:]
+    check("KHONG bi gate boi FC_FEATURE_HOVER_LATCH", not gated,
+          "HOVER_LATCH_ENABLED=0 se lam BATV=0.00 va ARMREJ=8")
+
+print()
+print("== (N2.1) Mo phong: ring rong vs ring duoc nap ==")
+N_MIN = int(const_of("HOVER_MODEL_MIN_SAMPLES",
+                     read("components/flight_core/include/flight_core/hover_model.h")) or 3)
+adc = [4.068, 4.070, 4.074, 4.034, 4.074]
+
+def batv(n_mau):
+    if n_mau < N_MIN:
+        return 0.0            # median() tra false -> battery_v = 0.0f
+    return med(adc[:n_mau])
+
+print("     ring rong (loi cu)      -> BATV = %.2f" % batv(0))
+print("     ring day  (da sua)      -> BATV = %.3f" % batv(len(adc)))
+check("ring rong cho BATV = 0 (tai hien loi)", batv(0) == 0.0)
+check("ring day cho BATV hop le", 3.0 < batv(len(adc)) < 4.5)
+check("BATV=0 se lam Commander BO QUA cong san pin",
+      re.search(r"in->battery_v\s*>\s*0\.0f", CMD) is not None,
+      "gate nay la ly do loi im lang")
+
 
 print()
 if FAILED:

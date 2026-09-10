@@ -221,6 +221,11 @@ typedef struct {
     uint32_t sensor_hub_stack_free_bytes;
     uint8_t  sensor_hub_core;
     uint8_t  sensor_hub_priority;
+    // Nhip DANH NGHIA cua vong dieu khien (CONTROL_TASK_HZ). Di kem o day vi
+    // cung mot ly do voi core/priority o tren: hang so nam RIENG TU trong
+    // flight_core.c. Console tung in "ky vong 1000/IMU_SAMPLE_RATE_HZ" = 1ms
+    // trong khi vong bay chay 250Hz = 4ms -- bang chan doan noi doi 4 lan.
+    uint16_t control_task_hz;
 } flight_core_task_stats_t;
 
 void flight_core_get_task_stats(flight_core_task_stats_t *out);

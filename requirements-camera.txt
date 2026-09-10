@@ -1,0 +1,17 @@
+# Dependency cho TAB CAMERA cua tools/uav_udp_console.py.
+#
+# Console va toan bo phan tune/bay KHONG can gi trong day -- chung chi dung
+# stdlib. File nay tach rieng de ai chi bay thi khong phai cai OpenCV.
+#
+#     pip install -r requirements-camera.txt
+#
+# ⚠ KHONG co Pillow trong danh sach nay, va do la co y. Da do tren Tk 8.6.13,
+# frame QVGA 320x240:
+#     PPM bytes tho    0.30 ms/frame
+#     PNG base64      13.36 ms/frame
+# Stream 12 fps co ngan sach 83 ms moi frame, nen duong PPM (khong can thu vien
+# nao ngoai OpenCV) da du xa. Xem CameraPanel._to_photo().
+
+opencv-python>=4.5
+numpy>=1.20
+requests>=2.25

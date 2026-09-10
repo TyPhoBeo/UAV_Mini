@@ -2886,18 +2886,24 @@ static void stabilize_task(void *arg) {
         s_prearm.mag_ok_for_heading = mag_usable;
         s_prearm.battery_sample_ok = snap.battery_h.valid;
         s_prearm.battery_v = battery_v;
-#if FC_FEATURE_HOVER_LATCH
-        // Nạp vòng đệm vbat cho latch hover lúc ARM. Chạy MỌI TICK nhưng
-        // hover_vbat_push() tự lọc theo seq -> chỉ nhận mẫu THẬT SỰ mới (~10Hz),
-        // không để một mẫu bị đếm 25 lần làm hỏng trung vị.
+        // ⚠ NGOÀI mọi #if — và đây là LỖI THẬT ĐÃ XẢY RA khi nó còn nằm trong
+        // #if FC_FEATURE_HOVER_LATCH. Với HOVER_LATCH_ENABLED=0 (mặc định),
+        // ring KHÔNG BAO GIỜ được nạp -> hover_vbat_median() luôn false ->
+        // battery_v ép về 0.0f -> (a) Commander bỏ qua hẳn cổng sàn pin, tức
+        // MẤT bảo vệ pin mà không báo gì, và (b) prearm từ chối ARM với
+        // ARM_REJECT_BATTERY_SAMPLE=8. Log thực đo: BATRAW=2364 BATVRAW=4.074
+        // BATVALID=1 nhưng BATV=0.00 ARMREJ=8.
         //
-        // Dùng snap.battery.voltage_v (giá trị THÔ của driver) chứ KHÔNG dùng
-        // battery_v: battery_v đã bị ép về 0.0f khi health invalid (quy ước sẵn
-        // có), mà 0.0f là một SỐ ĐO GIẢ — nạp nó vào trung vị sẽ kéo hover
-        // xuống. Cờ valid truyền riêng để push() tự bỏ mẫu hỏng.
+        // Ring giờ có BA bên đọc: latch hover (CMD_TAKEOFF), hệ số bù pin
+        // (CMD_ARM), và battery_v ở bước 2. Gate nó theo cờ của MỘT bên là
+        // tắt luôn hai bên kia.
+        //
+        // Chạy MỌI TICK nhưng push() tự lọc theo seq -> chỉ nhận mẫu THẬT SỰ
+        // mới (~10Hz), không để một mẫu bị đếm 25 lần làm hỏng trung vị. Dùng
+        // snap.battery.voltage_v (THÔ) chứ không phải battery_v: battery_v đã
+        // bị ép 0.0f khi health invalid, nạp số đó vào trung vị sẽ kéo nó xuống.
         hover_vbat_push(&s_vbat_ring, snap.battery.voltage_v,
                          snap.battery_h.seq, snap.battery_h.valid);
-#endif
         s_prearm.alt_estimator_valid = s_alt_est.valid;
         s_prearm.tof_floor_ready = alt_estimator_floor_ready(&s_alt_est);
         s_prearm.loop_healthy = (s_deadline_miss_streak < COMMANDER_DEADLINE_MISS_HARD);
@@ -4316,6 +4322,7 @@ int flight_core_i2c_scan(uint8_t *found, int max_found) {
 // nó xuất hiện lúc terminal đang thật sự cắm.
 void flight_core_get_task_stats(flight_core_task_stats_t *out) {
     if (out == NULL) return;
+    out->control_task_hz = (uint16_t)CONTROL_TASK_HZ;
     out->stabilize_stack_total_bytes = (uint32_t)STABILIZE_TASK_STACK_BYTES;
     out->stabilize_stack_free_bytes =
         (s_stabilize_task != NULL) ? (uint32_t)uxTaskGetStackHighWaterMark(s_stabilize_task) : 0u;

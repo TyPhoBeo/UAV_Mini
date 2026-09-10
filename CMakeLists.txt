@@ -18,3 +18,12 @@ project(uav_s3_flight_core_verify)
 # thì flight_core biên dịch không có hàm còn src/ lại tưởng có -> lỗi link khó hiểu.
 idf_component_get_property(_fc_lib flight_core COMPONENT_LIB)
 target_include_directories(${_fc_lib} PUBLIC "${CMAKE_CURRENT_LIST_DIR}/main")
+
+# ===== Cho uav_camera THẤY main/app_config.h + main/board_config.h =====
+# Cùng lý do và cùng cách như flight_core ở trên: quyết định "có app_config
+# hay không" là của ứng dụng, nên câu lệnh mở đường nằm ở gốc repo.
+# camera_driver.c đọc CAM_*_GPIO từ board_config.h và SENSOR_CAMERA_ENABLED
+# từ app_config.h — thiếu đường này thì #if ra 0 im lặng và camera "tắt" mà
+# không ai biết vì sao.
+idf_component_get_property(_cam_lib uav_camera COMPONENT_LIB)
+target_include_directories(${_cam_lib} PUBLIC "${CMAKE_CURRENT_LIST_DIR}/main")
